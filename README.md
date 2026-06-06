@@ -28,5 +28,20 @@ Agent Arena targets the Sui Overflow Agentic Web and DeepBook tracks. The demo s
 
 ## Status
 
-Project scaffold initialized. Implementation will start with the frontend MVP.
+Frontend MVP baseline initialized.
 
+## Run Frontend
+
+```bash
+cd agent-arena/apps/frontend
+bun install
+bun run dev
+```
+
+Useful checks:
+
+```bash
+bun run test
+bun run typecheck
+bun run build
+```

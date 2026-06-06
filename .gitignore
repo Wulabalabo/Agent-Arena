@@ -38,3 +38,4 @@ build/
 .turbo/
 .cache/
 .eslintcache
+*.tsbuildinfo
