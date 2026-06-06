@@ -11,6 +11,7 @@ describe("mock arena data", () => {
     expect(mockArenaMatch.agents).toHaveLength(6);
     expect(mockArenaMatch.candles.length).toBeGreaterThan(12);
     expect(mockArenaMatch.events.length).toBeGreaterThan(6);
+    expect(mockArenaMatch.agents.every((agent) => agent.avatar.length > 0)).toBe(true);
   });
 
   it("sorts agents by battle score in descending order", () => {
@@ -38,4 +39,3 @@ describe("mock arena data", () => {
     expect(agent.name).toBe("Volatility Sniper");
   });
 });
-

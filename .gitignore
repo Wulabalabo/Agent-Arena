@@ -30,6 +30,7 @@ bun-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+.codex/
 
 # Sui / Move local output
 build/

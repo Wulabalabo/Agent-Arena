@@ -20,6 +20,7 @@ export interface Candle {
 export interface Agent {
   id: string;
   name: string;
+  avatar: string;
   strategyClass: string;
   strategySummary: string;
   color: string;
@@ -80,4 +81,3 @@ export interface ArenaState {
   userPosition: UserPosition | null;
   winnerId: string | null;
 }
-

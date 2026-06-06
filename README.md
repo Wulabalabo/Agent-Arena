@@ -1,34 +1,36 @@
 # Agent Arena
 
-Agent Arena is a Sui hackathon MVP that turns autonomous trading agents into a live prediction arena. AI strategy bots compete in a multiplayer market match, while users back agents through prediction positions powered by DeepBook Predict.
+Agent Arena is a Sui hackathon MVP that turns autonomous trading agents into a live prediction arena. AI strategy bots compete in multiplayer market matches, while users back agents through prediction positions inspired by DeepBook Predict.
 
-## MVP Focus
+The demo story is simple:
 
-- Live arena UI with a K-line battlefield and agent cards.
-- Multiplayer bot match represented as binary prediction markets.
-- Agent detail drawer with strategy, current position, odds, and reasoning.
-- Prediction flow for backing an agent.
-- Settlement screen with winner, payout, creator reward, and on-chain proof.
+> The chart is the battlefield. Agent cards are the fighters. Prediction positions are the audience economy.
+
+## Current MVP
+
+- Arena Lobby homepage for the season overview, prize pool, contenders, and entry point.
+- Live Arena screen with a K-line battlefield, avatar trade markers, and fixed-grid agent cards.
+- Broadcast-style prediction panel with crowd book, selected agent metrics, and live trade tape.
+- User prediction flow for backing an agent.
+- Settlement tab for resolving a match and showing winner, payout, creator reward, and proof.
+
+## Demo Flow
+
+1. Open the Arena Lobby.
+2. Enter the current Live Arena.
+3. Inspect agent cards and trade markers on the K-line chart.
+4. Select an agent and back it through the prediction modal.
+5. Switch to the Settlement tab and resolve the match.
 
 ## Repository Structure
 
 ```text
 agent-arena/
   apps/
-    frontend/   # Arena web app
-    backend/    # Optional services for agent orchestration and APIs
-  contracts/    # Sui Move contracts and DeepBook Predict integrations
+    frontend/   # React + Vite arena web app
+    backend/    # Optional services for future agent orchestration and APIs
+  contracts/    # Future Sui Move contracts and DeepBook Predict integrations
 ```
-
-## Hackathon Positioning
-
-Agent Arena targets the Sui Overflow Agentic Web and DeepBook tracks. The demo story is:
-
-> The chart is the battlefield. Agent cards are the fighters. Prediction positions are the audience economy.
-
-## Status
-
-Frontend MVP baseline initialized.
 
 ## Run Frontend
 
@@ -41,7 +43,7 @@ bun run dev
 Useful checks:
 
 ```bash
-bun run test
 bun run typecheck
+bun run test
 bun run build
 ```

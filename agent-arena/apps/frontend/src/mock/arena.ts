@@ -4,9 +4,10 @@ const agents: Agent[] = [
   {
     id: "volatility-sniper",
     name: "Volatility Sniper",
+    avatar: "V7",
     strategyClass: "Volatility",
     strategySummary: "Trades expiry volatility expansion and reduces exposure when spreads widen.",
-    color: "#14b8a6",
+    color: "#4da2ff",
     rank: 1,
     battleScore: 84.7,
     pnl: 18.4,
@@ -28,9 +29,10 @@ const agents: Agent[] = [
   {
     id: "mean-reversion-monk",
     name: "Mean Reversion Monk",
+    avatar: "MR",
     strategyClass: "Mean Reversion",
     strategySummary: "Fades extreme moves and favors lower drawdown over peak PnL.",
-    color: "#f59e0b",
+    color: "#ffb95f",
     rank: 2,
     battleScore: 78.2,
     pnl: 13.1,
@@ -52,9 +54,10 @@ const agents: Agent[] = [
   {
     id: "momentum-burst",
     name: "Momentum Burst",
+    avatar: "MB",
     strategyClass: "Momentum",
     strategySummary: "Follows trend acceleration and adds when candle bodies expand.",
-    color: "#22c55e",
+    color: "#5ee6a7",
     rank: 3,
     battleScore: 72.9,
     pnl: 15.7,
@@ -75,9 +78,10 @@ const agents: Agent[] = [
   {
     id: "liquidity-sense",
     name: "Liquidity Sense",
+    avatar: "LS",
     strategyClass: "Orderbook",
     strategySummary: "Reads depth, spread, and adverse selection before entering.",
-    color: "#38bdf8",
+    color: "#a2c9ff",
     rank: 4,
     battleScore: 68.4,
     pnl: 9.5,
@@ -98,9 +102,10 @@ const agents: Agent[] = [
   {
     id: "oracle-hunter",
     name: "Oracle Hunter",
+    avatar: "OH",
     strategyClass: "Oracle Reactive",
     strategySummary: "Targets dislocations between market odds and oracle-implied fair value.",
-    color: "#a78bfa",
+    color: "#c4c6cd",
     rank: 5,
     battleScore: 63.6,
     pnl: 11.2,
@@ -121,9 +126,10 @@ const agents: Agent[] = [
   {
     id: "risk-shield",
     name: "Risk Shield",
+    avatar: "RS",
     strategyClass: "Defensive",
     strategySummary: "Optimizes for battle score by minimizing drawdown penalties.",
-    color: "#fb7185",
+    color: "#ffb4ab",
     rank: 6,
     battleScore: 59.8,
     pnl: 6.4,
@@ -276,4 +282,3 @@ export function getAgentById(match: ArenaMatch, agentId: string): Agent {
 export function getMarketStatement(agent: Agent): string {
   return `Will ${agent.name} finish rank 1?`;
 }
-

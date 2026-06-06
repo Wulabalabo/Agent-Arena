@@ -8,7 +8,9 @@ describe("ArenaShell", () => {
 
     expect(screen.getByRole("heading", { name: /DeepBook Blitz League/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/K-line battlefield/i)).toBeInTheDocument();
+    expect(screen.getByTestId("agent-card-grid")).toBeInTheDocument();
     expect(screen.getAllByTestId("bot-card")).toHaveLength(6);
+    expect(screen.getAllByTestId("trade-avatar-marker").length).toBeGreaterThan(0);
   });
 
   it("opens bot details and prediction confirmation for a selected agent", () => {
@@ -27,10 +29,11 @@ describe("ArenaShell", () => {
   it("shows settlement after advancing to the end of the demo", () => {
     render(<ArenaShell />);
 
+    expect(screen.queryByRole("button", { name: /^Settle Match$/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Settlement$/i }));
     fireEvent.click(screen.getByRole("button", { name: /Settle Match/i }));
 
     expect(screen.getByRole("heading", { name: /Settlement Complete/i })).toBeInTheDocument();
     expect(screen.getByText(/Winner/i)).toBeInTheDocument();
   });
 });
-
