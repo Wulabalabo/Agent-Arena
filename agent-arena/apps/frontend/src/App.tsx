@@ -1,15 +1,25 @@
 import { useState } from "react";
 import { ArenaShell } from "./components/arena/ArenaShell";
 import { ArenaLobby } from "./components/lobby/ArenaLobby";
+import { AppNav } from "./components/navigation/AppNav";
+import { AgentWorkshop } from "./components/workshop/AgentWorkshop";
 
-type AppView = "lobby" | "arena";
+type AppView = "lobby" | "arena" | "workshop";
 
 export default function App() {
   const [view, setView] = useState<AppView>("lobby");
 
-  if (view === "arena") {
-    return <ArenaShell onGoHome={() => setView("lobby")} onGoLiveArena={() => setView("arena")} />;
-  }
+  return (
+    <main className="min-h-screen bg-transparent text-on-surface">
+      <AppNav activeView={view} onNavigate={setView} />
 
-  return <ArenaLobby onEnterArena={() => setView("arena")} />;
+      {view === "arena" ? (
+        <ArenaShell />
+      ) : view === "workshop" ? (
+        <AgentWorkshop onPreviewArena={() => setView("arena")} />
+      ) : (
+        <ArenaLobby onEnterArena={() => setView("arena")} onOpenWorkshop={() => setView("workshop")} />
+      )}
+    </main>
+  );
 }

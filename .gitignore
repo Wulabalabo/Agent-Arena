@@ -25,6 +25,11 @@ yarn-error.log*
 pnpm-debug.log*
 bun-debug.log*
 
+# Local databases
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
 # OS and editor files
 .DS_Store
 Thumbs.db

@@ -37,23 +37,23 @@ export function BotCard({ agent, selected, compact = false, onSelect }: BotCardP
           </div>
           <span
             className={`shrink-0 rounded px-2 py-1 font-mono text-[10px] font-bold ${
-              agent.rank === 1 ? "bg-secondary-container text-on-secondary" : "bg-surface-container-high text-on-surface"
+              agent.popularityRank === 1 ? "bg-secondary-container text-on-secondary" : "bg-surface-container-high text-on-surface"
             }`}
           >
-            #{agent.rank}
+            #{agent.popularityRank}
           </span>
         </div>
         <div className="mt-2 flex items-center gap-1 font-mono text-[10px] font-bold uppercase tracking-[0.05em] text-on-surface-variant">
           <Bot size={14} />
-          <span className="truncate">{agent.strategyClass}</span>
+          <span className="truncate">{agent.strategyType}</span>
         </div>
       </div>
 
       <div className={`grid grid-cols-2 gap-1.5 text-xs ${compact ? "mt-1" : "mt-2"}`}>
-        <Stat icon={<TrendingUp size={13} />} label="Score" value={agent.battleScore.toFixed(1)} />
-        <Stat label="PnL" value={`+${agent.pnl.toFixed(1)}%`} />
-        {compact ? null : <Stat icon={<Users size={13} />} label="Backers" value={String(agent.audienceBacking)} />}
-        {compact ? null : <Stat icon={<ShieldCheck size={13} />} label="Odds" value={`${agent.odds.toFixed(1)}x`} />}
+        <Stat icon={<TrendingUp size={13} />} label="Win Rate" value={`${Math.round(agent.winRate * 100)}%`} />
+        <Stat label="ROI" value={`${Math.round(agent.historicalRoi * 100)}%`} />
+        {compact ? null : <Stat icon={<Users size={13} />} label="Volume" value={agent.backingVolume.toLocaleString()} />}
+        {compact ? null : <Stat icon={<ShieldCheck size={13} />} label="Risk" value={agent.riskLabel} />}
       </div>
     </button>
   );
