@@ -11,6 +11,7 @@ interface BetManagementPanelProps {
   currentRound: ArenaRound;
   agents: Agent[];
   rounds: ArenaRound[];
+  compact?: boolean;
   upcomingBackings: BackingPosition[];
   currentBackings: BackingPosition[];
   historyBackings: BackingPosition[];
@@ -26,6 +27,7 @@ export function BetManagementPanel({
   currentRound,
   agents,
   rounds,
+  compact = false,
   upcomingBackings,
   currentBackings,
   historyBackings,
@@ -36,24 +38,26 @@ export function BetManagementPanel({
   onViewOnChart
 }: BetManagementPanelProps) {
   return (
-    <section aria-label="Bet Management" className="paper-card-sm p-4">
+    <section aria-label="Bet Management" className={`paper-card-sm min-h-0 ${compact ? "flex flex-col p-3" : "p-4"}`}>
       <div>
         <p className="paper-label text-primary">Bet Management</p>
-        <h2 className="mt-1 font-display text-lg font-black uppercase text-on-surface">Predict positions by lifecycle</h2>
+        <h2 className="mt-1 font-display text-lg font-black uppercase text-on-surface">
+          {compact ? "My positions" : "Predict positions by lifecycle"}
+        </h2>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className={`flex flex-wrap gap-2 ${compact ? "mt-2" : "mt-4"}`}>
         {([
           ["upcoming", "Upcoming"],
           ["current", "Current"],
           ["history", "History"]
         ] as const).map(([id, label]) => (
           <button
-            className={`border-2 border-outline-variant px-3 py-2 font-display text-[10px] font-black uppercase shadow-[2px_2px_0_#000] ${
+            className={`border-2 border-outline-variant font-display text-[10px] font-black uppercase shadow-[2px_2px_0_#000] ${
               activeTab === id
                 ? "bg-primary-container text-white"
                 : "bg-surface-container-lowest text-on-surface-variant"
-            }`}
+            } ${compact ? "px-2.5 py-1.5" : "px-3 py-2"}`}
             key={id}
             type="button"
             onClick={() => onTabChange(id)}
@@ -63,7 +67,7 @@ export function BetManagementPanel({
         ))}
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className={`min-h-0 pr-1 ${compact ? "mt-3 max-h-[190px] space-y-2 overflow-y-auto" : "mt-4 space-y-3"}`}>
         {activeTab === "upcoming"
           ? renderUpcoming(upcomingBackings, rounds, agents, onCancelBacking, onModifyBacking, onCloseMintedBacking)
           : null}

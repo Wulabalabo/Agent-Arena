@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import App from "./App";
 
@@ -15,6 +15,26 @@ describe("App navigation", () => {
     expect(screen.getAllByText(/Time to lock/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Time to start|Time to end/i).length).toBeGreaterThan(0);
     expect(screen.queryByRole("heading", { name: /Live Arena/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps Lobby cards content-sized inside the one-screen layout", () => {
+    render(<App />);
+
+    const currentArenaCard = screen.getByText(/Current Arena/i).closest("article");
+    const leaderboardPanel = screen.getByText(/Current popularity board/i).closest("section");
+
+    expect(currentArenaCard).not.toHaveClass("flex");
+    expect(within(currentArenaCard!).getByRole("button", { name: /Open Arena/i })).not.toHaveClass("mt-auto");
+    expect(leaderboardPanel).toHaveClass("self-start");
+  });
+
+  it("anchors tall Lobby viewports with an arena floor live tape", () => {
+    render(<App />);
+
+    expect(screen.getByText(/Arena Floor/i)).toBeInTheDocument();
+    expect(screen.getByText(/Live Tape/i)).toBeInTheDocument();
+    expect(screen.getByText(/Oracle heartbeat/i)).toBeInTheDocument();
+    expect(screen.getByText(/Workshop queue/i)).toBeInTheDocument();
   });
 
   it("enters Live Arena from the lobby CTA", () => {

@@ -5,31 +5,43 @@ import { ArenaShell } from "./ArenaShell";
 import { BetManagementPanel } from "./BetManagementPanel";
 
 describe("ArenaShell", () => {
-  it("renders the live arena shell with battlefield, agent rail, back panel, and bet management", () => {
+  it("renders the live arena shell with a price curve, arena panel, agent tape, and bottom agent selector", () => {
     render(<ArenaShell />);
 
     expect(screen.getByRole("heading", { name: /Live Arena/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/Round selector/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Lock countdown/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Backing volume/i).length).toBeGreaterThan(0);
-    expect(screen.getByLabelText(/K-line battlefield/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Prediction price chart/i)).toBeInTheDocument();
+    expect(screen.getByText(/Target price/i)).toBeInTheDocument();
     expect(screen.getByText(/Current price/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Round Start/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Lock Boundary/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Round End/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Back Agent/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Bet Management/i)).toBeInTheDocument();
-    expect(screen.getByText(/Floating PnL/i)).toBeInTheDocument();
-    expect(screen.getByText(/Last Action/i)).toBeInTheDocument();
-    expect(screen.getByText(/Recent Outcomes/i)).toBeInTheDocument();
-    expect(screen.getByText(/Best Market Type/i)).toBeInTheDocument();
-    expect(screen.getByText(/Max Drawdown/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Arena action panel/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Back Agent$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Positions/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Agent Tape/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Close \/ Redeem/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Back Agent$/i }));
     expect(screen.getAllByText(/Max DD/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Transaction readiness/i)).toBeInTheDocument();
     expect(screen.getByText(/Predict action - predict::mint/i)).toBeInTheDocument();
     expect(screen.getByText(/Quote asset - DUSDC/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Agent Tape/i }));
+    expect(screen.getByLabelText(/Agent operation tape/i)).toBeInTheDocument();
     expect(screen.getAllByTestId("agent-card")).toHaveLength(6);
     expect(screen.getAllByTestId("trade-avatar-marker").length).toBeGreaterThan(0);
+  });
+
+  it("uses a compact one-screen live arena workspace", () => {
+    render(<ArenaShell />);
+
+    expect(screen.getByLabelText(/Live Arena workspace/i)).toHaveClass("xl:overflow-hidden");
+    expect(screen.getByLabelText(/Compact agent selector/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Arena action panel/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Collapse Arena panel/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Predict testnet status/i)).not.toBeInTheDocument();
   });
 
   it("switches selected agents and allows draft backing for unlocked rounds", () => {
@@ -53,6 +65,7 @@ describe("ArenaShell", () => {
   it("shows close or redeem language for live predict positions", () => {
     render(<ArenaShell />);
 
+    fireEvent.click(screen.getByRole("button", { name: /Positions/i }));
     fireEvent.click(screen.getByRole("button", { name: /Current/i }));
     expect(screen.getByRole("button", { name: /Close \/ Redeem/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /View on Chart/i })).toBeInTheDocument();
@@ -63,6 +76,7 @@ describe("ArenaShell", () => {
     render(<ArenaShell />);
 
     fireEvent.click(screen.getByRole("button", { name: /Select ETH 30m round/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Positions/i }));
     fireEvent.click(screen.getByRole("button", { name: /Upcoming/i }));
 
     expect(screen.getByText(/directional \/ draft/i)).toBeInTheDocument();
@@ -78,6 +92,7 @@ describe("ArenaShell", () => {
   it("updates minted live positions to redeemable when closed", () => {
     render(<ArenaShell />);
 
+    fireEvent.click(screen.getByRole("button", { name: /Positions/i }));
     fireEvent.click(screen.getByRole("button", { name: /Current/i }));
     expect(screen.getByText(/range \/ live/i)).toBeInTheDocument();
 
@@ -87,7 +102,7 @@ describe("ArenaShell", () => {
     expect(screen.queryByText(/range \/ live/i)).not.toBeInTheDocument();
   });
 
-  it("shows detailed marker context when a trade marker is selected", () => {
+  it("shows agent operation markers on the prediction price chart", () => {
     render(<ArenaShell />);
 
     const markers = screen.getAllByTestId("trade-avatar-marker");
@@ -102,16 +117,28 @@ describe("ArenaShell", () => {
 
     fireEvent.keyDown(markers[0]!, { key: "Enter" });
 
-    expect(screen.getByText(/Marker Detail/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Agent operation tape/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Marker Detail/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Range \/ Market:/i)).not.toBeInTheDocument();
     expect(screen.getAllByText(/Confidence/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Predict label/i)).toBeInTheDocument();
-    expect(screen.getByText(/Timestamp/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Predict/i).length).toBeGreaterThan(0);
   });
 
-  it("surfaces mock transaction state labels in the back agent panel", () => {
+  it("keeps mock transaction stage controls inside diagnostics", () => {
     render(<ArenaShell />);
 
-    expect(screen.getByRole("button", { name: /Connect wallet/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Select ETH 30m round/i }));
+
+    expect(screen.getByRole("button", { name: /Primary action: Back Agent/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Confirming$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Failed$/i })).not.toBeInTheDocument();
+
+    const diagnosticsToggle = screen.getByRole("button", { name: /Show diagnostics/i });
+    expect(diagnosticsToggle).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(diagnosticsToggle);
+
+    expect(screen.getByRole("region", { name: /Demo transaction controls/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Confirming/i }));
     expect(screen.getByRole("button", { name: /^Confirming$/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Failed/i }));
@@ -245,7 +272,9 @@ describe("ArenaShell", () => {
     fireEvent.change(screen.getByLabelText(/Backing amount/i), { target: { value: "190" } });
     fireEvent.click(screen.getByRole("button", { name: /Primary action: Back Agent/i }));
 
-    expect(await screen.findByText(/Attribution backend error/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/Attribution backend error/i)).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /Positions/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Upcoming/i }));
     expect(within(screen.getByLabelText(/Bet Management/i)).queryByText(/190 DUSDC/i)).not.toBeInTheDocument();
   });
 

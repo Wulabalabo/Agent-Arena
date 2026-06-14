@@ -1,4 +1,5 @@
-import { ArrowRight, ShieldCheck, Sparkles, Trophy } from "lucide-react";
+import { Activity, ArrowRight, Clock, Radio, ShieldCheck, Sparkles, Trophy, Wrench } from "lucide-react";
+import type { ReactNode } from "react";
 import { getAgentById, getSortedAgents, mockAgents, mockArenaRounds } from "../../mock/arena";
 import { getPredictQuoteAssetLabel } from "../../features/predict/config";
 
@@ -17,23 +18,23 @@ export function ArenaLobby({ onEnterArena, onOpenWorkshop }: ArenaLobbyProps) {
   const upcomingTopAgent = getAgentById(mockAgents, upcomingRound.agentIds[0]!);
 
   return (
-    <section className="paper-frame mx-auto max-w-[1440px] bg-surface/90">
-      <div className="grid gap-6 border-b-2 border-outline-variant px-4 py-8 md:px-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="py-2">
+    <section className="paper-frame mx-auto flex h-[calc(100svh-2.875rem)] max-w-[1440px] flex-col overflow-hidden bg-surface/90">
+      <div className="grid shrink-0 gap-3 border-b-2 border-outline-variant px-3 py-3 md:px-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0">
           <div className="flex flex-wrap gap-2">
             <div className="paper-chip paper-chip-green px-2 py-1">Sui Predict native</div>
             <div className="paper-chip px-2 py-1">Live network</div>
           </div>
-          <h1 className="mt-5 max-w-3xl font-display text-4xl font-black leading-[1.05] text-on-surface md:text-5xl">
+          <h1 className="mt-3 max-w-3xl font-display text-3xl font-black leading-[1.03] text-on-surface md:text-4xl">
             Back AI trading agents in Sui Predict arenas.
           </h1>
-          <p className="mt-4 max-w-2xl text-base font-medium leading-7 text-on-surface-variant">
+          <p className="mt-2 max-w-2xl text-sm font-medium leading-5 text-on-surface-variant">
             Choose an Agent, watch it trade Predict markets, and review the round result after settlement.
           </p>
 
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className="mt-4 flex flex-wrap gap-2">
             <button
-              className="paper-button paper-button-primary inline-flex items-center gap-2 px-4 py-3 font-display text-xs font-black uppercase"
+              className="paper-button paper-button-primary inline-flex items-center gap-2 px-3 py-2 font-display text-xs font-black uppercase"
               type="button"
               onClick={onEnterArena}
             >
@@ -41,7 +42,7 @@ export function ArenaLobby({ onEnterArena, onOpenWorkshop }: ArenaLobbyProps) {
               <ArrowRight size={15} />
             </button>
             <button
-              className="paper-button px-4 py-3 font-display text-xs font-black uppercase"
+              className="paper-button px-3 py-2 font-display text-xs font-black uppercase"
               type="button"
               onClick={onOpenWorkshop}
             >
@@ -50,145 +51,129 @@ export function ArenaLobby({ onEnterArena, onOpenWorkshop }: ArenaLobbyProps) {
           </div>
         </div>
 
-        <div className="paper-hero-chip">
-          <span className="paper-chip paper-chip-green absolute right-3 top-3 px-2 py-1">Live network</span>
+        <div className="hidden border-2 border-outline-variant bg-surface-container-high p-3 shadow-[4px_4px_0_#1d1f24] lg:block">
+          <div className="flex items-center justify-between gap-3">
+            <p className="paper-label text-outline">Protocol proof status</p>
+            <span className="paper-chip paper-chip-green px-2 py-1">Live network</span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <ProofStat label="Manager" value="PredictManager" />
+            <ProofStat label="Exit" value="Close / Redeem" />
+            <ProofStat label="Quote" value={QUOTE_ASSET_LABEL} />
+            <ProofStat label="Attribution" value="Agent-linked" />
+          </div>
         </div>
       </div>
 
-      <div className="px-4 py-6 md:px-6">
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-          <ArenaCard
-            heading="Current Arena"
-            roundLabel={`${currentRound.marketSymbol} ${currentRound.durationLabel}`}
-            round={currentRound}
-            topAgent={currentTopAgent.name}
-            onOpen={onEnterArena}
-          />
-          <ArenaCard
-            heading="Upcoming Arena"
-            roundLabel={`${upcomingRound.marketSymbol} ${upcomingRound.durationLabel}`}
-            round={upcomingRound}
-            topAgent={upcomingTopAgent.name}
-            onOpen={onEnterArena}
-          />
-        </div>
-
-        <section className="mt-8">
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div>
-              <p className="paper-label text-outline">Elite Agents</p>
-              <h2 className="font-display text-2xl font-black uppercase text-on-surface">Current popularity board</h2>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-3 py-3 md:px-5">
+        <div className="grid min-h-0 items-start gap-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(300px,0.75fr)]">
+          <div className="grid min-h-0 content-start gap-3">
+            <div className="grid min-h-0 items-start gap-3 md:grid-cols-2">
+              <ArenaCard
+                heading="Current Arena"
+                roundLabel={`${currentRound.marketSymbol} ${currentRound.durationLabel}`}
+                round={currentRound}
+                topAgent={currentTopAgent.name}
+                onOpen={onEnterArena}
+              />
+              <ArenaCard
+                heading="Upcoming Arena"
+                roundLabel={`${upcomingRound.marketSymbol} ${upcomingRound.durationLabel}`}
+                round={upcomingRound}
+                topAgent={upcomingTopAgent.name}
+                onOpen={onEnterArena}
+              />
             </div>
-            <button className="hidden font-display text-xs font-bold underline decoration-primary decoration-2 md:inline" type="button" onClick={onEnterArena}>
-              View leaderboard
-            </button>
+
+            <ProtocolLoop />
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {sortedAgents.slice(0, 4).map((agent) => (
-                <button
-                  className="paper-card-sm relative overflow-hidden p-4 text-left transition hover:-translate-y-0.5"
-                  key={agent.id}
-                  type="button"
-                  onClick={onEnterArena}
-                >
-                  <span className="absolute inset-x-0 top-0 h-2" style={{ background: agent.color }} />
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <span
-                        className="grid h-9 w-9 place-items-center border-2 border-outline-variant bg-surface-container-high font-display text-xs font-black"
-                        style={{ color: agent.color }}
-                      >
-                        {agent.avatar}
-                      </span>
-                      <div>
-                        <div className="font-display text-base font-black uppercase text-on-surface">{agent.name}</div>
-                        <div className="paper-label text-on-surface-variant">
-                          {agent.strategyType}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="paper-chip paper-chip-green px-2 py-1">#{agent.popularityRank}</div>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-3 gap-2">
-                    <MiniStat label="Win Rate" value={`${Math.round(agent.winRate * 100)}%`} />
-                    <MiniStat label="Recent Form" value={agent.recentForm.join("")} />
-                    <MiniStat label="Risk" value={agent.riskLabel} />
-                  </div>
-                </button>
-              ))}
-          </div>
-        </section>
-
-        <section className="mt-8 bg-[#111318] p-5 text-white shadow-[6px_6px_0_#000]">
-          <div className="text-center">
-            <p className="paper-label text-white/70">How it works</p>
-            <h2 className="font-display text-2xl font-black uppercase">Protocol Loop</h2>
-          </div>
-          <div className="mt-5 grid gap-4 md:grid-cols-3">
-            {[
-              { icon: "1", label: "Select Arena", body: "Browse active market races and inspect agent form." },
-              { icon: "2", label: "Back Agent", body: "Stake behind your chosen AI before the lock boundary." },
-              { icon: "3", label: "Collect Sui", body: "Redeem settled Predict exposure with agent attribution intact." }
-            ].map((item, index) => (
-              <div className="text-center" key={item.label}>
-                <div
-                  className={`mx-auto grid h-8 w-8 place-items-center border-2 border-black font-display text-sm font-black text-white ${
-                    index === 0 ? "bg-primary-container" : index === 1 ? "bg-secondary-container text-on-surface" : "bg-tertiary-container"
-                  }`}
-                >
-                  {item.icon}
+          <aside className="grid min-h-0 content-start items-start gap-3 md:grid-cols-2 lg:grid-cols-1">
+            <section className="paper-card-sm min-h-0 self-start p-3">
+              <div className="flex items-end justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="paper-label text-outline">Elite Agents</p>
+                  <h2 className="truncate font-display text-lg font-black uppercase text-on-surface">Current popularity board</h2>
                 </div>
-                <h3 className="mt-3 font-display text-sm font-black uppercase">{item.label}</h3>
-                <p className="mt-2 text-xs font-medium leading-5 text-white/70">{item.body}</p>
+                <button className="shrink-0 font-display text-[11px] font-bold underline decoration-primary decoration-2" type="button" onClick={onEnterArena}>
+                  View leaderboard
+                </button>
               </div>
-            ))}
-          </div>
-        </section>
 
-        <div className="mt-8 grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <section className="paper-card grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_280px]">
-            <div>
-              <div className="flex items-center gap-2">
-                <Sparkles size={15} />
-                <span className="paper-label text-outline">Workshop teaser</span>
+              <div className="mt-3 grid gap-2">
+                {sortedAgents.slice(0, 4).map((agent) => (
+                  <button
+                    className="paper-inset flex items-center justify-between gap-3 px-2 py-2 text-left transition hover:-translate-y-0.5"
+                    key={agent.id}
+                    type="button"
+                    onClick={onEnterArena}
+                  >
+                    <span
+                      className="grid h-8 w-8 shrink-0 place-items-center border-2 border-outline-variant bg-surface-container-high font-display text-xs font-black"
+                      style={{ color: agent.color }}
+                    >
+                      {agent.avatar}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-display text-sm font-black uppercase text-on-surface">{agent.name}</span>
+                      <span className="block truncate text-[11px] font-bold text-on-surface-variant">
+                        {agent.strategyType} / {agent.riskLabel}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="paper-chip paper-chip-green px-2 py-1">#{agent.popularityRank}</span>
+                      <span className="mt-1 block font-mono text-[11px] font-bold text-outline">
+                        {Math.round(agent.winRate * 100)}% WR
+                      </span>
+                    </span>
+                  </button>
+                ))}
               </div>
-              <h2 className="mt-4 font-display text-2xl font-black uppercase text-on-surface">
-                Prototype the next operator before you deploy it.
-              </h2>
-              <p className="mt-3 max-w-2xl text-sm font-medium leading-6 text-on-surface-variant">
-                Use the mock Agent Workshop to tune brain, strategy, data inputs, and risk before previewing the card back in the Arena.
-              </p>
-              <button
-                className="paper-button paper-button-primary mt-5 px-4 py-3 font-display text-xs font-black uppercase"
-                type="button"
-                onClick={onOpenWorkshop}
-              >
-                Start Building
-              </button>
-            </div>
-            <div className="paper-hero-chip min-h-[11rem]" />
-          </section>
+            </section>
 
-          <section className="paper-card bg-tertiary-container p-5 text-white">
-            <p className="paper-label text-white/80">Predict-native proof</p>
-            <h2 className="mt-3 font-display text-xl font-black uppercase">Sui Native</h2>
-            <p className="mt-3 text-sm font-medium leading-6 text-white/90">
-              Built for Sui composability. Your studios are represented by PredictManager round exposure.
-            </p>
-            <div className="mt-5 space-y-3">
-              <div className="flex items-center gap-2 text-sm font-bold">
-                <ShieldCheck size={15} />
-                PredictManager
+            <section className="paper-card-sm grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={15} />
+                  <span className="paper-label text-outline">Workshop teaser</span>
+                </div>
+                <h2 className="mt-2 font-display text-base font-black uppercase leading-tight text-on-surface">
+                  Prototype the next operator before deploy.
+                </h2>
+                <p className="mt-2 text-xs font-medium leading-5 text-on-surface-variant">
+                  Tune brain, strategy, data inputs, and risk before previewing the card back in the Arena.
+                </p>
+                <button
+                  className="paper-button paper-button-primary mt-3 px-3 py-2 font-display text-[11px] font-black uppercase"
+                  type="button"
+                  onClick={onOpenWorkshop}
+                >
+                  Start Building
+                </button>
               </div>
-              <div className="flex items-center gap-2 text-sm font-bold">
-                <Trophy size={15} />
-                Redeem visible
+
+              <div className="bg-tertiary p-3 text-white shadow-[4px_4px_0_#000]">
+                <p className="paper-label text-white/80">Predict-native proof</p>
+                <h2 className="mt-2 font-display text-base font-black uppercase">Sui Native</h2>
+                <p className="mt-2 text-xs font-medium leading-5 text-white/90">
+                  Built for Sui composability with PredictManager exposure and visible settlement.
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold">
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck size={14} />
+                    Manager
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Trophy size={14} />
+                    Redeem
+                  </div>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+          </aside>
         </div>
+
+        <ArenaFloor currentRound={currentRound} upcomingRound={upcomingRound} topAgent={currentTopAgent.name} />
       </div>
     </section>
   );
@@ -208,41 +193,41 @@ function ArenaCard({
   onOpen: () => void;
 }) {
   return (
-    <article className="paper-card-sm overflow-hidden">
+    <article className="paper-card-sm self-start overflow-hidden">
       <div className="flex items-center justify-between gap-3 border-b-2 border-outline-variant bg-secondary-container px-4 py-2">
         <p className="paper-label text-on-surface">{heading}</p>
         <span className="paper-label text-on-surface">Agent pool open</span>
       </div>
-      <div className="p-4">
+      <div className="min-h-0 p-3">
         <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-display text-xl font-black uppercase text-on-surface">{roundLabel}</h3>
-          <p className="paper-label mt-1 text-outline">{round.predictOracleId}</p>
-        </div>
-        <span className="paper-chip paper-chip-green px-2 py-1">
-          {round.status}
-        </span>
+          <div className="min-w-0">
+            <h3 className="truncate font-display text-lg font-black uppercase text-on-surface">{roundLabel}</h3>
+            <p className="paper-label mt-1 truncate text-outline">{round.predictOracleId}</p>
+          </div>
+          <span className="paper-chip paper-chip-green shrink-0 px-2 py-1">
+            {round.status}
+          </span>
         </div>
 
-      <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <Metric label="Time to lock" value={round.status === "upcoming" ? "T-30s before start" : "Locked"} />
-        <Metric
-          label={round.status === "upcoming" ? "Time to start" : "Time to end"}
-          value={round.status === "upcoming" ? `Starts at ${round.startsAt}` : `Ends at ${round.endsAt}`}
-        />
-        <Metric label="Agent Count" value={String(round.agentIds.length)} />
-        <Metric label="Top Agent" value={topAgent} />
-        <Metric label="Backing Volume" value={`${round.totalBackingVolume.toLocaleString()} ${QUOTE_ASSET_LABEL}`} />
-        <Metric label="Predict Oracle" value={round.predictOracleId} />
-      </dl>
+        <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+          <Metric label="Time to lock" value={round.status === "upcoming" ? "T-30s before start" : "Locked"} />
+          <Metric
+            label={round.status === "upcoming" ? "Time to start" : "Time to end"}
+            value={round.status === "upcoming" ? `Starts at ${round.startsAt}` : `Ends at ${round.endsAt}`}
+          />
+          <Metric label="Agent Count" value={String(round.agentIds.length)} />
+          <Metric label="Top Agent" value={topAgent} />
+          <Metric label="Backing Volume" value={`${round.totalBackingVolume.toLocaleString()} ${QUOTE_ASSET_LABEL}`} />
+          <Metric label="Predict Oracle" value={round.predictOracleId} />
+        </dl>
 
-      <button
-        className="paper-button paper-button-primary mt-4 w-full px-4 py-3 font-display text-xs font-black uppercase"
-        type="button"
-        onClick={onOpen}
-      >
-        Open Arena
-      </button>
+        <button
+          className="paper-button paper-button-primary mt-3 w-full px-3 py-2 font-display text-xs font-black uppercase"
+          type="button"
+          onClick={onOpen}
+        >
+          Open Arena
+        </button>
       </div>
     </article>
   );
@@ -250,18 +235,112 @@ function ArenaCard({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="paper-inset p-2">
+    <div className="paper-inset min-w-0 p-2">
       <dt className="paper-label text-outline">{label}</dt>
-      <dd className="mt-1 font-mono text-xs font-bold text-on-surface">{value}</dd>
+      <dd className="mt-1 truncate font-mono text-[11px] font-bold text-on-surface">{value}</dd>
     </div>
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+function ProofStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="paper-inset px-2 py-2">
+    <div className="paper-inset min-w-0 px-2 py-2">
       <div className="paper-label text-[9px] text-outline">{label}</div>
-      <div className="mt-1 font-mono text-xs font-bold text-on-surface">{value}</div>
+      <div className="mt-1 truncate font-mono text-xs font-bold text-on-surface">{value}</div>
+    </div>
+  );
+}
+
+function ProtocolLoop() {
+  const steps = [
+    { icon: "1", label: "Select Arena", body: "Browse active races and inspect agent form." },
+    { icon: "2", label: "Back Agent", body: "Stake before the market lock boundary." },
+    { icon: "3", label: "Collect Sui", body: "Redeem settled exposure with attribution." }
+  ];
+
+  return (
+    <section className="bg-[#111318] p-3 text-white shadow-[5px_5px_0_#000]">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="paper-label text-white/70">How it works</p>
+          <h2 className="font-display text-lg font-black uppercase">Protocol Loop</h2>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2 md:grid-cols-3">
+        {steps.map((item, index) => (
+          <div className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2" key={item.label}>
+            <div
+              className={`grid h-8 w-8 place-items-center border-2 border-black font-display text-sm font-black text-white ${
+                index === 0 ? "bg-primary-container" : index === 1 ? "bg-secondary-container text-on-surface" : "bg-tertiary"
+              }`}
+            >
+              {item.icon}
+            </div>
+            <div className="min-w-0">
+              <h3 className="truncate font-display text-xs font-black uppercase">{item.label}</h3>
+              <p className="mt-1 text-xs font-medium leading-4 text-white/70">{item.body}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ArenaFloor({
+  currentRound,
+  upcomingRound,
+  topAgent
+}: {
+  currentRound: (typeof mockArenaRounds)[number];
+  upcomingRound: (typeof mockArenaRounds)[number];
+  topAgent: string;
+}) {
+  return (
+    <section className="mt-auto hidden shrink-0 grid-cols-[170px_repeat(4,minmax(0,1fr))] gap-3 bg-[#111318] p-3 text-white shadow-[5px_5px_0_#000] [@media_(min-height:1050px)]:grid">
+      <div className="border-r-2 border-white/20 pr-3">
+        <p className="paper-label text-white/70">Arena Floor</p>
+        <h2 className="mt-1 font-display text-lg font-black uppercase leading-tight">Live Tape</h2>
+        <p className="mt-2 text-[11px] font-bold leading-4 text-white/60">Tall viewport signal rail for round flow and protocol health.</p>
+      </div>
+
+      <LiveTapeItem
+        icon={<Clock size={16} />}
+        label="Next lock"
+        value={`${upcomingRound.marketSymbol} ${upcomingRound.durationLabel}`}
+        detail="T-30s before start"
+      />
+      <LiveTapeItem
+        icon={<Activity size={16} />}
+        label="Latest settlement"
+        value={`${currentRound.marketSymbol} close path`}
+        detail="Redeem visible after result"
+      />
+      <LiveTapeItem
+        icon={<Radio size={16} />}
+        label="Oracle heartbeat"
+        value={currentRound.predictOracleId}
+        detail="PredictManager synced"
+      />
+      <LiveTapeItem
+        icon={<Wrench size={16} />}
+        label="Workshop queue"
+        value={`${topAgent} template`}
+        detail="Draft agent ready"
+      />
+    </section>
+  );
+}
+
+function LiveTapeItem({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) {
+  return (
+    <div className="min-w-0 border-2 border-white/25 bg-white/[0.06] p-2">
+      <div className="flex items-center gap-2 text-white/70">
+        {icon}
+        <span className="paper-label text-white/70">{label}</span>
+      </div>
+      <div className="mt-2 truncate font-display text-sm font-black uppercase text-white">{value}</div>
+      <div className="mt-1 truncate font-mono text-[11px] font-bold text-white/65">{detail}</div>
     </div>
   );
 }
