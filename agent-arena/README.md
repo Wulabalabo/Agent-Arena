@@ -21,7 +21,30 @@ The testnet integration path uses the public Sui Predict server for market/oracl
 
 ## Run Locally
 
-Frontend:
+One-command dev stack:
+
+```powershell
+cd agent-arena
+bun run dev
+```
+
+This starts:
+
+- Backend: `http://127.0.0.1:8787`
+- Frontend: `http://127.0.0.1:5173`
+- SQLite: `apps/backend/data/agent-arena.sqlite`
+
+Optional overrides:
+
+```powershell
+$env:AGENT_ARENA_BACKEND_PORT="8787"
+$env:AGENT_ARENA_FRONTEND_PORT="5173"
+$env:AGENT_ARENA_DB_PATH="$PWD\apps\backend\data\agent-arena.sqlite"
+$env:VITE_AGENT_ARENA_API_URL="http://127.0.0.1:8787"
+bun run dev
+```
+
+Frontend only:
 
 ```powershell
 cd apps/frontend
@@ -30,7 +53,7 @@ $env:VITE_AGENT_ARENA_API_URL="http://127.0.0.1:8787"
 bun run dev
 ```
 
-Backend:
+Backend only:
 
 ```powershell
 cd apps/backend
@@ -74,7 +97,7 @@ bun run dev
 
 Frontend:
 
-```bash
+```powershell
 bun run typecheck
 bun run test
 bun run build
@@ -82,6 +105,6 @@ bun run build
 
 Backend:
 
-```bash
+```powershell
 bun test
 ```
