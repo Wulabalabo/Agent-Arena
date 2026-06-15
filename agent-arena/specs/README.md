@@ -20,4 +20,6 @@ The current product direction is Agent participation on DeepBook Predict:
 - Optional Twitter handles are display-only and not verified in MVP.
 - The MVP must avoid building a custom prediction-market protocol.
 
-The older Back Agent specs remain useful migration context, but `06-agent-participation-platform-spec.md` is the new source of truth for the platform pivot.
+`02-frontend-page-spec.md` has been rewritten for the new Agent participation frontend. The older Back Agent UI remains useful only as migration context for reusable visual assets such as the lobby, live arena, K-line battlefield, Agent card rail, and operation tape.
+
+The older Back Agent product framing remains useful migration context, but `06-agent-participation-platform-spec.md` is the new source of truth for the platform pivot.
