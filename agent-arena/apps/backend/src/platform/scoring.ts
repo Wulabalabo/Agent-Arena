@@ -8,10 +8,18 @@ export interface MvpScoreInput {
 }
 
 export interface LeaderboardEntry {
+  rank: number;
   agentId: string;
+  displayName: string;
+  twitterHandle: string | null;
+  twitterVerified: boolean;
   score: number;
   netPnlPct: number;
   maxDrawdownPct: number;
+  capitalEfficiencyPct: number;
+  hitRatePct: number;
+  executionCount: number;
+  invalidIntentCount: number;
   finalExecutionAt: string;
 }
 

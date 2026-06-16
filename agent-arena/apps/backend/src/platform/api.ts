@@ -1,7 +1,8 @@
 import {
   PlatformAuthError,
-  authenticateAgentRequest,
-  createAgentCredential
+  authenticateAgentRuntimeRequest,
+  createAgentRuntimeCredential,
+  runtimeTokenHeader
 } from "./auth";
 import { getAllowedOperations } from "./competitions";
 import {
@@ -9,6 +10,7 @@ import {
   submitIntentWithMockExecution
 } from "./execution";
 import { PlatformMockStore } from "./mock-store";
+import { buildReplayEvents } from "./replay";
 import {
   calculateMvpScore,
   sortLeaderboard,
@@ -16,6 +18,10 @@ import {
 } from "./scoring";
 import type { AgentIntent, Competition, ExecutionRecord } from "./types";
 import { PlatformInputError } from "./validation";
+import {
+  validateDisplayName,
+  validateNonEmptyString
+} from "./validation";
 
 const defaultCompetitionId = "btc-15m-001";
 const mockNow = "2026-06-15T00:00:00.000Z";
@@ -24,7 +30,7 @@ const arenaPrefix = "/api/arena";
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,POST,OPTIONS",
-  "access-control-allow-headers": "content-type, x-agent-arena-api-key"
+  "access-control-allow-headers": `content-type, ${runtimeTokenHeader}`
 };
 
 export function createPlatformFetchHandler(store = new PlatformMockStore()) {
@@ -48,38 +54,48 @@ export function createPlatformFetchHandler(store = new PlatformMockStore()) {
         return jsonResponse({
           service: "agent-arena-platform",
           seededCompetitionId: defaultCompetitionId,
-          authHeader: "x-agent-arena-api-key",
+          authHeader: runtimeTokenHeader,
           endpoints: [
             "GET /api/arena/__introspection",
-            "POST /api/arena/auth/register",
+            "POST /api/arena/agent/init",
+            "POST /api/arena/owner/agents/claim",
             "GET /api/arena/agent/me",
             "GET /api/arena/agent/wallet",
-            "POST /api/arena/owner/agents/:id/wallet",
             "GET /api/arena/competition/list-active",
             "GET /api/arena/competition/:id",
             "GET /api/arena/competition/:id/market-state",
             "POST /api/arena/intents",
-            "GET /api/arena/leaderboard?competitionId=..."
+            "GET /api/arena/intents/:id",
+            "GET /api/arena/leaderboard?competitionId=...",
+            "GET /api/arena/owner/agents/:id/replay"
           ]
         });
       }
 
+      if (request.method === "POST" && matchesRoute(route, ["agent", "init"])) {
+        return await initAgentPairing(request, store);
+      }
+
+      if (request.method === "POST" && matchesRoute(route, ["owner", "agents", "claim"])) {
+        return await claimAgent(request, store);
+      }
+
       if (request.method === "POST" && matchesRoute(route, ["auth", "register"])) {
-        return await registerAgent(request, store);
+        return errorResponse(410, "DEPRECATED_ENDPOINT", "Use POST /api/arena/agent/init and owner claim");
       }
 
       if (request.method === "GET" && matchesRoute(route, ["agent", "me"])) {
-        const auth = authenticateAgentRequest(request, store);
+        const auth = authenticateAgentRuntimeRequest(request, store);
         const agent = store.getAgent(auth.agentId);
         if (!agent) {
           return errorResponse(404, "AGENT_NOT_FOUND", "Agent not found");
         }
 
-        return jsonResponse({ agent });
+        return jsonResponse(agent);
       }
 
       if (request.method === "GET" && matchesRoute(route, ["agent", "wallet"])) {
-        const auth = authenticateAgentRequest(request, store);
+        const auth = authenticateAgentRuntimeRequest(request, store);
         return jsonResponse({
           wallet: store.getTradingWalletByAgentId(auth.agentId) ?? null
         });
@@ -92,7 +108,7 @@ export function createPlatformFetchHandler(store = new PlatformMockStore()) {
         route[1] === "agents" &&
         route[3] === "wallet"
       ) {
-        return await bindOwnerWallet(request, store, route[2]);
+        return errorResponse(410, "DEPRECATED_ENDPOINT", "Wallet generation happens during owner claim");
       }
 
       if (request.method === "GET" && matchesRoute(route, ["competition", "list-active"])) {
@@ -129,8 +145,22 @@ export function createPlatformFetchHandler(store = new PlatformMockStore()) {
         return await submitIntent(request, store);
       }
 
+      if (request.method === "GET" && route.length === 2 && route[0] === "intents") {
+        return getIntent(route[1], store);
+      }
+
       if (request.method === "GET" && matchesRoute(route, ["leaderboard"])) {
         return getLeaderboard(url, store);
+      }
+
+      if (
+        request.method === "GET" &&
+        route.length === 4 &&
+        route[0] === "owner" &&
+        route[1] === "agents" &&
+        route[3] === "replay"
+      ) {
+        return getAgentReplay(route[2], store);
       }
 
       return errorResponse(404, "NOT_FOUND", "Route not found");
@@ -140,48 +170,56 @@ export function createPlatformFetchHandler(store = new PlatformMockStore()) {
   };
 }
 
-async function registerAgent(request: Request, store: PlatformMockStore): Promise<Response> {
+async function initAgentPairing(request: Request, store: PlatformMockStore): Promise<Response> {
   const body = await readJsonObject(request);
-  const name = validateNonEmptyString(body.name, "name").trim();
-  const twitterHandle = validateOptionalString(body.twitterHandle, "twitterHandle");
-  const agent = store.createAgent({ name, twitterHandle });
-  const credential = createAgentCredential(store, agent.id, mockNow);
+  const displayName = validateDisplayName(body.displayName);
+  const draft = store.createPairingDraft(displayName);
 
   return jsonResponse({
-    agent,
-    apiKey: credential.apiKey
+    agentDraftId: draft.id,
+    displayName: draft.displayName,
+    registrationCode: draft.registrationCode,
+    claimUrl: draft.claimUrl,
+    expiresAt: draft.expiresAt
   }, 201);
 }
 
-async function bindOwnerWallet(
+async function claimAgent(
   request: Request,
-  store: PlatformMockStore,
-  agentId: string
+  store: PlatformMockStore
 ): Promise<Response> {
-  const auth = authenticateAgentRequest(request, store);
-  if (auth.agentId !== agentId) {
-    return errorResponse(403, "AGENT_MISMATCH", "Authenticated agent cannot bind this wallet");
+  const body = await readJsonObject(request);
+  const registrationCode = validateNonEmptyString(body.registrationCode, "registrationCode").trim();
+  const ownerAddress = validateNonEmptyString(body.ownerAddress, "ownerAddress").trim();
+  validateNonEmptyString(body.signature, "signature");
+  const twitterHandle = validateOptionalString(body.twitterHandle, "twitterHandle");
+  const draft = store.findPairingDraftByRegistrationCode(registrationCode);
+  if (!draft || draft.status !== "pending") {
+    return errorResponse(400, "INVALID_REGISTRATION_CODE", "Registration code is invalid or already claimed");
   }
 
-  const agent = store.getAgent(agentId);
-  if (!agent) {
-    return errorResponse(404, "AGENT_NOT_FOUND", "Agent not found");
-  }
-
-  const body = await readOptionalJsonObject(request);
-  const requestedAddress = body.address === undefined
-    ? undefined
-    : validateNonEmptyString(body.address, "address").trim();
-  const wallet = store.bindTradingWallet(agentId, requestedAddress ?? `0xagentwallet_${agentId}`);
+  const agent = store.createClaimedAgent({
+    displayName: draft.displayName,
+    ownerAddress,
+    twitterHandle
+  });
+  store.markPairingDraftClaimed(draft.id);
+  const wallet = store.bindTradingWallet(agent.id, `0xagentwallet_${agent.id}`);
+  const credential = createAgentRuntimeCredential(store, agent.id, mockNow);
 
   return jsonResponse({
-    wallet,
-    agent: store.getAgent(agentId)
+    agent: store.getAgent(agent.id),
+    tradingWallet: wallet,
+    runtimeCredential: {
+      token: credential.token,
+      shownOnce: true,
+      scopes: credential.scopes
+    }
   }, 201);
 }
 
 async function submitIntent(request: Request, store: PlatformMockStore): Promise<Response> {
-  const auth = authenticateAgentRequest(request, store);
+  const auth = authenticateAgentRuntimeRequest(request, store);
   const body = await readJsonObject(request);
   const bodyAgentId = validateNonEmptyString(body.agentId, "agentId");
   if (bodyAgentId !== auth.agentId) {
@@ -218,6 +256,7 @@ function getLeaderboard(url: URL, store: PlatformMockStore): Response {
 
   const intentsById = new Map(store.listIntents().map((intent) => [intent.id, intent]));
   const entries = createLeaderboardEntries({
+    store,
     executions: store.listExecutions().filter((execution) => execution.competitionId === competitionId),
     intents: store.listIntents().filter((intent) => intent.competitionId === competitionId),
     intentsById
@@ -225,15 +264,17 @@ function getLeaderboard(url: URL, store: PlatformMockStore): Response {
 
   return jsonResponse({
     competitionId,
-    entries: entries.length > 0 ? sortLeaderboard(entries) : []
+    entries
   });
 }
 
 function createLeaderboardEntries({
+  store,
   executions,
   intents,
   intentsById
 }: {
+  store: PlatformMockStore;
   executions: ExecutionRecord[];
   intents: AgentIntent[];
   intentsById: Map<string, AgentIntent>;
@@ -245,7 +286,12 @@ function createLeaderboardEntries({
     executionsByAgentId.set(execution.agentId, agentExecutions);
   }
 
-  return [...executionsByAgentId.entries()].map(([agentId, agentExecutions]) => {
+  const entries = [...executionsByAgentId.entries()].map(([agentId, agentExecutions]) => {
+    const agent = store.getAgent(agentId);
+    if (!agent) {
+      return null;
+    }
+
     const invalidIntentCount = intents.filter((intent) => (
       intent.agentId === agentId &&
       intent.status === "rejected"
@@ -264,7 +310,11 @@ function createLeaderboardEntries({
     const capitalEfficiencyPct = Math.min(1, executionCount / 6);
 
     return {
+      rank: 0,
       agentId,
+      displayName: agent.displayName,
+      twitterHandle: agent.twitterHandle,
+      twitterVerified: agent.twitterVerified,
       score: calculateMvpScore({
         netPnlPct,
         maxDrawdownPct,
@@ -275,8 +325,42 @@ function createLeaderboardEntries({
       }),
       netPnlPct,
       maxDrawdownPct,
+      capitalEfficiencyPct,
+      hitRatePct,
+      executionCount,
+      invalidIntentCount,
       finalExecutionAt
     };
+  }).filter((entry): entry is LeaderboardEntry => entry !== null);
+
+  return sortLeaderboard(entries).map((entry, index) => ({
+    ...entry,
+    rank: index + 1
+  }));
+}
+
+function getIntent(intentId: string, store: PlatformMockStore): Response {
+  const intent = store.findIntentById(intentId);
+  if (!intent) {
+    return errorResponse(404, "INTENT_NOT_FOUND", "Intent not found");
+  }
+
+  return jsonResponse({ intent });
+}
+
+function getAgentReplay(agentId: string, store: PlatformMockStore): Response {
+  const agent = store.getAgent(agentId);
+  if (!agent) {
+    return errorResponse(404, "AGENT_NOT_FOUND", "Agent not found");
+  }
+
+  return jsonResponse({
+    events: buildReplayEvents({
+      agentId,
+      intents: store.listIntents(),
+      riskDecisions: store.listRiskDecisions(),
+      executions: store.listExecutions()
+    })
   });
 }
 
@@ -304,15 +388,6 @@ async function readJsonObject(request: Request): Promise<Record<string, unknown>
   return parseJsonObject(text);
 }
 
-async function readOptionalJsonObject(request: Request): Promise<Record<string, unknown>> {
-  const text = await request.text();
-  if (text.trim().length === 0) {
-    return {};
-  }
-
-  return parseJsonObject(text);
-}
-
 function parseJsonObject(text: string): Record<string, unknown> {
   let parsed: unknown;
   try {
@@ -326,14 +401,6 @@ function parseJsonObject(text: string): Record<string, unknown> {
   }
 
   return parsed as Record<string, unknown>;
-}
-
-function validateNonEmptyString(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new PlatformInputError(`${field} must be a non-empty string`);
-  }
-
-  return value;
 }
 
 function validateOptionalString(value: unknown, field: string): string | null {

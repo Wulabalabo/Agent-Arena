@@ -266,6 +266,29 @@ describe("Agent Arena platform API", () => {
         invalidIntentCount: 0
       }]
     });
+
+    const intent = await fetch(new Request("http://localhost/api/arena/intents/intent_1"));
+    expect(intent.status).toBe(200);
+    await expect(intent.json()).resolves.toMatchObject({
+      intent: {
+        id: "intent_1",
+        agentId: claimed.agent.id,
+        status: "executed"
+      }
+    });
+
+    const replay = await fetch(new Request(`http://localhost/api/arena/owner/agents/${claimed.agent.id}/replay`));
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({
+      events: [
+        { label: "Intent submitted" },
+        { label: "Risk accepted" },
+        {
+          label: "Predict transaction confirmed",
+          txDigest: "0xmock_exec_1"
+        }
+      ]
+    });
   });
 
   it("rejects missing runtime tokens on authenticated Agent endpoints", async () => {
