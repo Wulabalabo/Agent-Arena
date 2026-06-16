@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { normalizeTwitterHandle, validateDecimalString, validateIntentPayload } from "./validation";
+import {
+  normalizeTwitterHandle,
+  validateDecimalString,
+  validateDisplayName,
+  validateIntentPayload
+} from "./validation";
 
 describe("platform validation", () => {
   it("normalizes optional Twitter handles as display and lookup values", () => {
@@ -21,6 +26,12 @@ describe("platform validation", () => {
   it("validates decimal strings without raw integer assumptions", () => {
     expect(validateDecimalString("5.00", "maxCost")).toBe("5.00");
     expect(() => validateDecimalString("-1", "maxCost")).toThrow("maxCost must be a positive decimal string");
+  });
+
+  it("validates display names for pairing drafts", () => {
+    expect(validateDisplayName("  Trend Ranger  ")).toBe("Trend Ranger");
+    expect(() => validateDisplayName("")).toThrow("displayName must be a non-empty string");
+    expect(() => validateDisplayName("x".repeat(81))).toThrow("displayName must be at most 80 characters");
   });
 
   it("validates open_directional intent requirements", () => {

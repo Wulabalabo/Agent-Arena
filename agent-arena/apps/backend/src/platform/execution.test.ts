@@ -3,10 +3,18 @@ import { PlatformMockStore } from "./mock-store";
 import { submitIntentWithMockExecution } from "./execution";
 import { createMockCompetition } from "./types";
 
+function createClaimedTestAgent(store: PlatformMockStore, displayName = "Trend Ranger") {
+  return store.createClaimedAgent({
+    displayName,
+    ownerAddress: "0xowner",
+    twitterHandle: null
+  });
+}
+
 describe("mock intent execution", () => {
   it("executes an accepted directional intent and records risk first", () => {
     const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "Trend Ranger", twitterHandle: null });
+    const agent = createClaimedTestAgent(store, "Trend Ranger");
     store.bindTradingWallet(agent.id, "0xagentwallet");
     store.seedCompetition();
 
@@ -43,7 +51,7 @@ describe("mock intent execution", () => {
 
   it("rejects exposure when no wallet is bound", () => {
     const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "No Wallet", twitterHandle: null });
+    const agent = createClaimedTestAgent(store, "No Wallet");
     store.seedCompetition();
 
     const result = submitIntentWithMockExecution(store, {
@@ -74,7 +82,7 @@ describe("mock intent execution", () => {
 
   it("accepts hold without wallet signing or execution", () => {
     const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "Patient Agent", twitterHandle: null });
+    const agent = createClaimedTestAgent(store, "Patient Agent");
     store.seedCompetition();
 
     const result = submitIntentWithMockExecution(store, {
@@ -96,7 +104,7 @@ describe("mock intent execution", () => {
 
   it("rejects exposure in non-live rounds", () => {
     const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "Early Agent", twitterHandle: null });
+    const agent = createClaimedTestAgent(store, "Early Agent");
     store.bindTradingWallet(agent.id, "0xagentwallet");
     store.seedCompetition({ ...createMockCompetition("btc-15m-001"), status: "pre_open" });
 
@@ -126,7 +134,7 @@ describe("mock intent execution", () => {
 
   it("rejects hold in non-live rounds while still not requiring a wallet", () => {
     const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "Too Early Holder", twitterHandle: null });
+    const agent = createClaimedTestAgent(store, "Too Early Holder");
     store.seedCompetition({ ...createMockCompetition("btc-15m-001"), status: "pre_open" });
 
     const result = submitIntentWithMockExecution(store, {
@@ -146,7 +154,7 @@ describe("mock intent execution", () => {
 
   it("rejects actions disallowed by the competition", () => {
     const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "Disallowed Agent", twitterHandle: null });
+    const agent = createClaimedTestAgent(store, "Disallowed Agent");
     store.bindTradingWallet(agent.id, "0xagentwallet");
     store.seedCompetition({
       ...createMockCompetition("btc-15m-001"),
@@ -179,7 +187,7 @@ describe("mock intent execution", () => {
 
   it("rejects intents above the MVP exposure cap", () => {
     const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "Whale Agent", twitterHandle: null });
+    const agent = createClaimedTestAgent(store, "Whale Agent");
     store.bindTradingWallet(agent.id, "0xagentwallet");
     store.seedCompetition();
 
@@ -209,7 +217,7 @@ describe("mock intent execution", () => {
 
   it("returns the existing result for identical idempotency replays", () => {
     const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "Retry Agent", twitterHandle: null });
+    const agent = createClaimedTestAgent(store, "Retry Agent");
     store.bindTradingWallet(agent.id, "0xagentwallet");
     store.seedCompetition();
     const payload = {
@@ -242,7 +250,7 @@ describe("mock intent execution", () => {
 
   it("rejects idempotency replays with a different payload", () => {
     const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "Conflict Agent", twitterHandle: null });
+    const agent = createClaimedTestAgent(store, "Conflict Agent");
     store.bindTradingWallet(agent.id, "0xagentwallet");
     store.seedCompetition();
     const payload = {
@@ -277,7 +285,7 @@ describe("mock intent execution", () => {
 
   it("validates malformed intents before persistence", () => {
     const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "Malformed Agent", twitterHandle: null });
+    const agent = createClaimedTestAgent(store, "Malformed Agent");
     store.bindTradingWallet(agent.id, "0xagentwallet");
     store.seedCompetition();
 
@@ -299,7 +307,7 @@ describe("mock intent execution", () => {
 
   it("does not expose mutable store records", () => {
     const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "Clone Agent", twitterHandle: null });
+    const agent = createClaimedTestAgent(store, "Clone Agent");
     const wallet = store.bindTradingWallet(agent.id, "0xagentwallet");
     const competition = store.seedCompetition();
 
@@ -312,7 +320,7 @@ describe("mock intent execution", () => {
 
   it("does not expose mutable intent, risk, or execution records", () => {
     const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "Nested Clone Agent", twitterHandle: null });
+    const agent = createClaimedTestAgent(store, "Nested Clone Agent");
     store.bindTradingWallet(agent.id, "0xagentwallet");
     store.seedCompetition();
 

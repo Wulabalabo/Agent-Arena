@@ -147,12 +147,21 @@ function asRecord(value: unknown, field: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function validateNonEmptyString(value: unknown, field: string): string {
+export function validateNonEmptyString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new PlatformInputError(`${field} must be a non-empty string`);
   }
 
   return value;
+}
+
+export function validateDisplayName(value: unknown): string {
+  const displayName = validateNonEmptyString(value, "displayName").trim();
+  if (displayName.length > 80) {
+    throw new PlatformInputError("displayName must be at most 80 characters");
+  }
+
+  return displayName;
 }
 
 function validateAction(value: unknown): AgentAction {

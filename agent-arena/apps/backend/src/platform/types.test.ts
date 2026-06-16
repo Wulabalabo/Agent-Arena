@@ -24,7 +24,15 @@ describe("platform types", () => {
     const competition = createMockCompetition("btc-15m-001");
 
     expect(competition.gameType).toBe("DeepBookPredictBtc15m");
-    expect(competition.allowedActions).toContain("open_directional");
-    expect(competition.allowedActions).toContain("hold");
+    expect(competition.allowedActions).toEqual([
+      "hold",
+      "open_directional",
+      "open_range",
+      "reduce",
+      "close"
+    ]);
+    expect(competition.allowedActions).not.toContain("add");
+    expect(competition.allowedActions).not.toContain("switch_direction");
+    expect(competition.allowedActions).not.toContain("adjust_range");
   });
 });

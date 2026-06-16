@@ -14,6 +14,8 @@ export type RoundStatus = "pre_open" | "live" | "expired" | "settled";
 export type IntentStatus = "accepted" | "rejected" | "executed" | "partial";
 export type ExecutionStatus = "queued" | "signed" | "submitted" | "confirmed" | "failed" | "partial";
 export type PositionKind = "directional" | "range";
+export type AgentRuntimeStatus = "waiting" | "active" | "cooldown" | "rejected" | "offline";
+export type ExposureStatus = "flat" | "directional" | "range" | "closing" | "settled";
 
 export interface Competition {
   id: string;
@@ -34,11 +36,26 @@ export interface Competition {
 
 export interface AgentProfile {
   id: string;
-  name: string;
+  displayName: string;
   normalizedName: string;
   twitterHandle: string | null;
   normalizedTwitterHandle: string | null;
+  twitterVerified: false;
+  ownerAddress: string;
+  tradingWalletAddress: string;
   tradingWalletId: string | null;
+  runtimeStatus: AgentRuntimeStatus;
+  exposureStatus: ExposureStatus;
+  createdAt: string;
+}
+
+export interface AgentPairingDraft {
+  id: string;
+  displayName: string;
+  registrationCode: string;
+  claimUrl: string;
+  expiresAt: string;
+  status: "pending" | "claimed" | "expired";
   createdAt: string;
 }
 
@@ -47,6 +64,9 @@ export interface TradingWallet {
   agentId: string;
   address: string;
   status: "active" | "detached";
+  testnetSuiBalance: string;
+  quoteBalance: string;
+  predictManagerStatus: "missing" | "ready";
   createdAt: string;
 }
 
@@ -114,6 +134,16 @@ export interface ExecutionRecord {
   createdAt: string;
 }
 
+export interface ReplayEvent {
+  id: string;
+  timestamp: string;
+  label: string;
+  summary: string;
+  recordId: string;
+  copyValue: string | null;
+  txDigest: string | null;
+}
+
 export function isAgentAction(value: string): value is AgentAction {
   return (agentActions as readonly string[]).includes(value);
 }
@@ -128,7 +158,13 @@ export function createMockCompetition(id: string): Competition {
     predictObjectId: "0xc8736204d12f0a7277c86388a68bf8a194b0a14c5538ad13f22cbd8e2a38028a",
     oracleId: "0xbtc15m",
     expiry: "2026-06-15T10:15:00.000Z",
-    allowedActions: [...agentActions],
+    allowedActions: [
+      "hold",
+      "open_directional",
+      "open_range",
+      "reduce",
+      "close"
+    ],
     status: "live",
     skillFile: "/skills/deepbook-predict-btc-15m.md",
     startsAt: "2026-06-15T10:00:00.000Z",

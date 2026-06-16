@@ -1,23 +1,24 @@
 import type { AgentProfile } from "./types";
 
-export interface AgentCredential {
+export interface AgentRuntimeCredential {
   agentId: string;
-  apiKey: string;
+  token: string;
   createdAt: string;
+  scopes: string[];
 }
 
 export interface AgentCredentialStore {
   getAgent(agentId: string): AgentProfile | undefined;
-  saveCredential(credential: AgentCredential): void;
-  findCredentialByApiKey(apiKey: string): AgentCredential | undefined;
+  saveRuntimeCredential(credential: AgentRuntimeCredential): void;
+  findRuntimeCredentialByToken(token: string): AgentRuntimeCredential | undefined;
 }
 
 export interface AuthenticatedAgentRequest {
   agentId: string;
 }
 
-const apiKeyPrefix = "agent_arena_sk_";
-const apiKeyHeader = "x-agent-arena-api-key";
+const runtimeTokenPrefix = "agent_runtime_";
+export const runtimeTokenHeader = "x-agent-arena-agent-token";
 
 export class PlatformAuthError extends Error {
   constructor(message = "UNAUTHORIZED") {
@@ -26,32 +27,36 @@ export class PlatformAuthError extends Error {
   }
 }
 
-export function createAgentCredential(store: AgentCredentialStore, agentId: string, now: string): AgentCredential {
+export function createAgentRuntimeCredential(
+  store: AgentCredentialStore,
+  agentId: string,
+  now: string
+): AgentRuntimeCredential {
   if (!store.getAgent(agentId)) {
     throw new PlatformAuthError();
   }
 
-  const apiKey = `${apiKeyPrefix}${randomKeyPart()}${randomKeyPart()}`;
-  const credential: AgentCredential = {
+  const credential: AgentRuntimeCredential = {
     agentId,
-    apiKey,
-    createdAt: now
+    token: `${runtimeTokenPrefix}${randomKeyPart()}${randomKeyPart()}`,
+    createdAt: now,
+    scopes: ["agent:read", "agent:intent:write", "competition:read", "execution:read"]
   };
 
-  store.saveCredential(credential);
+  store.saveRuntimeCredential(credential);
   return credential;
 }
 
-export function authenticateAgentRequest(
+export function authenticateAgentRuntimeRequest(
   request: Request,
-  store: Pick<AgentCredentialStore, "findCredentialByApiKey">
+  store: Pick<AgentCredentialStore, "findRuntimeCredentialByToken">
 ): AuthenticatedAgentRequest {
-  const apiKey = request.headers.get(apiKeyHeader);
-  if (!apiKey) {
+  const token = request.headers.get(runtimeTokenHeader);
+  if (!token) {
     throw new PlatformAuthError();
   }
 
-  const credential = store.findCredentialByApiKey(apiKey);
+  const credential = store.findRuntimeCredentialByToken(token);
   if (!credential) {
     throw new PlatformAuthError();
   }

@@ -1,7 +1,8 @@
-import type { AgentCredential } from "./auth";
+import type { AgentRuntimeCredential } from "./auth";
 import {
   createMockCompetition,
   type AgentIntent,
+  type AgentPairingDraft,
   type AgentProfile,
   type Competition,
   type ExecutionRecord,
@@ -17,9 +18,17 @@ export interface CreateAgentInput {
   twitterHandle?: string | null;
 }
 
+export interface CreateClaimedAgentInput {
+  displayName: string;
+  ownerAddress: string;
+  twitterHandle?: string | null;
+}
+
 export class PlatformMockStore {
   private readonly agents = new Map<string, AgentProfile>();
-  private readonly credentialsByApiKey = new Map<string, AgentCredential>();
+  private readonly credentialsByRuntimeToken = new Map<string, AgentRuntimeCredential>();
+  private readonly pairingDrafts = new Map<string, AgentPairingDraft>();
+  private readonly pairingDraftIdsByCode = new Map<string, string>();
   private readonly tradingWallets = new Map<string, TradingWallet>();
   private readonly tradingWalletIdsByAgentId = new Map<string, string>();
   private readonly competitions = new Map<string, Competition>();
@@ -28,21 +37,78 @@ export class PlatformMockStore {
   private readonly riskDecisions = new Map<string, RiskDecision>();
   private readonly executions = new Map<string, ExecutionRecord>();
   private nextAgentNumber = 1;
+  private nextDraftNumber = 1;
   private nextWalletNumber = 1;
 
+  createPairingDraft(displayName: string): AgentPairingDraft {
+    const id = `draft_${this.nextDraftNumber}`;
+    this.nextDraftNumber += 1;
+    const registrationCode = `PAIR-${String(this.nextDraftNumber + 2047)}`;
+    const draft: AgentPairingDraft = {
+      id,
+      displayName,
+      registrationCode,
+      claimUrl: `http://127.0.0.1:8787/agent-arena/claim/${registrationCode}`,
+      expiresAt: "2026-06-15T00:15:00.000Z",
+      status: "pending",
+      createdAt: "2026-06-15T00:00:00.000Z"
+    };
+
+    this.pairingDrafts.set(id, clonePairingDraft(draft));
+    this.pairingDraftIdsByCode.set(registrationCode, id);
+    return clonePairingDraft(draft);
+  }
+
+  findPairingDraftByRegistrationCode(registrationCode: string): AgentPairingDraft | undefined {
+    const draftId = this.pairingDraftIdsByCode.get(registrationCode);
+    if (!draftId) {
+      return undefined;
+    }
+
+    const draft = this.pairingDrafts.get(draftId);
+    return draft ? clonePairingDraft(draft) : undefined;
+  }
+
+  markPairingDraftClaimed(draftId: string): AgentPairingDraft | undefined {
+    const draft = this.pairingDrafts.get(draftId);
+    if (!draft) {
+      return undefined;
+    }
+
+    const claimed = {
+      ...draft,
+      status: "claimed" as const
+    };
+    this.pairingDrafts.set(draftId, clonePairingDraft(claimed));
+    return clonePairingDraft(claimed);
+  }
+
   createAgent(input: CreateAgentInput): AgentProfile {
+    return this.createClaimedAgent({
+      displayName: input.name,
+      ownerAddress: "",
+      twitterHandle: input.twitterHandle
+    });
+  }
+
+  createClaimedAgent(input: CreateClaimedAgentInput): AgentProfile {
     const id = `agent_${this.nextAgentNumber}`;
     this.nextAgentNumber += 1;
 
-    const name = input.name.trim();
+    const displayName = input.displayName.trim();
     const twitter = normalizeTwitterHandle(input.twitterHandle);
     const agent: AgentProfile = {
       id,
-      name,
-      normalizedName: name.toLowerCase(),
+      displayName,
+      normalizedName: displayName.toLowerCase(),
       twitterHandle: twitter.twitterHandle,
       normalizedTwitterHandle: twitter.normalizedTwitterHandle,
+      twitterVerified: false,
+      ownerAddress: input.ownerAddress,
+      tradingWalletAddress: "",
       tradingWalletId: null,
+      runtimeStatus: "active",
+      exposureStatus: "flat",
       createdAt: "2026-06-15T00:00:00.000Z"
     };
 
@@ -66,6 +132,9 @@ export class PlatformMockStore {
       agentId,
       address,
       status: "active",
+      testnetSuiBalance: "0",
+      quoteBalance: "0",
+      predictManagerStatus: "missing",
       createdAt: "2026-06-15T00:00:00.000Z"
     };
     this.nextWalletNumber += 1;
@@ -85,6 +154,7 @@ export class PlatformMockStore {
     this.tradingWalletIdsByAgentId.set(agentId, wallet.id);
     this.agents.set(agentId, cloneAgent({
       ...agent,
+      tradingWalletAddress: wallet.address,
       tradingWalletId: wallet.id
     }));
 
@@ -165,13 +235,13 @@ export class PlatformMockStore {
     return execution ? cloneExecution(execution) : undefined;
   }
 
-  saveCredential(credential: AgentCredential): void {
-    this.credentialsByApiKey.set(credential.apiKey, cloneCredential(credential));
+  saveRuntimeCredential(credential: AgentRuntimeCredential): void {
+    this.credentialsByRuntimeToken.set(credential.token, cloneRuntimeCredential(credential));
   }
 
-  findCredentialByApiKey(apiKey: string): AgentCredential | undefined {
-    const credential = this.credentialsByApiKey.get(apiKey);
-    return credential ? cloneCredential(credential) : undefined;
+  findRuntimeCredentialByToken(token: string): AgentRuntimeCredential | undefined {
+    const credential = this.credentialsByRuntimeToken.get(token);
+    return credential ? cloneRuntimeCredential(credential) : undefined;
   }
 }
 
@@ -179,8 +249,15 @@ function cloneAgent(agent: AgentProfile): AgentProfile {
   return { ...agent };
 }
 
-function cloneCredential(credential: AgentCredential): AgentCredential {
-  return { ...credential };
+function cloneRuntimeCredential(credential: AgentRuntimeCredential): AgentRuntimeCredential {
+  return {
+    ...credential,
+    scopes: [...credential.scopes]
+  };
+}
+
+function clonePairingDraft(draft: AgentPairingDraft): AgentPairingDraft {
+  return { ...draft };
 }
 
 function cloneTradingWallet(wallet: TradingWallet): TradingWallet {
