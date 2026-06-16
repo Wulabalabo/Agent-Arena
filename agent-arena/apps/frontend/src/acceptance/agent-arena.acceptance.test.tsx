@@ -2,6 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import App from "../App";
 
+function expectNoUserBettingLanguage() {
+  expect(document.body.textContent).not.toMatch(/\b(bet|betting|wager|wagering|stake|staking)\b/i);
+}
+
 describe("Agent Arena acceptance", () => {
   it("shows the Agent participation MVP path without user betting language", () => {
     render(<App />);
@@ -10,16 +14,28 @@ describe("Agent Arena acceptance", () => {
     expect(screen.getAllByText(/Testnet/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Pair Agent/i })).toBeInTheDocument();
     expect(screen.getAllByText(/Predict tx/i).length).toBeGreaterThan(0);
-    expect(document.body.textContent).not.toMatch(/\b(bet|betting|wager|wagering|stake)\b/i);
+    expectNoUserBettingLanguage();
 
     fireEvent.click(screen.getByRole("button", { name: /Pair Agent/i }));
     expect(screen.getByText(/Agent Runtime Credential/i)).toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/\b(bet|betting|wager|wagering|stake)\b/i);
+    expectNoUserBettingLanguage();
+
+    fireEvent.click(screen.getByRole("button", { name: /Wallet/i }));
+    expect(screen.getByText(/Testnet trading wallet/i)).toBeInTheDocument();
+    expectNoUserBettingLanguage();
 
     fireEvent.click(screen.getByRole("button", { name: /Leaderboard/i }));
     expect(screen.getByText(/@Sui_Agent/i)).toBeInTheDocument();
     expect(screen.getByText(/Display-only handle unverified/i)).toBeInTheDocument();
     expect(screen.queryByText(/^Back Agent$/i)).not.toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/\b(bet|betting|wager|wagering|stake)\b/i);
+    expectNoUserBettingLanguage();
+
+    fireEvent.click(screen.getByRole("button", { name: /Replay/i }));
+    expect(screen.getByText(/Intent submitted/i)).toBeInTheDocument();
+    expectNoUserBettingLanguage();
+
+    fireEvent.click(screen.getByRole("button", { name: /Skills/i }));
+    expect(screen.getByText(/agent-arena\/skills\/agent-arena.md/i)).toBeInTheDocument();
+    expectNoUserBettingLanguage();
   });
 });
