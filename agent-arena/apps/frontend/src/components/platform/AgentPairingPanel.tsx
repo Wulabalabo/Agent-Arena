@@ -17,7 +17,7 @@ export function AgentPairingPanel({
   expiresAt,
   runtimeCredential
 }: AgentPairingPanelProps) {
-  const twitterStatus = agent.twitterHandle ? (agent.twitterVerified ? "Verified" : "Unverified") : "No Twitter handle";
+  const twitterStatus = getTwitterDisplayStatus(agent);
 
   return (
     <section aria-label="Pair Agent" className="paper-card-sm p-4">
@@ -58,6 +58,14 @@ export function AgentPairingPanel({
       </button>
     </section>
   );
+}
+
+function getTwitterDisplayStatus(agent: AgentProfile) {
+  if (!agent.twitterHandle) {
+    return "No Twitter handle";
+  }
+
+  return agent.twitterVerified ? "Display handle linked" : "Handle unverified";
 }
 
 interface InfoRowProps {

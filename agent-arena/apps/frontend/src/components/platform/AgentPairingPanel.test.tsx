@@ -19,6 +19,21 @@ describe("AgentPairingPanel", () => {
     expect(screen.getByText(/Connect owner wallet/i)).toBeInTheDocument();
     expect(screen.getByText(/Agent Runtime Credential/i)).toBeInTheDocument();
     expect(screen.getByText(/cannot withdraw funds/i)).toBeInTheDocument();
-    expect(screen.getByText(/Unverified/i)).toBeInTheDocument();
+    expect(screen.getByText(/Handle unverified/i)).toBeInTheDocument();
+  });
+
+  it("qualifies linked display handles without implying real Twitter verification", () => {
+    render(
+      <AgentPairingPanel
+        agent={{ ...mockPlatformSnapshot.agents[0], twitterVerified: true }}
+        claimUrl="http://localhost:5173/claim/PAIR-2048"
+        expiresAt="2026-06-16T10:15:00.000Z"
+        registrationCode="PAIR-2048"
+        runtimeCredential="agent_runtime_test_token"
+      />
+    );
+
+    expect(screen.getByText(/Display handle linked/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^Verified$/i)).toBeNull();
   });
 });
