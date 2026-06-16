@@ -105,7 +105,17 @@ describe("createPlatformClient", () => {
       idempotencyKey: "trend-ranger-btc-15m-001-1",
       action: "open_directional",
       confidence: 0.72,
-      reason: "Momentum remains above VWAP with rising oracle forward."
+      reason: "Momentum remains above VWAP with rising oracle forward.",
+      createdAt: "2026-06-16T10:03:12.000Z",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "2026-06-16T10:15:00.000Z",
+        strike: "65000",
+        isUp: true
+      },
+      quantity: "10",
+      maxCost: "5.00"
     };
 
     expect(fetcher).toHaveBeenNthCalledWith(1, "https://platform.test/api/arena/agent/me", {

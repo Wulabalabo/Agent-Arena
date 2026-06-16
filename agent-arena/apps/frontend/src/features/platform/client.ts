@@ -168,14 +168,37 @@ function jsonPost(body: unknown, headers?: Record<string, string>): RequestInit 
 }
 
 function createSubmitIntentBody(intent: SubmitIntentInput): SubmitIntentInput {
-  return {
+  const body: SubmitIntentInput = {
     competitionId: intent.competitionId,
     agentId: intent.agentId,
     idempotencyKey: intent.idempotencyKey,
     action: intent.action,
     confidence: intent.confidence,
-    reason: intent.reason
+    reason: intent.reason,
+    createdAt: intent.createdAt
   };
+
+  if (intent.market !== undefined) {
+    body.market = intent.market;
+  }
+
+  if (intent.positionRef !== undefined) {
+    body.positionRef = intent.positionRef;
+  }
+
+  if (intent.quantity !== undefined) {
+    body.quantity = intent.quantity;
+  }
+
+  if (intent.maxCost !== undefined) {
+    body.maxCost = intent.maxCost;
+  }
+
+  if (intent.minProceeds !== undefined) {
+    body.minProceeds = intent.minProceeds;
+  }
+
+  return body;
 }
 
 function createRuntimeHeaders(runtimeCredential: string): Record<string, string> {

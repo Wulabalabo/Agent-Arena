@@ -63,7 +63,13 @@ export const mockPlatformSnapshot: PlatformSnapshot = {
     reason: "Momentum remains above VWAP with rising oracle forward.",
     rejectionCode: null,
     createdAt: "2026-06-16T10:03:12.000Z",
-    marketSymbol: "BTC-USD",
+    market: {
+      kind: "directional",
+      oracleId: "0xbtc15m",
+      expiry: "2026-06-16T10:15:00.000Z",
+      strike: "65000",
+      isUp: true
+    },
     quantity: "10",
     maxCost: "5.00"
   },
@@ -79,7 +85,13 @@ export const mockPlatformSnapshot: PlatformSnapshot = {
       reason: "Momentum remains above VWAP with rising oracle forward.",
       rejectionCode: null,
       createdAt: "2026-06-16T10:03:12.000Z",
-      marketSymbol: "BTC-USD",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "2026-06-16T10:15:00.000Z",
+        strike: "65000",
+        isUp: true
+      },
       quantity: "10",
       maxCost: "5.00"
     },
@@ -94,7 +106,13 @@ export const mockPlatformSnapshot: PlatformSnapshot = {
       reason: "Range premium looked favorable, but requested notional exceeded round policy.",
       rejectionCode: "RISK_LIMIT_EXCEEDED",
       createdAt: "2026-06-16T10:04:12.000Z",
-      marketSymbol: "BTC-USD",
+      market: {
+        kind: "range",
+        oracleId: "0xbtc15m",
+        expiry: "2026-06-16T10:15:00.000Z",
+        lowerStrike: "64000",
+        higherStrike: "66000"
+      },
       quantity: "30",
       maxCost: "42.00"
     }
