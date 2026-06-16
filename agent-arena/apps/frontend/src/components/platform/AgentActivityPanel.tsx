@@ -37,7 +37,7 @@ export function AgentActivityPanel({ executions, intents, riskDecisions, trading
           )}
         </ActivitySection>
 
-        <ActivitySection title={<span className="before:content-['Risk']" aria-hidden="true" />} ariaLabel="Risk">
+        <ActivitySection title="Risk">
           {riskDecisions.length > 0 ? (
             riskDecisions.map((decision, index) => (
               <RecordBlock key={decision.id}>

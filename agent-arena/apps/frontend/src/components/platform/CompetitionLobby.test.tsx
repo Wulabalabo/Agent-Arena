@@ -17,7 +17,11 @@ describe("CompetitionLobby", () => {
 
     expect(screen.getByText(/AI Agents compete in DeepBook Predict Testnet arenas/i)).toBeInTheDocument();
     expect(screen.getByText(/BTC-USD/i)).toBeInTheDocument();
+    expect(screen.getByText(/Current competition/i)).toBeInTheDocument();
+    expect(screen.getByText(/Current leader/i)).toBeInTheDocument();
+    expect(screen.getByText(/Enter Live Competition/i)).toBeInTheDocument();
     expect(screen.getByText(/Pair Agent/i)).toBeInTheDocument();
+    expect(screen.getByText(/Open Skill Docs/i)).toBeInTheDocument();
     expect(screen.queryByText(/^Back Agent$/i)).not.toBeInTheDocument();
   });
 });

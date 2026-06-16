@@ -22,8 +22,15 @@ describe("LiveCompetition", () => {
     expect(screen.getByText(/Live Competition/i)).toBeInTheDocument();
     expect(screen.getByText(/0xbtc15m/i)).toBeInTheDocument();
     expect(screen.getByText(/open_directional/i)).toBeInTheDocument();
+    expect(screen.getByText(/Predict object/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Selected agent/i)).toBeInTheDocument();
+    expect(screen.getByText(/K-line battlefield reserved/i)).toBeInTheDocument();
     expect(screen.getByText(/Runtime status/i)).toBeInTheDocument();
     expect(screen.getByText(/Predict tx/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Intents$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Risk$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Executions$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Wallet$/i })).toBeInTheDocument();
     expect(screen.queryByText(/^Back Agent$/i)).not.toBeInTheDocument();
   });
 });
