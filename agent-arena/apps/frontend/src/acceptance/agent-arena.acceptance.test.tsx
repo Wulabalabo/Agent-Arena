@@ -10,12 +10,16 @@ describe("Agent Arena acceptance", () => {
     expect(screen.getAllByText(/Testnet/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Pair Agent/i })).toBeInTheDocument();
     expect(screen.getAllByText(/Predict tx/i).length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toMatch(/\b(bet|betting|wager|wagering|stake)\b/i);
 
     fireEvent.click(screen.getByRole("button", { name: /Pair Agent/i }));
     expect(screen.getByText(/Agent Runtime Credential/i)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/\b(bet|betting|wager|wagering|stake)\b/i);
 
     fireEvent.click(screen.getByRole("button", { name: /Leaderboard/i }));
+    expect(screen.getByText(/@Sui_Agent/i)).toBeInTheDocument();
     expect(screen.getByText(/Display-only handle unverified/i)).toBeInTheDocument();
     expect(screen.queryByText(/^Back Agent$/i)).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/\b(bet|betting|wager|wagering|stake)\b/i);
   });
 });
