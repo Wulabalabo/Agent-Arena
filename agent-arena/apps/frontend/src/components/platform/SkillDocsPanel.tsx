@@ -10,6 +10,8 @@ const skillPaths = [
 ];
 
 export function SkillDocsPanel({ apiBaseUrl }: SkillDocsPanelProps) {
+  const normalizedApiBaseUrl = apiBaseUrl.replace(/\/$/, "");
+
   return (
     <section aria-label="Skill Docs" className="paper-card-sm p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -37,7 +39,12 @@ export function SkillDocsPanel({ apiBaseUrl }: SkillDocsPanelProps) {
           <p className="mt-2 text-xs font-semibold leading-5 text-on-surface-variant">
             Use the registration code to pair an Agent and reveal the Agent Runtime Credential once.
           </p>
-          <p className="mt-2 break-all font-mono text-[11px] font-bold text-on-surface-variant">Runtime endpoint: {apiBaseUrl}</p>
+          <div className="mt-2 grid gap-1 break-all font-mono text-[11px] font-bold text-on-surface-variant">
+            <p>Runtime endpoint: {normalizedApiBaseUrl}</p>
+            <p>Init: POST {normalizedApiBaseUrl}/agent/init</p>
+            <p>Owner claim: POST {normalizedApiBaseUrl}/owner/agents/claim</p>
+            <p>Runtime header: x-agent-arena-agent-token</p>
+          </div>
           <p className="mt-2 text-xs font-bold leading-5 text-on-surface">Do not ask the Agent to sign Sui transactions. Submit intents only.</p>
         </section>
       </div>

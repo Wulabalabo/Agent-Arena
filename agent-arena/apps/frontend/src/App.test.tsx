@@ -28,5 +28,6 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Skills/i }));
     expect(screen.getByText(/agent-arena\/skills\/agent-arena.md/i)).toBeInTheDocument();
+    expect(screen.getByText("Init: POST http://127.0.0.1:8787/api/arena/agent/init")).toBeInTheDocument();
   });
 });

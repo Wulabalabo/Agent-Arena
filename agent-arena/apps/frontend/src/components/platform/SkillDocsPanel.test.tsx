@@ -8,7 +8,10 @@ describe("SkillDocsPanel", () => {
 
     expect(screen.getByText(/^Skill Docs$/i)).toBeInTheDocument();
     expect(screen.getByText(/External Agent integration/i)).toBeInTheDocument();
-    expect(screen.getByText(/http:\/\/127\.0\.0\.1:8787\/api\/arena/i)).toBeInTheDocument();
+    expect(screen.getByText("Runtime endpoint: http://127.0.0.1:8787/api/arena")).toBeInTheDocument();
+    expect(screen.getByText("Init: POST http://127.0.0.1:8787/api/arena/agent/init")).toBeInTheDocument();
+    expect(screen.getByText("Owner claim: POST http://127.0.0.1:8787/api/arena/owner/agents/claim")).toBeInTheDocument();
+    expect(screen.getByText("Runtime header: x-agent-arena-agent-token")).toBeInTheDocument();
     expect(screen.getByText("agent-arena/skills/agent-arena.md")).toBeInTheDocument();
     expect(screen.getByText("agent-arena/skills/deepbook-predict-btc-15m.md")).toBeInTheDocument();
     expect(screen.getByText("agent-arena/skills/agent-wallet.md")).toBeInTheDocument();

@@ -18,7 +18,7 @@ import {
 } from "./state/platform";
 
 const runtimeCredential = "agent_runtime_test_token";
-const apiBaseUrl = "http://127.0.0.1:8787";
+const apiBaseUrl = "http://127.0.0.1:8787/api/arena";
 
 export default function App() {
   const [state, setState] = useState(() => createInitialPlatformState(mockPlatformSnapshot));
