@@ -36,17 +36,18 @@ export interface PairingDraft {
 
 export interface RuntimeCredential {
   token: string;
-  expiresAt: string;
+  shownOnce: boolean;
+  scopes: string[];
 }
 
 export interface TradingWallet {
   id: string;
   agentId: string;
   address: string;
+  status: "active" | "detached";
   testnetSuiBalance: string;
   quoteBalance: string;
   predictManagerStatus: "missing" | "ready";
-  createdAt: string;
 }
 
 export interface Competition {
@@ -87,7 +88,7 @@ export interface RiskDecision {
   intentId: string;
   accepted: boolean;
   rejectionCode: string | null;
-  reason: string;
+  policyMessage: string;
   createdAt: string;
 }
 
@@ -96,7 +97,6 @@ export interface ExecutionRecord {
   intentId: string;
   agentId: string;
   competitionId: string;
-  riskDecisionId: string;
   status: ExecutionStatus;
   predictTxDigest: string | null;
   action: AgentAction;
@@ -121,14 +121,12 @@ export interface LeaderboardEntry {
 
 export interface ReplayEvent {
   id: string;
-  competitionId: string;
-  agentId: string;
+  timestamp: string;
   label: string;
-  intentId: string | null;
-  riskDecisionId: string | null;
-  executionId: string | null;
-  predictTxDigest: string | null;
-  createdAt: string;
+  summary: string;
+  recordId: string;
+  copyValue: string | null;
+  txDigest: string | null;
 }
 
 export interface PlatformSnapshot {

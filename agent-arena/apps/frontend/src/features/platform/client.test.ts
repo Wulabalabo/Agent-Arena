@@ -7,9 +7,10 @@ describe("createPlatformClient", () => {
     const fetcher = vi.fn(async () =>
       new Response(
         JSON.stringify({
-          agentId: "agent_1",
+          agentDraftId: "draft_1",
           displayName: "Trend Ranger",
           registrationCode: "PAIR-2048",
+          claimUrl: "https://platform.test/claim/PAIR-2048",
           expiresAt: "2026-06-16T12:00:00.000Z"
         }),
         { status: 201, headers: { "content-type": "application/json" } }
@@ -20,6 +21,11 @@ describe("createPlatformClient", () => {
     const result = await client.initAgentPairing({ displayName: "Trend Ranger" });
 
     expect(result.registrationCode).toBe("PAIR-2048");
+    expect(result).toMatchObject({
+      agentDraftId: "draft_1",
+      claimUrl: "https://platform.test/claim/PAIR-2048",
+      expiresAt: "2026-06-16T12:00:00.000Z"
+    });
     expect(result).not.toHaveProperty("runtimeCredential");
     expect(fetcher).toHaveBeenCalledWith("https://platform.test/api/arena/agent/init", {
       method: "POST",
@@ -33,9 +39,11 @@ describe("createPlatformClient", () => {
       new Response(
         JSON.stringify({
           agent: mockPlatformSnapshot.agents[0],
+          tradingWallet: mockPlatformSnapshot.tradingWallet,
           runtimeCredential: {
             token: "agent_runtime_test_token",
-            expiresAt: "2026-06-17T12:00:00.000Z"
+            shownOnce: true,
+            scopes: ["agent:read", "agent:intent:write"]
           }
         }),
         { status: 200, headers: { "content-type": "application/json" } }
@@ -55,7 +63,16 @@ describe("createPlatformClient", () => {
       twitterHandle: "Sui_Agent",
       twitterVerified: false
     });
-    expect(result.runtimeCredential.token).toBe("agent_runtime_test_token");
+    expect(result.tradingWallet).toMatchObject({
+      id: "wallet_1",
+      status: "active",
+      address: "0xagentwallet_agent_1"
+    });
+    expect(result.runtimeCredential).toEqual({
+      token: "agent_runtime_test_token",
+      shownOnce: true,
+      scopes: ["agent:read", "agent:intent:write"]
+    });
     expect(fetcher).toHaveBeenCalledWith("https://platform.test/api/arena/owner/agents/claim", {
       method: "POST",
       headers: { "content-type": "application/json" },

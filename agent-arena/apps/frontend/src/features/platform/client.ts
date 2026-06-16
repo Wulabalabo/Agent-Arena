@@ -32,6 +32,7 @@ interface ClaimAgentInput {
 
 interface ClaimAgentResponse {
   agent: AgentProfile;
+  tradingWallet: TradingWallet;
   runtimeCredential: RuntimeCredential;
 }
 
