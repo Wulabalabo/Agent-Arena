@@ -27,10 +27,11 @@ export function LeaderboardPanel({ entries }: LeaderboardPanelProps) {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="paper-label text-on-surface-variant">Rank {entry.rank}</p>
+                  <p className="paper-label text-on-surface-variant">Agent</p>
                   <h3 className="mt-1 truncate font-display text-base font-black uppercase text-on-surface">{entry.displayName}</h3>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span className="paper-chip px-2 py-1">{formatTwitterHandle(entry.twitterHandle)}</span>
-                    {entry.twitterHandle ? <span className="paper-chip px-2 py-1">Handle unverified</span> : null}
+                    {entry.twitterHandle ? <span className="paper-chip px-2 py-1">Display-only handle unverified</span> : null}
                   </div>
                 </div>
                 <div className="text-left sm:text-right">

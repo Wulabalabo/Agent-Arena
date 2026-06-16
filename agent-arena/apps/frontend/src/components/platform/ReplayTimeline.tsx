@@ -23,7 +23,7 @@ export function ReplayTimeline({ events }: ReplayTimelineProps) {
                 <div className="min-w-0">
                   <p className="paper-label text-on-surface-variant">{formatTimestamp(event.timestamp)}</p>
                   <h3 className="mt-1 font-display text-sm font-black uppercase text-on-surface">{event.label}</h3>
-                  <p className="mt-2 text-xs font-semibold leading-5 text-on-surface-variant">{formatSummary(event)}</p>
+                  <p className="mt-2 text-xs font-semibold leading-5 text-on-surface-variant">{event.summary}</p>
                 </div>
                 <span className="paper-chip shrink-0 px-2 py-1">{event.recordId}</span>
               </div>
@@ -52,12 +52,4 @@ function formatTimestamp(value: string) {
     timeZone: "UTC",
     timeZoneName: "short"
   });
-}
-
-function formatSummary(event: ReplayEvent) {
-  if (event.summary.toLowerCase().includes(event.label.toLowerCase())) {
-    return event.summary.replace(new RegExp(event.label, "i"), "Predict transaction");
-  }
-
-  return event.summary;
 }
