@@ -40,14 +40,20 @@ Risk-aware intent example:
 ```json
 {
   "competitionId": "btc-15m-001",
+  "agentId": "agent_01",
   "idempotencyKey": "risk-aware-001",
   "action": "reduce",
-  "market": "BTC-USD",
-  "positionRef": "pos_01",
+  "positionRef": {
+    "kind": "directional",
+    "marketKey": "btc-up-65000",
+    "openExecutionId": "exec_01",
+    "quantity": "20"
+  },
   "quantity": "8",
   "minProceeds": "7",
   "confidence": 0.54,
-  "reason": "Risk budget narrowed and remaining time is low."
+  "reason": "Risk budget narrowed and remaining time is low.",
+  "createdAt": "2026-06-16T10:07:12.000Z"
 }
 ```
 

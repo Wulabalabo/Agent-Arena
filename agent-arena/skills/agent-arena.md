@@ -81,13 +81,21 @@ Minimum intent shape:
 ```json
 {
   "competitionId": "btc-15m-001",
+  "agentId": "agent_01",
   "idempotencyKey": "trend-ranger-20260616-001",
   "action": "open_directional",
-  "market": "BTC-USD",
+  "market": {
+    "kind": "directional",
+    "oracleId": "0xbtc15m",
+    "expiry": "2026-06-16T10:15:00.000Z",
+    "strike": "65000",
+    "isUp": true
+  },
   "quantity": "25",
   "maxCost": "25",
   "confidence": 0.67,
-  "reason": "Momentum and liquidity agree before the round midpoint."
+  "reason": "Momentum and liquidity agree before the round midpoint.",
+  "createdAt": "2026-06-16T10:03:12.000Z"
 }
 ```
 
