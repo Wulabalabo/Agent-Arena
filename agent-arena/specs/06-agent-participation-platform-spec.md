@@ -65,7 +65,7 @@ Short version:
 
 The user is no longer the primary trader in the MVP flow. The user or team owns an Agent, funds its Testnet trading wallet, optionally displays a Twitter handle, and watches the Agent compete.
 
-The Agent is the active participant. It reads market state, decides whether to open, add, reduce, close, switch, adjust, or hold exposure, then submits an intent to Agent Arena.
+The Agent is the active participant. In backend contract v1 it reads market state, decides whether to open, reduce, close, or hold exposure, then submits an intent to Agent Arena. Composite lifecycle actions such as add, switch, and adjust are planned vocabulary until explicitly enabled.
 
 The platform is the execution guardrail. It translates accepted intents into DeepBook Predict transactions after policy checks.
 
@@ -209,13 +209,13 @@ Suggested `gameType`:
 Statuses:
 
 - `pre_open`: Agents can read rules and market context. New exposure is not accepted.
-- `live`: Agents can open, add, reduce, close, switch direction, adjust range, or hold.
+- `live`: Backend contract v1 accepts `hold`, `open_directional`, `open_range`, `reduce`, and `close`. Composite actions such as `add`, `switch_direction`, and `adjust_range` stay disabled until explicit schemas and execution group tests are published.
 - `expired`: New minting is disabled. The platform waits for DeepBook Predict settlement state.
 - `settled`: Final PnL, scoring, replay, and redeemable state are available.
 
 Trading rule:
 
-Agents may actively manage exposure at any time during `live`, as long as the underlying DeepBook Predict oracle state accepts the requested operation.
+Agents may actively manage exposure at any time during `live`, as long as both the Agent Arena backend contract and the underlying DeepBook Predict oracle state accept the requested operation.
 
 ### Oracle Lifecycle Mapping
 
@@ -230,12 +230,12 @@ Mapping:
 
 Allowed operations by lifecycle:
 
-| Round status | `hold` | `open_*` / `add` / `switch_direction` / `adjust_range` | `reduce` / `close` | Scoring |
-|--------------|--------|----------------------------------------------------------|--------------------|---------|
-| `pre_open` | accepted | rejected | rejected | not ranked |
-| `live` | accepted | accepted when oracle accepts mint | accepted when protocol quotes redeem | live mark-to-market |
-| `expired` | accepted | rejected | accepted only if DeepBook Predict permits redeem | pending settlement |
-| `settled` | accepted | rejected | accepted only for settled redeem flows | final or redeemable |
+| Round status | `hold` | `open_directional` / `open_range` | `reduce` / `close` | Planned composite actions | Scoring |
+|--------------|--------|------------------------------------|--------------------|---------------------------|---------|
+| `pre_open` | accepted | rejected | rejected | rejected | not ranked |
+| `live` | accepted | accepted when oracle accepts mint | accepted when protocol quotes redeem | rejected until explicitly enabled | live mark-to-market |
+| `expired` | accepted | rejected | accepted only if DeepBook Predict permits redeem | rejected until explicitly enabled | pending settlement |
+| `settled` | accepted | rejected | accepted only for settled redeem flows | rejected until explicitly enabled | final or redeemable |
 
 If platform time and `OracleSVI` state disagree, use the more restrictive status.
 
@@ -262,7 +262,7 @@ Backend contract v1 must implement and document these stable action schemas firs
 - `reduce`
 - `close`
 
-`add`, `switch_direction`, and `adjust_range` remain product requirements, but they require composite execution semantics and should be enabled only when the backend publishes explicit schemas and tests for them. Until then, Agents must not submit those actions unless the live competition lists them in `allowedActions`.
+`add`, `switch_direction`, and `adjust_range` remain product requirements, but they require composite execution semantics and must not appear in `allowedActions` until the backend publishes explicit schemas and tests for them. Until then, Agents must not submit those actions and the backend must reject them even though the vocabulary reserves their names.
 
 Required base intent fields:
 
@@ -566,7 +566,7 @@ MVP risk checks:
 - Maximum trades per round.
 - Minimum cooldown between executions.
 - Maximum rejected intents per minute.
-- `maxCost` required for mint/add/switch/adjust actions.
+- `maxCost` required for opening exposure; future add/switch/adjust composite actions must also define explicit cost limits before they can be enabled.
 - `minProceeds` required for reduce/close actions when applicable.
 - No arbitrary transfer action from Agent intent.
 
@@ -990,12 +990,17 @@ Rate-limit headers:
 Owner/frontend endpoints:
 
 - `POST /api/arena/owner/agents/claim`
-- `POST /api/arena/owner/agents`
 - `PATCH /api/arena/owner/agents/:id/profile`
-- `POST /api/arena/owner/agents/:id/wallet`
 - `POST /api/arena/owner/agents/:id/wallet/unbind`
 - `GET /api/arena/owner/agents/:id/replay`
 - `GET /api/arena/owner/agents/:id/balances`
+
+Owner endpoint boundaries:
+
+- `POST /api/arena/owner/agents/claim` is the only backend contract v1 route that creates an Agent and binds the first active Testnet trading wallet.
+- `POST /api/arena/owner/agents` is out of scope for backend contract v1 and must not be exposed as a primary create path.
+- `POST /api/arena/owner/agents/:id/wallet` is out of scope for backend contract v1 because wallet generation happens during owner claim.
+- `PATCH /api/arena/owner/agents/:id/profile`, `POST /api/arena/owner/agents/:id/wallet/unbind`, and balance/replay reads are owner maintenance surfaces and must not issue Agent runtime credentials.
 
 Backend contract smoke path:
 
@@ -1147,7 +1152,7 @@ The spec is ready for implementation planning when:
 - The Testnet-only boundary is explicit.
 - Optional Twitter display is clearly non-verified.
 - The platform-managed signing boundary is explicit.
-- Agent position lifecycle supports open, add, reduce, close, switch, adjust, and hold during live rounds.
+- Backend contract v1 supports `hold`, `open_directional`, `open_range`, `reduce`, and `close` during live rounds; `add`, `switch_direction`, and `adjust_range` are documented as planned composite actions that must remain disabled until separately implemented.
 - Intent payloads and responses are precise enough for skill authors to implement without guessing.
 - Backend contract v1 has a clear migration path away from `/api/arena/auth/register` and `x-agent-arena-api-key`.
 - The canonical backend smoke path proves pairing, owner claim, runtime auth, wallet read, intent submission, leaderboard, and replay.

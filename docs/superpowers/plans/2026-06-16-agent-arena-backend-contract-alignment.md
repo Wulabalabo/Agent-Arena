@@ -44,18 +44,30 @@ Backend contract v1 implements these intent action schemas:
 ## File Structure
 
 - Modify `agent-arena/apps/backend/src/platform/types.ts`: Agent profile shape, pairing draft, runtime credential, wallet balance fields, replay event types, allowed action subset.
+- Create `agent-arena/apps/backend/src/platform/types.test.ts`: contract v1 allowed action coverage.
 - Modify `agent-arena/apps/backend/src/platform/auth.ts`: replace API-key terminology with runtime-token terminology and `x-agent-arena-agent-token`.
 - Modify `agent-arena/apps/backend/src/platform/auth.test.ts`: runtime-token tests.
 - Modify `agent-arena/apps/backend/src/platform/mock-store.ts`: pairing draft lifecycle, owner claim, runtime credential storage, replay query helpers.
 - Modify `agent-arena/apps/backend/src/platform/api.ts`: new routes, CORS headers, response shapes, introspection.
 - Modify `agent-arena/apps/backend/src/platform/api.test.ts`: canonical contract tests and deprecated-route guard.
 - Modify `agent-arena/apps/backend/src/platform/execution.test.ts`: ensure seeded competition exposes only contract v1 actions.
+- Modify `agent-arena/apps/backend/src/platform/scoring.ts`: frontend-compatible leaderboard entry shape.
 - Create `agent-arena/apps/backend/src/platform/replay.ts`: derive replay events from intents, risk decisions, and executions.
 - Create `agent-arena/apps/backend/src/platform/replay.test.ts`: replay ordering and tx digest tests.
 - Create `agent-arena/apps/backend/src/platform-contract-smoke.ts`: end-to-end backend contract smoke.
 - Create `agent-arena/scripts/validate-skills.ts`: parse skill JSON blocks and validate intent examples through backend validator.
 - Modify `agent-arena/package.json`: add `smoke:platform` and `validate:skills`.
 - Modify `agent-arena/README.md` and `agent-arena/CHANGES.md`: document the new backend contract commands after implementation.
+
+## Command Convention
+
+Run every command in this plan from the workspace root:
+
+```powershell
+C:\Users\user\Documents\Sui-Overflow-2026
+```
+
+Do not `cd agent-arena` before `git add`; all staged paths in this plan are workspace-root-relative.
 
 ---
 
@@ -199,8 +211,7 @@ it("does not expose deprecated API-key registration in introspection", async () 
 Run:
 
 ```powershell
-cd agent-arena
-bun run --cwd apps/backend test
+bun run --cwd agent-arena/apps/backend test
 ```
 
 Expected: tests fail because routes, store methods, and auth header are still old.
@@ -320,8 +331,7 @@ findRuntimeCredentialByToken(token: string): AgentRuntimeCredential | undefined 
 - [ ] **Step 6: Run auth tests**
 
 ```powershell
-cd agent-arena/apps/backend
-bun test src/platform/auth.test.ts
+bun --cwd agent-arena/apps/backend test src/platform/auth.test.ts
 ```
 
 Expected: auth tests pass.
@@ -339,9 +349,11 @@ git commit -m "feat: add agent runtime token auth"
 
 **Files:**
 - Modify: `agent-arena/apps/backend/src/platform/types.ts`
+- Create: `agent-arena/apps/backend/src/platform/types.test.ts`
 - Modify: `agent-arena/apps/backend/src/platform/mock-store.ts`
 - Modify: `agent-arena/apps/backend/src/platform/validation.ts`
 - Modify: `agent-arena/apps/backend/src/platform/validation.test.ts`
+- Modify: `agent-arena/apps/backend/src/platform/auth.test.ts`
 
 - [ ] **Step 1: Add backend contract types**
 
@@ -361,6 +373,30 @@ export interface AgentPairingDraft {
   createdAt: string;
 }
 ```
+
+Create `types.test.ts` with the backend contract v1 action guard:
+
+```ts
+import { describe, expect, it } from "bun:test";
+import { createMockCompetition } from "./types";
+
+describe("platform contract types", () => {
+  it("exposes only backend contract v1 actions in seeded competitions", () => {
+    expect(createMockCompetition("btc-15m-001").allowedActions).toEqual([
+      "hold",
+      "open_directional",
+      "open_range",
+      "reduce",
+      "close"
+    ]);
+    expect(createMockCompetition("btc-15m-001").allowedActions).not.toContain("add");
+    expect(createMockCompetition("btc-15m-001").allowedActions).not.toContain("switch_direction");
+    expect(createMockCompetition("btc-15m-001").allowedActions).not.toContain("adjust_range");
+  });
+});
+```
+
+Update `createMockCompetition` to return the same v1 action subset in `allowedActions`. Do not narrow `agentActions`; the full vocabulary remains reserved for future schemas and validation errors.
 
 Update `AgentProfile` to expose frontend-compatible fields:
 
@@ -482,7 +518,7 @@ When `bindTradingWallet` succeeds, set `tradingWalletAddress` on the Agent.
 
 - [ ] **Step 5: Preserve execution tests**
 
-Update execution tests that call `store.createAgent` to use a helper:
+Update execution and auth tests that call `store.createAgent` to use a helper:
 
 ```ts
 function createClaimedTestAgent(store: PlatformMockStore, displayName = "Trend Ranger") {
@@ -497,16 +533,15 @@ function createClaimedTestAgent(store: PlatformMockStore, displayName = "Trend R
 - [ ] **Step 6: Run backend tests**
 
 ```powershell
-cd agent-arena/apps/backend
-bun test src/platform/validation.test.ts src/platform/execution.test.ts
+bun --cwd agent-arena/apps/backend test src/platform/types.test.ts src/platform/validation.test.ts src/platform/auth.test.ts src/platform/execution.test.ts
 ```
 
-Expected: validation and execution tests pass.
+Expected: types, validation, auth, and execution tests pass.
 
 - [ ] **Step 7: Commit store changes**
 
 ```powershell
-git add agent-arena/apps/backend/src/platform/types.ts agent-arena/apps/backend/src/platform/mock-store.ts agent-arena/apps/backend/src/platform/validation.ts agent-arena/apps/backend/src/platform/validation.test.ts agent-arena/apps/backend/src/platform/execution.test.ts
+git add agent-arena/apps/backend/src/platform/types.ts agent-arena/apps/backend/src/platform/types.test.ts agent-arena/apps/backend/src/platform/mock-store.ts agent-arena/apps/backend/src/platform/validation.ts agent-arena/apps/backend/src/platform/validation.test.ts agent-arena/apps/backend/src/platform/auth.test.ts agent-arena/apps/backend/src/platform/execution.test.ts
 git commit -m "feat: add pairing draft store"
 ```
 
@@ -640,8 +675,7 @@ Do not include it in introspection.
 - [ ] **Step 6: Run API tests**
 
 ```powershell
-cd agent-arena/apps/backend
-bun test src/platform/api.test.ts
+bun --cwd agent-arena/apps/backend test src/platform/api.test.ts
 ```
 
 Expected: API tests pass.
@@ -655,18 +689,20 @@ git commit -m "feat: align platform api with pairing contract"
 
 ---
 
-### Task 5: Replay And Runtime Read Endpoints
+### Task 5: Leaderboard, Replay, And Runtime Read Endpoints
 
 **Files:**
+- Modify: `agent-arena/apps/backend/src/platform/types.ts`
+- Modify: `agent-arena/apps/backend/src/platform/scoring.ts`
 - Create: `agent-arena/apps/backend/src/platform/replay.ts`
 - Create: `agent-arena/apps/backend/src/platform/replay.test.ts`
 - Modify: `agent-arena/apps/backend/src/platform/mock-store.ts`
 - Modify: `agent-arena/apps/backend/src/platform/api.ts`
 - Modify: `agent-arena/apps/backend/src/platform/api.test.ts`
 
-- [ ] **Step 1: Add replay event type**
+- [ ] **Step 1: Add leaderboard and replay contract types**
 
-In `types.ts`, add:
+In `types.ts`, add `ReplayEvent` and make sure leaderboard responses can expose the frontend contract shape:
 
 ```ts
 export interface ReplayEvent {
@@ -680,7 +716,80 @@ export interface ReplayEvent {
 }
 ```
 
-- [ ] **Step 2: Implement replay builder**
+In `scoring.ts`, update `LeaderboardEntry` to include frontend-required fields:
+
+```ts
+export interface LeaderboardEntry {
+  rank: number;
+  agentId: string;
+  displayName: string;
+  twitterHandle: string | null;
+  twitterVerified: boolean;
+  score: number;
+  netPnlPct: number;
+  maxDrawdownPct: number;
+  capitalEfficiencyPct: number;
+  hitRatePct: number;
+  executionCount: number;
+  invalidIntentCount: number;
+  finalExecutionAt: string;
+}
+```
+
+Keep `sortLeaderboard` deterministic by sorting on `score`, `netPnlPct`, `maxDrawdownPct`, `finalExecutionAt`, and `agentId`, then assign `rank` after sorting.
+
+- [ ] **Step 2: Update leaderboard response builder**
+
+In `api.ts`, update `createLeaderboardEntries` to join Agent profile fields:
+
+```ts
+const agent = store.getAgent(agentId);
+if (!agent) {
+  return null;
+}
+
+return {
+  rank: 0,
+  agentId,
+  displayName: agent.displayName,
+  twitterHandle: agent.twitterHandle,
+  twitterVerified: agent.twitterVerified,
+  score,
+  netPnlPct,
+  maxDrawdownPct,
+  capitalEfficiencyPct,
+  hitRatePct,
+  executionCount,
+  invalidIntentCount,
+  finalExecutionAt
+};
+```
+
+Filter null entries, sort them, then map ranks:
+
+```ts
+return sortLeaderboard(entries).map((entry, index) => ({
+  ...entry,
+  rank: index + 1
+}));
+```
+
+Add or update `api.test.ts` leaderboard assertions:
+
+```ts
+await expect(leaderboard.json()).resolves.toMatchObject({
+  entries: [{
+    rank: 1,
+    agentId: claimed.agent.id,
+    displayName: "Directional Agent",
+    twitterVerified: false,
+    executionCount: 1,
+    invalidIntentCount: 0
+  }]
+});
+```
+
+- [ ] **Step 3: Implement replay builder**
 
 Create `replay.ts`:
 
@@ -744,7 +853,7 @@ export function buildReplayEvents({
 }
 ```
 
-- [ ] **Step 3: Add replay tests**
+- [ ] **Step 4: Add replay tests**
 
 `replay.test.ts` should create one intent, one risk decision, one execution, and assert labels in order:
 
@@ -756,7 +865,7 @@ expect(events.map((event) => event.label)).toEqual([
 ]);
 ```
 
-- [ ] **Step 4: Add API replay route**
+- [ ] **Step 5: Add API replay route**
 
 In `api.ts`, implement:
 
@@ -774,7 +883,7 @@ if (
 
 Use `buildReplayEvents` and return `{ events }`.
 
-- [ ] **Step 5: Add intent read route**
+- [ ] **Step 6: Add intent read route**
 
 Implement `GET /api/arena/intents/:id`:
 
@@ -786,20 +895,19 @@ if (!intent) {
 return jsonResponse({ intent });
 ```
 
-- [ ] **Step 6: Run replay and API tests**
+- [ ] **Step 7: Run leaderboard, replay, and API tests**
 
 ```powershell
-cd agent-arena/apps/backend
-bun test src/platform/replay.test.ts src/platform/api.test.ts
+bun --cwd agent-arena/apps/backend test src/platform/replay.test.ts src/platform/api.test.ts
 ```
 
 Expected: tests pass.
 
-- [ ] **Step 7: Commit replay endpoints**
+- [ ] **Step 8: Commit leaderboard and replay endpoints**
 
 ```powershell
-git add agent-arena/apps/backend/src/platform/replay.ts agent-arena/apps/backend/src/platform/replay.test.ts agent-arena/apps/backend/src/platform/mock-store.ts agent-arena/apps/backend/src/platform/api.ts agent-arena/apps/backend/src/platform/api.test.ts
-git commit -m "feat: add platform replay endpoint"
+git add agent-arena/apps/backend/src/platform/types.ts agent-arena/apps/backend/src/platform/scoring.ts agent-arena/apps/backend/src/platform/replay.ts agent-arena/apps/backend/src/platform/replay.test.ts agent-arena/apps/backend/src/platform/mock-store.ts agent-arena/apps/backend/src/platform/api.ts agent-arena/apps/backend/src/platform/api.test.ts
+git commit -m "feat: add platform leaderboard and replay endpoints"
 ```
 
 ---
@@ -827,9 +935,32 @@ Create `platform-contract-smoke.ts` that:
 3. Calls `POST /api/arena/owner/agents/claim`.
 4. Stores `runtimeCredential.token`.
 5. Calls `/agent/me`, `/agent/wallet`, `/competition/list-active`.
-6. Submits a `hold` intent with `x-agent-arena-agent-token`.
-7. Reads leaderboard and replay.
-8. Throws if any response body contains `apiKey` or if any request needs `x-agent-arena-api-key`.
+6. Submits an executable `open_directional` intent with `x-agent-arena-agent-token`:
+
+```ts
+{
+  competitionId: "btc-15m-001",
+  agentId: claimed.agent.id,
+  idempotencyKey: "smoke-btc-15m-open-001",
+  action: "open_directional",
+  market: {
+    kind: "directional",
+    oracleId: "0xsmoke_oracle_btc_15m",
+    expiry: "2026-06-15T10:15:00.000Z",
+    strike: "65000",
+    isUp: true
+  },
+  quantity: "1",
+  maxCost: "1.00",
+  confidence: 0.61,
+  reason: "Smoke verifies executable backend contract flow.",
+  createdAt: "2026-06-15T10:03:12.000Z"
+}
+```
+
+7. Reads leaderboard and asserts at least one entry includes the claimed Agent display name.
+8. Reads replay and asserts it includes `Predict transaction confirmed` and a non-empty `predictTxDigest`.
+9. Throws if any response body contains `apiKey` or if any request needs `x-agent-arena-api-key`.
 
 The final output must be:
 
@@ -840,8 +971,7 @@ Platform contract smoke passed
 - [ ] **Step 3: Run smoke**
 
 ```powershell
-cd agent-arena
-bun run smoke:platform
+bun run --cwd agent-arena smoke:platform
 ```
 
 Expected: `Platform contract smoke passed`.
@@ -895,8 +1025,7 @@ In `agent-arena/package.json`, add:
 - [ ] **Step 3: Run validation**
 
 ```powershell
-cd agent-arena
-bun run validate:skills
+bun run --cwd agent-arena validate:skills
 ```
 
 Expected: `Skill docs validated`.
@@ -921,10 +1050,9 @@ git commit -m "test: validate agent skill examples"
 Document:
 
 ```powershell
-cd agent-arena
-bun run --cwd apps/backend test
-bun run smoke:platform
-bun run validate:skills
+bun run --cwd agent-arena/apps/backend test
+bun run --cwd agent-arena smoke:platform
+bun run --cwd agent-arena validate:skills
 ```
 
 Also document that runtime auth uses `x-agent-arena-agent-token`, not `x-agent-arena-api-key`.
@@ -946,13 +1074,12 @@ Add a concise checkpoint:
 Run:
 
 ```powershell
-cd agent-arena
-bun run --cwd apps/backend test
-bun run smoke:platform
-bun run validate:skills
-bun run typecheck
-bun run test:frontend
-bun run build
+bun run --cwd agent-arena/apps/backend test
+bun run --cwd agent-arena smoke:platform
+bun run --cwd agent-arena validate:skills
+bun run --cwd agent-arena typecheck
+bun run --cwd agent-arena test:frontend
+bun run --cwd agent-arena build
 git diff --check
 git status --short
 ```
