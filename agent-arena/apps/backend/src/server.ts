@@ -2,6 +2,8 @@ import { join } from "node:path";
 import { handleAttributionRequest, type AttributionStoreLike } from "./attribution";
 import { createPlatformFetchHandler } from "./platform/api";
 import { PlatformMockStore } from "./platform/mock-store";
+import { createInternalPredictFetchHandler } from "./predict/internal-api";
+import { isInternalArenaPath } from "./predict/internal-auth";
 import { SQLiteAttributionStore } from "./sqlite-attribution-store";
 
 export function createAttributionFetchHandler(store: AttributionStoreLike = createDefaultAttributionStore()) {
@@ -10,16 +12,23 @@ export function createAttributionFetchHandler(store: AttributionStoreLike = crea
 
 export function createAgentArenaFetchHandler({
   attributionStore = createDefaultAttributionStore(),
+  internalToken = Bun.env.AGENT_ARENA_INTERNAL_TOKEN,
   platformStore = new PlatformMockStore()
 }: {
   attributionStore?: AttributionStoreLike;
+  internalToken?: string;
   platformStore?: PlatformMockStore;
 } = {}) {
+  const internalPredictFetch = createInternalPredictFetchHandler({ internalToken });
   const platformFetch = createPlatformFetchHandler(platformStore);
   const attributionFetch = createAttributionFetchHandler(attributionStore);
 
   return (request: Request) => {
     const url = new URL(request.url);
+    if (isInternalArenaPath(url.pathname)) {
+      return internalPredictFetch(request);
+    }
+
     if (url.pathname === "/api/arena" || url.pathname.startsWith("/api/arena/")) {
       return platformFetch(request);
     }

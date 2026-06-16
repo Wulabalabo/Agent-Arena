@@ -345,6 +345,8 @@ describe("Agent Arena platform API", () => {
     expect(body.authHeader).toBe("x-agent-arena-agent-token");
     expect(JSON.stringify(body)).not.toContain("x-agent-arena-api-key");
     expect(JSON.stringify(body)).not.toContain("/api/arena/auth/register");
+    expect(JSON.stringify(body)).not.toContain("x-agent-arena-internal-token");
+    expect(JSON.stringify(body)).not.toContain("/api/arena/internal");
   });
 });
 

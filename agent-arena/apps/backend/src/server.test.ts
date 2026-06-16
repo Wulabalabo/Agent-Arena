@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { createAttributionFetchHandler, getDefaultAttributionDbPath } from "./server";
+import {
+  createAgentArenaFetchHandler,
+  createAttributionFetchHandler,
+  getDefaultAttributionDbPath
+} from "./server";
 import { AttributionStore, type CreateAttributionInput } from "./attribution";
 
 const input: CreateAttributionInput = {
@@ -43,5 +47,33 @@ describe("createAttributionFetchHandler", () => {
 describe("getDefaultAttributionDbPath", () => {
   it("defaults attribution persistence to a local SQLite data file", () => {
     expect(getDefaultAttributionDbPath()).toMatch(/data[/\\]agent-arena\.sqlite$/);
+  });
+});
+
+describe("createAgentArenaFetchHandler", () => {
+  it("rejects internal routes without the internal token", async () => {
+    const fetch = createAgentArenaFetchHandler({ internalToken: "secret" });
+    const response = await fetch(new Request("http://localhost/api/arena/internal/wallets"));
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "UNAUTHORIZED"
+      }
+    });
+  });
+
+  it("routes authenticated internal requests to the placeholder handler", async () => {
+    const fetch = createAgentArenaFetchHandler({ internalToken: "secret" });
+    const response = await fetch(new Request("http://localhost/api/arena/internal/wallets", {
+      headers: { "x-agent-arena-internal-token": "secret" }
+    }));
+
+    expect(response.status).toBe(501);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "NOT_IMPLEMENTED"
+      }
+    });
   });
 });

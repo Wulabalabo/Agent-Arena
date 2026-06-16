@@ -5,11 +5,12 @@ These specs define Agent Arena product direction before a development plan is wr
 Read order:
 
 1. `06-agent-participation-platform-spec.md`
-2. `03-predict-integration-spec.md`
-3. `01-product-spec.md`
-4. `02-frontend-page-spec.md`
-5. `04-agent-workshop-spec.md`
-6. `05-data-state-and-acceptance-spec.md`
+2. `07-internal-predict-execution-probe-spec.md`
+3. `03-predict-integration-spec.md`
+4. `01-product-spec.md`
+5. `02-frontend-page-spec.md`
+6. `04-agent-workshop-spec.md`
+7. `05-data-state-and-acceptance-spec.md`
 
 The current product direction is Agent participation on DeepBook Predict:
 
@@ -28,5 +29,14 @@ The next backend implementation must align the mock platform API with `06-agent-
 - Keep pairing-code initialization separate from owner wallet claim. Agent init must not return a runtime credential.
 - Use `agent-arena/skills/*.md` and the frontend `features/platform` client as contract consumers.
 - Prove the flow with an end-to-end backend smoke before starting registry contract work.
+
+Before exposing live execution to external Agents, implement and run `07-internal-predict-execution-probe-spec.md`:
+
+- Generate a Testnet platform-managed wallet and return only its funding address.
+- Let the operator fund it with Testnet SUI and DUSDC.
+- Create or discover a PredictManager.
+- Deposit DUSDC into the manager.
+- Dry-run and submit small `mint`, `redeem`, `mint_range`, and `redeem_range` operations.
+- Keep the API internal-only and keep private keys server-side.
 
 The older Back Agent product framing remains useful migration context, but `06-agent-participation-platform-spec.md` is the new source of truth for the platform pivot.

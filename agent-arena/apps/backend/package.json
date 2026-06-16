@@ -11,5 +11,8 @@
   },
   "devDependencies": {
     "@types/bun": "latest"
+  },
+  "dependencies": {
+    "@mysten/sui": "^2.18.0"
   }
 }
