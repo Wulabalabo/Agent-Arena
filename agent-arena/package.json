@@ -9,6 +9,7 @@
     "dev:backend": "bun run --cwd apps/backend dev",
     "dev:frontend": "bun run --cwd apps/frontend dev",
     "smoke:attribution": "bun run --cwd apps/backend smoke:attribution",
+    "smoke:platform": "bun run apps/backend/src/platform-contract-smoke.ts",
     "test:backend": "bun run --cwd apps/backend test",
     "test:frontend": "bun run --cwd apps/frontend test",
     "typecheck": "bun run --cwd apps/frontend typecheck",
