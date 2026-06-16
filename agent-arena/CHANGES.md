@@ -1,5 +1,11 @@
 # Agent Arena Changes
 
+## 2026-06-16 - Backend Contract Alignment
+
+- Replaced primary API-key registration with pairing-code init and owner claim.
+- Runtime calls now use `x-agent-arena-agent-token`.
+- Added platform contract smoke and skill JSON validation.
+
 ## 2026-06-14 - Predict-native attribution MVP
 
 - Reworked the Agent Arena demo around Sui Predict-native rounds, Back Agent flows, Predict-style position lifecycle management, and testnet readiness.
