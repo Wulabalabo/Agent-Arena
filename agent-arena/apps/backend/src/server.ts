@@ -13,13 +13,15 @@ export function createAttributionFetchHandler(store: AttributionStoreLike = crea
 export function createAgentArenaFetchHandler({
   attributionStore = createDefaultAttributionStore(),
   internalToken = Bun.env.AGENT_ARENA_INTERNAL_TOKEN,
-  platformStore = new PlatformMockStore()
+  platformStore = new PlatformMockStore(),
+  predictEnv
 }: {
   attributionStore?: AttributionStoreLike;
   internalToken?: string;
   platformStore?: PlatformMockStore;
+  predictEnv?: Record<string, string | undefined>;
 } = {}) {
-  const internalPredictFetch = createInternalPredictFetchHandler({ internalToken });
+  const internalPredictFetch = createInternalPredictFetchHandler({ internalToken, env: predictEnv });
   const platformFetch = createPlatformFetchHandler(platformStore);
   const attributionFetch = createAttributionFetchHandler(attributionStore);
 

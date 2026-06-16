@@ -1,0 +1,412 @@
+import { createMemoryExecutionStore } from "./predict/execution-store";
+import { createPredictConfig } from "./predict/config";
+import { internalTokenHeader } from "./predict/internal-auth";
+import { createInternalPredictFetchHandler } from "./predict/internal-api";
+import type { CoinBalanceReader, PredictConfig } from "./predict/types";
+import { createJsonWalletStore } from "./predict/wallet-store";
+
+type CliMode =
+  | "create-wallet"
+  | "check-balances"
+  | "setup"
+  | "preview-up"
+  | "mint-up"
+  | "redeem-last"
+  | "close-last"
+  | "mint-range"
+  | "redeem-range-last";
+
+interface ParsedArgs {
+  mode: CliMode;
+  values: Map<string, string | true>;
+}
+
+const privateMaterialKeys = new Set([
+  "privateKey",
+  "encryptedPrivateKey",
+  "secretKey",
+  "walletSecret",
+  "x-agent-arena-internal-token"
+]);
+
+export function redactSmokeOutput<T>(value: T): T {
+  return redactValue(value) as T;
+}
+
+export function createJsonRpcBalanceReader(config: PredictConfig): CoinBalanceReader {
+  return {
+    async getSuiBalance(address) {
+      return await getBalanceRaw(config.suiRpcUrl, [address]);
+    },
+    async getCoinBalance(address, coinType) {
+      return await getBalanceRaw(config.suiRpcUrl, [address, coinType]);
+    }
+  };
+}
+
+export function buildUnresolvedCloseLastResponse(input: {
+  walletId: string;
+  minProceedsRaw: string;
+}): Record<string, unknown> {
+  const message = "Live close-last needs backend-resolved position quantity before a transaction can be built.";
+
+  return {
+    safetyStatus: "PREDICT_SUBMIT_DISABLED",
+    submitAttempted: false,
+    walletId: input.walletId,
+    minProceedsRaw: input.minProceedsRaw,
+    positionResolution: {
+      status: "not_wired",
+      code: "POSITION_RESOLUTION_NOT_WIRED",
+      message
+    },
+    error: {
+      code: "POSITION_RESOLUTION_NOT_WIRED",
+      message
+    }
+  };
+}
+
+export async function runInternalPredictExecutionSmoke(argv: string[] = Bun.argv.slice(2)): Promise<number> {
+  try {
+    const parsed = parseArgs(argv);
+    const config = createPredictConfig(Bun.env);
+    const walletStorePath = resolveStorePath(
+      Bun.env.AGENT_ARENA_WALLET_STORE_PATH,
+      "data/internal-wallets.json"
+    );
+    const walletStore = createJsonWalletStore({
+      walletSecret: config.walletSecret,
+      balanceReader: createJsonRpcBalanceReader(config),
+      quoteAssetType: config.quoteAssetType,
+      storePath: walletStorePath
+    });
+    const fetchInternal = createInternalPredictFetchHandler({
+      internalToken: config.internalToken,
+      walletStore,
+      executionStore: createMemoryExecutionStore(),
+      quoteAssetType: config.quoteAssetType,
+      env: Bun.env
+    });
+
+    const result = await executeMode(parsed, fetchInternal, config);
+    printJson({
+      ok: true,
+      network: config.network,
+      mode: parsed.mode,
+      walletStorePath,
+      ...result
+    });
+    return 0;
+  } catch (error) {
+    printJson({
+      ok: false,
+      error: error instanceof Error
+        ? { code: error.message, message: error.message }
+        : { code: "UNKNOWN_ERROR", message: "Unknown error" }
+    });
+    return 1;
+  }
+}
+
+async function executeMode(
+  parsed: ParsedArgs,
+  fetchInternal: (request: Request) => Promise<Response>,
+  config: PredictConfig
+): Promise<Record<string, unknown>> {
+  switch (parsed.mode) {
+    case "create-wallet":
+      return await callInternal(fetchInternal, "/api/arena/internal/wallets", {
+        agentId: valueOrDefault(parsed, "agent-id", "agent_internal_smoke"),
+        bindingMode: "internal_probe",
+        label: valueOrDefault(parsed, "label", "internal-predict-smoke")
+      }, "POST", config.internalToken);
+
+    case "check-balances": {
+      const walletId = requiredArg(parsed, "wallet-id");
+      return await callInternal(
+        fetchInternal,
+        `/api/arena/internal/wallets/${encodeURIComponent(walletId)}/balances`,
+        undefined,
+        "GET",
+        config.internalToken
+      );
+    }
+
+    case "setup":
+      return await callInternal(fetchInternal, "/api/arena/internal/predict/setup", {
+        walletId: requiredArg(parsed, "wallet-id"),
+        depositDusdcRaw: requiredArg(parsed, "deposit-dusdc-raw"),
+        dryRunOnly: true
+      }, "POST", config.internalToken);
+
+    case "preview-up":
+      return await callInternal(fetchInternal, "/api/arena/internal/predict/preview", {
+        walletId: requiredArg(parsed, "wallet-id"),
+        operation: "mint_directional",
+        direction: "up",
+        quantityRaw: requiredArg(parsed, "quantity-raw"),
+        expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
+        strikeRaw: requiredArgOrEnv(parsed, "strike-raw", "AGENT_ARENA_SMOKE_STRIKE_RAW")
+      }, "POST", config.internalToken);
+
+    case "mint-up": {
+      const maxCostRaw = requiredArg(parsed, "max-cost-raw");
+      return await disabledExecute(fetchInternal, config.internalToken, {
+        walletId: requiredArg(parsed, "wallet-id"),
+        operation: "mint_directional",
+        direction: "up",
+        quantityRaw: requiredArg(parsed, "quantity-raw"),
+        maxCostRaw,
+        estimatedCostRaw: maxCostRaw,
+        expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
+        strikeRaw: requiredArgOrEnv(parsed, "strike-raw", "AGENT_ARENA_SMOKE_STRIKE_RAW")
+      });
+    }
+
+    case "redeem-last": {
+      const minProceedsRaw = requiredArg(parsed, "min-proceeds-raw");
+      return await disabledExecute(fetchInternal, config.internalToken, {
+        walletId: requiredArg(parsed, "wallet-id"),
+        operation: "redeem_directional",
+        direction: "up",
+        quantityRaw: requiredArg(parsed, "quantity-raw"),
+        minProceedsRaw,
+        estimatedProceedsRaw: minProceedsRaw,
+        expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
+        strikeRaw: requiredArgOrEnv(parsed, "strike-raw", "AGENT_ARENA_SMOKE_STRIKE_RAW")
+      });
+    }
+
+    case "close-last": {
+      const minProceedsRaw = requiredArg(parsed, "min-proceeds-raw");
+      const resolvedQuantityRaw = optionalArg(parsed, "resolved-quantity-raw");
+      if (!resolvedQuantityRaw) {
+        return buildUnresolvedCloseLastResponse({
+          walletId: requiredArg(parsed, "wallet-id"),
+          minProceedsRaw
+        });
+      }
+
+      return await disabledExecute(fetchInternal, config.internalToken, {
+        walletId: requiredArg(parsed, "wallet-id"),
+        operation: "close_directional",
+        direction: "up",
+        resolvedQuantityRaw,
+        minProceedsRaw,
+        estimatedProceedsRaw: minProceedsRaw,
+        expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
+        strikeRaw: requiredArgOrEnv(parsed, "strike-raw", "AGENT_ARENA_SMOKE_STRIKE_RAW")
+      });
+    }
+
+    case "mint-range": {
+      const maxCostRaw = requiredArg(parsed, "max-cost-raw");
+      return await disabledExecute(fetchInternal, config.internalToken, {
+        walletId: requiredArg(parsed, "wallet-id"),
+        operation: "mint_range",
+        quantityRaw: requiredArg(parsed, "quantity-raw"),
+        maxCostRaw,
+        estimatedCostRaw: maxCostRaw,
+        expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
+        lowerStrikeRaw: requiredArgOrEnv(parsed, "lower-strike-raw", "AGENT_ARENA_SMOKE_LOWER_STRIKE_RAW"),
+        higherStrikeRaw: requiredArgOrEnv(parsed, "higher-strike-raw", "AGENT_ARENA_SMOKE_HIGHER_STRIKE_RAW")
+      });
+    }
+
+    case "redeem-range-last": {
+      const minProceedsRaw = requiredArg(parsed, "min-proceeds-raw");
+      return await disabledExecute(fetchInternal, config.internalToken, {
+        walletId: requiredArg(parsed, "wallet-id"),
+        operation: "redeem_range",
+        quantityRaw: requiredArg(parsed, "quantity-raw"),
+        minProceedsRaw,
+        estimatedProceedsRaw: minProceedsRaw,
+        expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
+        lowerStrikeRaw: requiredArgOrEnv(parsed, "lower-strike-raw", "AGENT_ARENA_SMOKE_LOWER_STRIKE_RAW"),
+        higherStrikeRaw: requiredArgOrEnv(parsed, "higher-strike-raw", "AGENT_ARENA_SMOKE_HIGHER_STRIKE_RAW")
+      });
+    }
+  }
+}
+
+async function disabledExecute(
+  fetchInternal: (request: Request) => Promise<Response>,
+  internalToken: string,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const response = await callInternal(
+    fetchInternal,
+    "/api/arena/internal/predict/execute",
+    body,
+    "POST",
+    internalToken
+  );
+
+  return {
+    safetyStatus: "PREDICT_SUBMIT_DISABLED",
+    submitAttempted: false,
+    response
+  };
+}
+
+async function callInternal(
+  fetchInternal: (request: Request) => Promise<Response>,
+  pathname: string,
+  body: Record<string, unknown> | undefined,
+  method: "GET" | "POST",
+  internalToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchInternal(new Request(`http://localhost${pathname}`, {
+    method,
+    headers: {
+      "content-type": "application/json",
+      [internalTokenHeader]: internalToken
+    },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  }));
+  const payload = await response.json() as Record<string, unknown>;
+  return {
+    httpStatus: response.status,
+    ...payload
+  };
+}
+
+function parseArgs(argv: string[]): ParsedArgs {
+  const values = new Map<string, string | true>();
+  let mode: CliMode | undefined;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]!;
+    if (!arg.startsWith("--")) {
+      throw new Error(`INVALID_ARG_${arg}`);
+    }
+
+    const key = arg.slice(2);
+    if (isMode(key)) {
+      if (mode) {
+        throw new Error("MULTIPLE_MODES");
+      }
+      mode = key;
+      values.set(key, true);
+      continue;
+    }
+
+    const next = argv[index + 1];
+    if (next === undefined || next.startsWith("--")) {
+      throw new Error(`MISSING_VALUE_${key}`);
+    }
+    values.set(key, next);
+    index += 1;
+  }
+
+  if (!mode) {
+    throw new Error("MISSING_MODE");
+  }
+
+  return { mode, values };
+}
+
+function isMode(value: string): value is CliMode {
+  return value === "create-wallet" ||
+    value === "check-balances" ||
+    value === "setup" ||
+    value === "preview-up" ||
+    value === "mint-up" ||
+    value === "redeem-last" ||
+    value === "close-last" ||
+    value === "mint-range" ||
+    value === "redeem-range-last";
+}
+
+function requiredArg(parsed: ParsedArgs, key: string): string {
+  const value = parsed.values.get(key);
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`MISSING_${key.toUpperCase().replaceAll("-", "_")}`);
+  }
+  return value;
+}
+
+function valueOrDefault(parsed: ParsedArgs, key: string, fallback: string): string {
+  const value = parsed.values.get(key);
+  return typeof value === "string" && value.trim() !== "" ? value : fallback;
+}
+
+function optionalArg(parsed: ParsedArgs, key: string): string | undefined {
+  const value = parsed.values.get(key);
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function requiredArgOrEnv(parsed: ParsedArgs, key: string, envKey: string): string {
+  const value = parsed.values.get(key);
+  if (typeof value === "string" && value.trim() !== "") {
+    return value;
+  }
+
+  const envValue = Bun.env[envKey]?.trim();
+  if (envValue) {
+    return envValue;
+  }
+
+  throw new Error(`MISSING_${key.toUpperCase().replaceAll("-", "_")}_OR_${envKey}`);
+}
+
+function resolveStorePath(envPath: string | undefined, fallback: string): string {
+  const trimmed = envPath?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : fallback;
+}
+
+async function getBalanceRaw(rpcUrl: string, params: string[]): Promise<string> {
+  const response = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "suix_getBalance",
+      params
+    })
+  });
+  const payload = await response.json() as {
+    result?: { totalBalance?: unknown };
+    error?: { message?: string };
+  };
+
+  if (!response.ok || payload.error) {
+    throw new Error(`SUI_BALANCE_RPC_FAILED${payload.error?.message ? `: ${payload.error.message}` : ""}`);
+  }
+
+  if (typeof payload.result?.totalBalance !== "string") {
+    throw new Error("SUI_BALANCE_RPC_INVALID_RESPONSE");
+  }
+
+  return payload.result.totalBalance;
+}
+
+function printJson(value: unknown): void {
+  console.log(JSON.stringify(redactSmokeOutput(value), null, 2));
+}
+
+function redactValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactValue(item));
+  }
+
+  if (typeof value === "object" && value !== null) {
+    const redacted: Record<string, unknown> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (privateMaterialKeys.has(key)) {
+        continue;
+      }
+      redacted[key] = redactValue(nestedValue);
+    }
+    return redacted;
+  }
+
+  return value;
+}
+
+if (import.meta.main) {
+  const exitCode = await runInternalPredictExecutionSmoke();
+  process.exit(exitCode);
+}

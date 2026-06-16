@@ -34,9 +34,9 @@ Before exposing live execution to external Agents, implement and run `07-interna
 
 - Generate a Testnet platform-managed wallet and return only its funding address.
 - Let the operator fund it with Testnet SUI and DUSDC.
-- Create or discover a PredictManager.
-- Deposit DUSDC into the manager.
-- Dry-run and submit small `mint`, `redeem`, `mint_range`, and `redeem_range` operations.
+- Plan PredictManager creation or discovery.
+- Keep DUSDC deposit as a blocked setup step until manager/deposit PTB construction and Testnet ABI dry-run are wired and reviewed.
+- Preview small `mint`, `redeem`, `mint_range`, and `redeem_range` operations, then keep real submit disabled until PTB construction and Testnet ABI dry-run are wired and reviewed.
 - Keep the API internal-only and keep private keys server-side.
 
 The older Back Agent product framing remains useful migration context, but `06-agent-participation-platform-spec.md` is the new source of truth for the platform pivot.

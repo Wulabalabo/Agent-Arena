@@ -9,6 +9,7 @@
     "dev:backend": "bun run --cwd apps/backend dev",
     "dev:frontend": "bun run --cwd apps/frontend dev",
     "smoke:attribution": "bun run --cwd apps/backend smoke:attribution",
+    "smoke:predict": "bun run --cwd apps/backend smoke:predict",
     "smoke:platform": "bun run apps/backend/src/platform-contract-smoke.ts",
     "validate:skills": "bun run scripts/validate-skills.ts",
     "test:backend": "bun run --cwd apps/backend test",

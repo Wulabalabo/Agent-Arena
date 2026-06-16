@@ -63,16 +63,21 @@ describe("createAgentArenaFetchHandler", () => {
     });
   });
 
-  it("routes authenticated internal requests to the placeholder handler", async () => {
-    const fetch = createAgentArenaFetchHandler({ internalToken: "secret" });
+  it("fails closed for authenticated internal wallet creation when Predict config is missing", async () => {
+    const fetch = createAgentArenaFetchHandler({ internalToken: "secret", predictEnv: {} });
     const response = await fetch(new Request("http://localhost/api/arena/internal/wallets", {
-      headers: { "x-agent-arena-internal-token": "secret" }
+      method: "POST",
+      headers: { "x-agent-arena-internal-token": "secret" },
+      body: JSON.stringify({
+        agentId: "agent_internal_001",
+        bindingMode: "internal_probe"
+      })
     }));
 
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(503);
     await expect(response.json()).resolves.toMatchObject({
       error: {
-        code: "NOT_IMPLEMENTED"
+        code: "PREDICT_CONFIG_REQUIRED"
       }
     });
   });

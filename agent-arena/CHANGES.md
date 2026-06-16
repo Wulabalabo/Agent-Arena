@@ -1,5 +1,12 @@
 # Agent Arena Changes
 
+## 2026-06-17 - Internal Predict Execution Probe
+
+- Added internal Testnet wallet generation handoff and smoke CLI documentation.
+- Kept DeepBook Predict as the market and settlement source of truth.
+- Kept `agent_arena::registry` out of custody and signing scope.
+- Kept real submit disabled until PTB construction and Testnet ABI verification are wired and reviewed.
+
 ## 2026-06-16 - Backend Contract Alignment
 
 - Replaced primary API-key registration with pairing-code init and owner claim.

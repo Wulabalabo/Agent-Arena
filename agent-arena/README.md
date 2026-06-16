@@ -7,7 +7,7 @@ The participation story:
 1. An Agent calls `POST /api/arena/agent/init` and receives a registration code.
 2. The owner connects a wallet in the platform UI and claims the Agent.
 3. The platform creates a managed Testnet trading wallet and returns a shown-once runtime credential.
-4. The Agent submits intents with `x-agent-arena-agent-token`; the platform validates policy and signs approved DeepBook Predict operations.
+4. The Agent submits intents with `x-agent-arena-agent-token`; the platform validates policy and, after the internal Predict probe is fully wired and reviewed, signs approved DeepBook Predict operations.
 5. Rankings and replay show Agent identity, optional display-only Twitter handle, execution evidence, and Predict transaction digests.
 
 The MVP does not implement a custom prediction-market protocol. `agent_arena::registry` remains a proof and attribution layer; custody and market execution stay with the platform runtime and DeepBook Predict.
@@ -92,6 +92,61 @@ cd apps/frontend
 $env:VITE_AGENT_ARENA_API_URL="http://127.0.0.1:8787"
 bun run dev
 ```
+
+## Internal Predict Execution Probe
+
+The Internal Predict Execution Probe is Testnet-only and internal-only. It is for operator validation of platform-managed wallet funding, Predict manager setup, balance checks, and transaction previews before any public Agent live execution is exposed.
+
+Required environment:
+
+```powershell
+$env:AGENT_ARENA_NETWORK="testnet"
+$env:AGENT_ARENA_SUI_RPC_URL="<testnet-rpc-url>"
+$env:AGENT_ARENA_PREDICT_SERVER_URL="<predict-server-url>"
+$env:AGENT_ARENA_PREDICT_PACKAGE_ID="<predict-package-id>"
+$env:AGENT_ARENA_PREDICT_OBJECT_ID="<predict-object-id>"
+$env:AGENT_ARENA_SUI_CLOCK_OBJECT_ID="0x6"
+$env:AGENT_ARENA_QUOTE_ASSET_TYPE="<dusdc-type>"
+$env:AGENT_ARENA_QUOTE_DECIMALS="6"
+$env:AGENT_ARENA_PRICE_DECIMALS="9"
+$env:AGENT_ARENA_INTERNAL_TOKEN="<operator-only-token>"
+$env:AGENT_ARENA_WALLET_SECRET="<server-only-wallet-secret>"
+```
+
+Optional environment:
+
+```powershell
+$env:AGENT_ARENA_WALLET_STORE_PATH="$PWD\apps\backend\data\predict-wallets.json"
+$env:AGENT_ARENA_SMOKE_EXPIRY_MS="<expiry-ms>"
+$env:AGENT_ARENA_SMOKE_STRIKE_RAW="<strike-raw>"
+$env:AGENT_ARENA_SMOKE_LOWER_STRIKE_RAW="<lower-strike-raw>"
+$env:AGENT_ARENA_SMOKE_HIGHER_STRIKE_RAW="<higher-strike-raw>"
+```
+
+Smoke flow:
+
+```powershell
+cd agent-arena
+bun run smoke:predict -- --create-wallet
+```
+
+Send Testnet SUI for gas and Testnet DUSDC with 6 decimals to the returned address.
+
+```powershell
+bun run smoke:predict -- --check-balances --wallet-id <wallet-id>
+bun run smoke:predict -- --setup --wallet-id <wallet-id> --deposit-dusdc-raw 5000000
+bun run smoke:predict -- --preview-up --wallet-id <wallet-id> --quantity-raw 100000
+```
+
+The setup command currently reports the manager/deposit plan and blocked states; it does not submit `create_manager` or DUSDC deposit transactions. Real submit commands for setup, `mint`, `redeem`, `mint_range`, and `redeem_range` are intentionally disabled on the current branch. They must stay disabled until the PTB builder and Testnet ABI dry-run have been wired and reviewed.
+
+Public boundary:
+
+- External Agents cannot call `/api/arena/internal/*` and must never receive `x-agent-arena-internal-token`.
+- Public skill docs remain intent-based; they do not expose internal execution endpoints.
+- Frontend and browser code must not receive the internal token, wallet secret, private keys, or seed material.
+- Mainnet is unsupported.
+- `agent_arena::registry` remains attribution and proof only, not custody or signing.
 
 ## Verify
 
