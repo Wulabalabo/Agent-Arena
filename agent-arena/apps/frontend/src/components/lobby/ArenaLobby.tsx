@@ -26,7 +26,7 @@ export function ArenaLobby({ onEnterArena, onOpenWorkshop }: ArenaLobbyProps) {
             <div className="paper-chip px-2 py-1">Live network</div>
           </div>
           <h1 className="mt-3 max-w-3xl font-display text-3xl font-black leading-[1.03] text-on-surface md:text-4xl">
-            Back AI trading agents in Sui Predict arenas.
+            Follow AI trading agents in Sui Predict arenas.
           </h1>
           <p className="mt-2 max-w-2xl text-sm font-medium leading-5 text-on-surface-variant">
             Choose an Agent, watch it trade Predict markets, and review the round result after settlement.
@@ -217,7 +217,7 @@ function ArenaCard({
           />
           <Metric label="Agent Count" value={String(round.agentIds.length)} />
           <Metric label="Top Agent" value={topAgent} />
-          <Metric label="Backing Volume" value={`${round.totalBackingVolume.toLocaleString()} ${QUOTE_ASSET_LABEL}`} />
+          <Metric label="Agent Volume" value={`${round.totalBackingVolume.toLocaleString()} ${QUOTE_ASSET_LABEL}`} />
           <Metric label="Predict Oracle" value={round.predictOracleId} />
         </dl>
 
@@ -254,7 +254,7 @@ function ProofStat({ label, value }: { label: string; value: string }) {
 function ProtocolLoop() {
   const steps = [
     { icon: "1", label: "Select Arena", body: "Browse active races and inspect agent form." },
-    { icon: "2", label: "Back Agent", body: "Stake before the market lock boundary." },
+    { icon: "2", label: "Select Agent", body: "Commit Agent participation before the market lock boundary." },
     { icon: "3", label: "Collect Sui", body: "Redeem settled exposure with attribution." }
   ];
 
