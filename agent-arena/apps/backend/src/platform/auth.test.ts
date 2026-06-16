@@ -1,61 +1,87 @@
 import { describe, expect, it } from "bun:test";
-import { authenticateAgentRequest, createAgentCredential } from "./auth";
+import {
+  authenticateAgentRuntimeRequest,
+  createAgentRuntimeCredential,
+  runtimeTokenHeader
+} from "./auth";
 import { PlatformMockStore } from "./mock-store";
 
-describe("Agent API auth", () => {
-  it("creates one visible API key and authenticates by header", () => {
-    const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "Trend Ranger", twitterHandle: "Sui_Agent" });
-    const credential = createAgentCredential(store, agent.id, "2026-06-15T10:00:00.000Z");
+function createClaimedTestAgent(store: PlatformMockStore, displayName = "Trend Ranger") {
+  return store.createClaimedAgent({
+    displayName,
+    ownerAddress: "0xowner",
+    twitterHandle: "Sui_Agent"
+  });
+}
 
-    expect(credential.apiKey).toStartWith("agent_arena_sk_");
+describe("Agent runtime token auth", () => {
+  it("creates one visible runtime token and authenticates by header", () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store);
+    const credential = createAgentRuntimeCredential(store, agent.id, "2026-06-15T10:00:00.000Z");
+
+    expect(credential.token).toStartWith("agent_runtime_");
+    expect(credential.scopes).toEqual([
+      "agent:read",
+      "agent:intent:write",
+      "competition:read",
+      "execution:read"
+    ]);
 
     const request = new Request("http://localhost/api/arena/agent/me", {
-      headers: { "x-agent-arena-api-key": credential.apiKey }
+      headers: { [runtimeTokenHeader]: credential.token }
     });
 
-    expect(authenticateAgentRequest(request, store).agentId).toBe(agent.id);
+    expect(authenticateAgentRuntimeRequest(request, store).agentId).toBe(agent.id);
   });
 
-  it("rejects missing credentials", () => {
+  it("rejects missing runtime tokens", () => {
     const store = new PlatformMockStore();
     const request = new Request("http://localhost/api/arena/agent/me");
 
-    expect(() => authenticateAgentRequest(request, store)).toThrow("UNAUTHORIZED");
+    expect(() => authenticateAgentRuntimeRequest(request, store)).toThrow("UNAUTHORIZED");
   });
 
-  it("rejects unknown credentials", () => {
+  it("rejects unknown runtime tokens", () => {
     const store = new PlatformMockStore();
     const request = new Request("http://localhost/api/arena/agent/me", {
-      headers: { "x-agent-arena-api-key": "agent_arena_sk_unknown" }
+      headers: { [runtimeTokenHeader]: "agent_runtime_unknown" }
     });
 
-    expect(() => authenticateAgentRequest(request, store)).toThrow("UNAUTHORIZED");
+    expect(() => authenticateAgentRuntimeRequest(request, store)).toThrow("UNAUTHORIZED");
   });
 
-  it("rejects credential creation for unknown agents", () => {
+  it("rejects runtime credential creation for unknown agents", () => {
     const store = new PlatformMockStore();
 
-    expect(() => createAgentCredential(store, "agent_missing", "2026-06-15T10:00:00.000Z")).toThrow(
+    expect(() => createAgentRuntimeCredential(store, "agent_missing", "2026-06-15T10:00:00.000Z")).toThrow(
       "UNAUTHORIZED"
     );
   });
 
   it("does not expose mutable store records", () => {
     const store = new PlatformMockStore();
-    const agent = store.createAgent({ name: "Trend Ranger", twitterHandle: "Sui_Agent" });
-    const credential = createAgentCredential(store, agent.id, "2026-06-15T10:00:00.000Z");
-    const apiKey = credential.apiKey;
+    const agent = createClaimedTestAgent(store);
+    const credential = createAgentRuntimeCredential(store, agent.id, "2026-06-15T10:00:00.000Z");
+    const token = credential.token;
 
-    agent.name = "Mutated";
+    agent.displayName = "Mutated";
     credential.agentId = "agent_mutated";
+    credential.scopes.push("admin");
 
-    expect(store.getAgent(agent.id)?.name).toBe("Trend Ranger");
+    expect(store.getAgent(agent.id)?.displayName).toBe("Trend Ranger");
+    expect(store.findRuntimeCredentialByToken(token)?.agentId).toBe(agent.id);
+    expect(store.findRuntimeCredentialByToken(token)?.scopes).toEqual([
+      "agent:read",
+      "agent:intent:write",
+      "competition:read",
+      "execution:read"
+    ]);
 
     const request = new Request("http://localhost/api/arena/agent/me", {
-      headers: { "x-agent-arena-api-key": apiKey }
+      headers: { [runtimeTokenHeader]: token }
     });
 
-    expect(authenticateAgentRequest(request, store).agentId).toBe(agent.id);
+    expect(authenticateAgentRuntimeRequest(request, store).agentId).toBe(agent.id);
   });
 });
