@@ -1,0 +1,164 @@
+import type {
+  AgentIntent,
+  AgentProfile,
+  Competition,
+  LeaderboardEntry,
+  PairingDraft,
+  PlatformErrorBody,
+  ReplayEvent,
+  RuntimeCredential,
+  TradingWallet
+} from "./types";
+
+const runtimeAuthHeader = "x-agent-arena-agent-token";
+
+type PlatformFetcher = (url: string, init?: RequestInit) => Promise<Response>;
+
+interface CreatePlatformClientOptions {
+  baseUrl: string;
+  fetcher?: PlatformFetcher;
+}
+
+interface InitAgentPairingInput {
+  displayName: string;
+}
+
+interface ClaimAgentInput {
+  registrationCode: string;
+  ownerAddress: string;
+  signature: string;
+  twitterHandle?: string;
+}
+
+interface ClaimAgentResponse {
+  agent: AgentProfile;
+  runtimeCredential: RuntimeCredential;
+}
+
+interface CompetitionListResponse {
+  competitions: Competition[];
+}
+
+interface CompetitionResponse {
+  competition: Competition;
+}
+
+interface TradingWalletResponse {
+  wallet: TradingWallet;
+}
+
+interface LeaderboardResponse {
+  entries: LeaderboardEntry[];
+}
+
+interface ReplayResponse {
+  events: ReplayEvent[];
+}
+
+export class PlatformClientError extends Error {
+  readonly code: string;
+  readonly retryable: boolean;
+
+  constructor({ code, message, retryable = false }: { code: string; message: string; retryable?: boolean }) {
+    super(message);
+    this.name = "PlatformClientError";
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
+
+export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatformClientOptions) {
+  const root = normalizeBaseUrl(baseUrl);
+
+  return {
+    initAgentPairing: (input: InitAgentPairingInput) =>
+      requestJson<PairingDraft>(fetcher, `${root}/agent/init`, jsonPost(input)),
+    claimAgent: (input: ClaimAgentInput) =>
+      requestJson<ClaimAgentResponse>(fetcher, `${root}/owner/agents/claim`, jsonPost(input)),
+    getAgentMe: (runtimeCredential: string) =>
+      requestJson<AgentProfile>(fetcher, `${root}/agent/me`, {
+        headers: createRuntimeHeaders(runtimeCredential)
+      }),
+    getAgentWallet: (runtimeCredential: string) =>
+      requestJson<TradingWalletResponse>(fetcher, `${root}/agent/wallet`, {
+        headers: createRuntimeHeaders(runtimeCredential)
+      }).then((response) => response.wallet),
+    listCompetitions: () =>
+      requestJson<CompetitionListResponse>(fetcher, `${root}/competition/list-active`).then((response) => response.competitions),
+    getCompetition: (competitionId: string) =>
+      requestJson<CompetitionResponse>(fetcher, `${root}/competition/${encodeURIComponent(competitionId)}`).then(
+        (response) => response.competition
+      ),
+    submitIntent: (runtimeCredential: string, intent: AgentIntent) =>
+      requestJson<AgentIntent>(
+        fetcher,
+        `${root}/intents`,
+        jsonPost(intent, createRuntimeHeaders(runtimeCredential))
+      ),
+    listLeaderboard: (competitionId: string) =>
+      requestJson<LeaderboardResponse>(
+        fetcher,
+        `${root}/leaderboard?competitionId=${encodeURIComponent(competitionId)}`
+      ).then((response) => response.entries),
+    listReplay: (agentId: string) =>
+      requestJson<ReplayResponse>(fetcher, `${root}/owner/agents/${encodeURIComponent(agentId)}/replay`).then(
+        (response) => response.events
+      )
+  };
+}
+
+async function requestJson<T>(fetcher: PlatformFetcher, url: string, init?: RequestInit): Promise<T> {
+  const response = init ? await fetcher(url, init) : await fetcher(url);
+  const payload = response.status === 204 ? undefined : await readJson(response);
+
+  if (!response.ok) {
+    throw createPlatformError(response, payload);
+  }
+
+  return payload as T;
+}
+
+async function readJson(response: Response): Promise<unknown> {
+  const text = await response.text();
+  return text.length > 0 ? JSON.parse(text) : undefined;
+}
+
+function createPlatformError(response: Response, payload: unknown): PlatformClientError {
+  const body = payload as PlatformErrorBody | undefined;
+  const error = body?.error;
+
+  if (error) {
+    return new PlatformClientError({
+      code: error.code,
+      message: error.message,
+      retryable: error.retryable
+    });
+  }
+
+  return new PlatformClientError({
+    code: "REQUEST_FAILED",
+    message: `Platform request failed: ${response.status}`,
+    retryable: false
+  });
+}
+
+function jsonPost(body: unknown, headers?: Record<string, string>): RequestInit {
+  return {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...headers
+    },
+    body: JSON.stringify(body)
+  };
+}
+
+function createRuntimeHeaders(runtimeCredential: string): Record<string, string> {
+  return {
+    [runtimeAuthHeader]: runtimeCredential
+  };
+}
+
+function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "");
+}
