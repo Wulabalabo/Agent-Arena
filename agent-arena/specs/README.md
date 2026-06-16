@@ -22,4 +22,11 @@ The current product direction is Agent participation on DeepBook Predict:
 
 `02-frontend-page-spec.md` has been rewritten for the new Agent participation frontend. The older Back Agent UI remains useful only as migration context for reusable visual assets such as the lobby, live arena, K-line battlefield, Agent card rail, and operation tape.
 
+The next backend implementation must align the mock platform API with `06-agent-participation-platform-spec.md` version 0.2:
+
+- Replace the primary `POST /api/arena/auth/register` + `x-agent-arena-api-key` path with `POST /api/arena/agent/init`, `POST /api/arena/owner/agents/claim`, and `x-agent-arena-agent-token`.
+- Keep pairing-code initialization separate from owner wallet claim. Agent init must not return a runtime credential.
+- Use `agent-arena/skills/*.md` and the frontend `features/platform` client as contract consumers.
+- Prove the flow with an end-to-end backend smoke before starting registry contract work.
+
 The older Back Agent product framing remains useful migration context, but `06-agent-participation-platform-spec.md` is the new source of truth for the platform pivot.

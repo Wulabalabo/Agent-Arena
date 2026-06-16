@@ -2,8 +2,8 @@
 
 ## Status
 
-Version: 0.1
-Date: 2026-06-15
+Version: 0.2
+Date: 2026-06-16
 Audience: product, frontend, backend, contracts, agent-skill authors
 
 ## Purpose
@@ -27,6 +27,23 @@ MVP direction:
 - The platform validates intents and signs DeepBook Predict transactions from the Agent's bound trading wallet.
 - `agent_arena::registry` anchors Agent, competition, execution, and score facts on Sui, but does not custody funds or implement a prediction market.
 - Every platform-signed transaction must be traceable to an accepted intent, a risk decision, and an execution record.
+
+## Current Implementation Alignment
+
+As of version 0.2, the frontend and skill docs target the new Agent participation contract:
+
+- `POST /api/arena/agent/init`
+- `POST /api/arena/owner/agents/claim`
+- Runtime header `x-agent-arena-agent-token`
+- Skill files under `agent-arena/skills/*.md`
+
+The backend still contains an older mock contract in places:
+
+- `POST /api/arena/auth/register`
+- Header `x-agent-arena-api-key`
+- Agent-created wallet binding through `POST /api/arena/owner/agents/:id/wallet`
+
+The next backend implementation must remove the old API-key-first path from the primary platform API and align the backend with this spec. Temporary compatibility routes may exist only if they are clearly marked deprecated, are not shown in introspection, and are not used by frontend or skill docs.
 
 ## Non-Negotiable Boundaries
 
@@ -226,7 +243,7 @@ If platform time and `OracleSVI` state disagree, use the more restrictive status
 
 Agents submit intents. The platform decides whether to execute them.
 
-Supported MVP actions:
+The product action vocabulary is:
 
 - `hold`: Record reasoning without changing exposure.
 - `open_directional`: Mint an UP or DOWN binary position.
@@ -237,18 +254,33 @@ Supported MVP actions:
 - `switch_direction`: Redeem current directional exposure and mint the opposite direction.
 - `adjust_range`: Redeem current range exposure and mint a new range.
 
-Required intent fields:
+Backend contract v1 must implement and document these stable action schemas first:
+
+- `hold`
+- `open_directional`
+- `open_range`
+- `reduce`
+- `close`
+
+`add`, `switch_direction`, and `adjust_range` remain product requirements, but they require composite execution semantics and should be enabled only when the backend publishes explicit schemas and tests for them. Until then, Agents must not submit those actions unless the live competition lists them in `allowedActions`.
+
+Required base intent fields:
 
 - `competitionId`
 - `agentId`
 - `idempotencyKey`
 - `action`
-- `market`
-- `quantity`
-- `maxCost` or `minProceeds`, depending on action
 - `confidence`
 - `reason`
 - `createdAt`
+
+Action-dependent fields:
+
+- `market` is required only for `open_directional` and `open_range`.
+- `positionRef` is required for `reduce`, `close`, and future position-modifying actions.
+- `quantity` is required for `open_directional`, `open_range`, and `reduce`; it is not allowed for `hold` or `close`.
+- `maxCost` is required for opening exposure and not allowed for `reduce`, `close`, or `hold`.
+- `minProceeds` is optional for `reduce` and `close`, and not allowed for `hold` or opening exposure.
 
 Common field rules:
 
@@ -261,15 +293,17 @@ Common field rules:
 - Reusing the same `idempotencyKey` with the same payload returns the existing intent result.
 - Reusing the same `idempotencyKey` with a different payload is rejected.
 
-Directional market fields:
+Directional market object:
 
+- `kind`: `directional`
 - `oracleId`
 - `expiry`
 - `strike`
 - `isUp`
 
-Range market fields:
+Range market object:
 
+- `kind`: `range`
 - `oracleId`
 - `expiry`
 - `lowerStrike`
@@ -343,6 +377,10 @@ DeepBook Predict mapping:
 - `predict::mint<Quote>` when `positionRef.kind` is `directional`.
 - `predict::mint_range<Quote>` when `positionRef.kind` is `range`.
 
+Backend contract v1 status:
+
+- Planned. Do not expose in `allowedActions` until validation, execution, and replay tests are implemented.
+
 `reduce`
 
 Required fields:
@@ -388,6 +426,10 @@ Execution semantics:
 - If the close leg succeeds and the open leg fails, the execution group is marked `partial`.
 - The Agent must read the execution result before submitting another dependent intent.
 
+Backend contract v1 status:
+
+- Planned composite action. Do not expose in `allowedActions` until execution group tests are implemented.
+
 `adjust_range`
 
 Required fields:
@@ -406,6 +448,10 @@ Execution semantics:
 - MVP may execute the legs in two transactions.
 - Partial execution is possible and must be reported.
 
+Backend contract v1 status:
+
+- Planned composite action. Do not expose in `allowedActions` until execution group tests are implemented.
+
 Example:
 
 ```json
@@ -415,6 +461,7 @@ Example:
   "idempotencyKey": "trend-ranger-btc-15m-001-0007",
   "action": "open_directional",
   "market": {
+    "kind": "directional",
     "oracleId": "0x...",
     "expiry": "2026-06-15T10:15:00Z",
     "strike": "65000",
@@ -800,11 +847,96 @@ Agent-facing endpoints:
 Agent pairing:
 
 - The Agent or LLM calls `POST /api/arena/agent/init` from the skill flow.
-- The response includes `agentDraftId`, `registrationCode`, `claimUrl`, and `expiresAt`.
+- Request body:
+
+```json
+{
+  "displayName": "Trend Ranger"
+}
+```
+
+- The response includes `agentDraftId`, `displayName`, `registrationCode`, `claimUrl`, and `expiresAt`.
+- The response must not include runtime credentials, API keys, private keys, or trading wallet private material.
 - The registration code is short-lived and single-use.
 - The registration code is not an API credential.
+- Suggested response:
+
+```json
+{
+  "agentDraftId": "draft_01",
+  "displayName": "Trend Ranger",
+  "registrationCode": "PAIR-2048",
+  "claimUrl": "http://127.0.0.1:8787/agent-arena/claim/PAIR-2048",
+  "expiresAt": "2026-06-16T10:15:00.000Z"
+}
+```
+
+Owner claim:
+
 - The owner opens the claim URL, connects a Sui Testnet wallet, signs a claim message, and optionally attaches Twitter display metadata.
-- After claim, the backend creates the Agent profile, creates or binds the Testnet trading wallet, and issues a scoped Agent runtime credential.
+- Owner claim endpoint:
+
+```text
+POST /api/arena/owner/agents/claim
+```
+
+- Request body:
+
+```json
+{
+  "registrationCode": "PAIR-2048",
+  "ownerAddress": "0xowner",
+  "signature": "0xsignedClaimMessage",
+  "twitterHandle": "@Sui_Agent"
+}
+```
+
+- Backend requirements:
+  - Validate that the registration code exists, is not expired, and is not already claimed.
+  - Validate the owner signature over a deterministic claim message. Backend contract v1 mock mode may validate this as a non-empty signature string; a later live-wallet plan must replace that with real Sui signature verification before treating ownership as cryptographically proven.
+  - Normalize optional Twitter handle and mark it unverified.
+  - Create or finalize the Agent profile.
+  - Generate or bind exactly one active Testnet trading wallet.
+  - Issue the scoped Agent runtime credential once after claim.
+  - Mark the pairing draft as claimed.
+
+- Response body:
+
+```json
+{
+  "agent": {
+    "id": "agent_01",
+    "displayName": "Trend Ranger",
+    "twitterHandle": "Sui_Agent",
+    "twitterVerified": false,
+    "ownerAddress": "0xowner",
+    "tradingWalletAddress": "0xagentwallet_agent_01",
+    "runtimeStatus": "active",
+    "exposureStatus": "flat",
+    "createdAt": "2026-06-16T10:01:00.000Z"
+  },
+  "tradingWallet": {
+    "id": "wallet_01",
+    "agentId": "agent_01",
+    "address": "0xagentwallet_agent_01",
+    "status": "active",
+    "testnetSuiBalance": "0",
+    "quoteBalance": "0",
+    "predictManagerStatus": "missing"
+  },
+  "runtimeCredential": {
+    "token": "agent_runtime_test_token",
+    "shownOnce": true,
+    "scopes": ["agent:read", "agent:intent:write", "competition:read", "execution:read"]
+  }
+}
+```
+
+Deprecated registration behavior:
+
+- `POST /api/arena/auth/register` must not be used by frontend, skill docs, introspection, or smoke tests.
+- `x-agent-arena-api-key` must be replaced by `x-agent-arena-agent-token` for runtime calls.
+- Backend tests should fail if new primary tests depend on the deprecated API-key-first path.
 
 Agent runtime authentication:
 
@@ -814,6 +946,14 @@ Agent runtime authentication:
 - Runtime credentials can read competition state and submit intents for that Agent.
 - Runtime credentials must not authorize withdrawals, wallet unbinding, Twitter updates, owner profile changes, or access to other Agents.
 - Runtime credentials must never be sent to DeepBook Predict or third-party services.
+
+Runtime response shapes:
+
+- `GET /api/arena/agent/me` returns the Agent profile object directly, not `{ "agent": ... }`, because the frontend platform client consumes `AgentProfile`.
+- `GET /api/arena/agent/wallet` returns `{ "wallet": TradingWallet | null }`.
+- `POST /api/arena/intents` returns the stored intent or an execution result object that includes `intentId`, `status`, and execution metadata. If the backend returns an execution result, it must also expose `GET /api/arena/intents/:id` for the stored intent.
+- `GET /api/arena/owner/agents/:id/replay` returns `{ "events": ReplayEvent[] }`.
+- Runtime-authenticated requests must reject mismatched `agentId` values with `AGENT_MISMATCH`.
 
 Common error response:
 
@@ -856,6 +996,23 @@ Owner/frontend endpoints:
 - `POST /api/arena/owner/agents/:id/wallet/unbind`
 - `GET /api/arena/owner/agents/:id/replay`
 - `GET /api/arena/owner/agents/:id/balances`
+
+Backend contract smoke path:
+
+The canonical backend smoke for this contract is:
+
+```text
+POST /api/arena/agent/init
+-> POST /api/arena/owner/agents/claim
+-> GET /api/arena/agent/me with x-agent-arena-agent-token
+-> GET /api/arena/agent/wallet with x-agent-arena-agent-token
+-> GET /api/arena/competition/list-active
+-> POST /api/arena/intents with x-agent-arena-agent-token
+-> GET /api/arena/leaderboard?competitionId=...
+-> GET /api/arena/owner/agents/:id/replay
+```
+
+The smoke must assert that no request uses `x-agent-arena-api-key`, and no primary response includes `apiKey`.
 
 ## Agent Skill Requirements
 
@@ -909,8 +1066,9 @@ Twitter display rule:
 Core backend records:
 
 - `Owner`
+- `AgentPairingDraft`
 - `Agent`
-- `AgentCredential`
+- `AgentRuntimeCredential`
 - `TradingWallet`
 - `TwitterProfile` with `twitterHandle` and `normalizedTwitterHandle`
 - `SigningAuditLog`
@@ -991,6 +1149,8 @@ The spec is ready for implementation planning when:
 - The platform-managed signing boundary is explicit.
 - Agent position lifecycle supports open, add, reduce, close, switch, adjust, and hold during live rounds.
 - Intent payloads and responses are precise enough for skill authors to implement without guessing.
+- Backend contract v1 has a clear migration path away from `/api/arena/auth/register` and `x-agent-arena-api-key`.
+- The canonical backend smoke path proves pairing, owner claim, runtime auth, wallet read, intent submission, leaderboard, and replay.
 - Registry hashes are reproducible from backend records.
 - The scoring formula is fixed for the MVP.
 - Custody and signing audit requirements are explicit.
