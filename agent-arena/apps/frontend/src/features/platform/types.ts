@@ -83,6 +83,11 @@ export interface AgentIntent {
   maxCost: string | null;
 }
 
+export type SubmitIntentInput = Pick<
+  AgentIntent,
+  "competitionId" | "agentId" | "idempotencyKey" | "action" | "confidence" | "reason"
+>;
+
 export interface RiskDecision {
   id: string;
   intentId: string;

@@ -7,6 +7,7 @@ import type {
   PlatformErrorBody,
   ReplayEvent,
   RuntimeCredential,
+  SubmitIntentInput,
   TradingWallet
 } from "./types";
 
@@ -90,11 +91,11 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
       requestJson<CompetitionResponse>(fetcher, `${root}/competition/${encodeURIComponent(competitionId)}`).then(
         (response) => response.competition
       ),
-    submitIntent: (runtimeCredential: string, intent: AgentIntent) =>
+    submitIntent: (runtimeCredential: string, intent: SubmitIntentInput) =>
       requestJson<AgentIntent>(
         fetcher,
         `${root}/intents`,
-        jsonPost(intent, createRuntimeHeaders(runtimeCredential))
+        jsonPost(createSubmitIntentBody(intent), createRuntimeHeaders(runtimeCredential))
       ),
     listLeaderboard: (competitionId: string) =>
       requestJson<LeaderboardResponse>(
@@ -110,7 +111,7 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
 
 async function requestJson<T>(fetcher: PlatformFetcher, url: string, init?: RequestInit): Promise<T> {
   const response = init ? await fetcher(url, init) : await fetcher(url);
-  const payload = response.status === 204 ? undefined : await readJson(response);
+  const payload = response.status === 204 ? undefined : await readJson(response, response.ok);
 
   if (!response.ok) {
     throw createPlatformError(response, payload);
@@ -119,9 +120,21 @@ async function requestJson<T>(fetcher: PlatformFetcher, url: string, init?: Requ
   return payload as T;
 }
 
-async function readJson(response: Response): Promise<unknown> {
+async function readJson(response: Response, requireValidJson: boolean): Promise<unknown> {
   const text = await response.text();
-  return text.length > 0 ? JSON.parse(text) : undefined;
+  if (text.length === 0) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    if (requireValidJson) {
+      throw error;
+    }
+
+    return undefined;
+  }
 }
 
 function createPlatformError(response: Response, payload: unknown): PlatformClientError {
@@ -151,6 +164,17 @@ function jsonPost(body: unknown, headers?: Record<string, string>): RequestInit 
       ...headers
     },
     body: JSON.stringify(body)
+  };
+}
+
+function createSubmitIntentBody(intent: SubmitIntentInput): SubmitIntentInput {
+  return {
+    competitionId: intent.competitionId,
+    agentId: intent.agentId,
+    idempotencyKey: intent.idempotencyKey,
+    action: intent.action,
+    confidence: intent.confidence,
+    reason: intent.reason
   };
 }
 

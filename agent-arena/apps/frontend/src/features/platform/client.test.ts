@@ -99,6 +99,15 @@ describe("createPlatformClient", () => {
     await client.getAgentMe("agent_runtime_test_token");
     await client.submitIntent("agent_runtime_test_token", mockPlatformSnapshot.latestIntent);
 
+    const expectedIntentBody = {
+      competitionId: "btc-15m-001",
+      agentId: "agent_1",
+      idempotencyKey: "trend-ranger-btc-15m-001-1",
+      action: "open_directional",
+      confidence: 0.72,
+      reason: "Momentum remains above VWAP with rising oracle forward."
+    };
+
     expect(fetcher).toHaveBeenNthCalledWith(1, "https://platform.test/api/arena/agent/me", {
       headers: { "x-agent-arena-agent-token": "agent_runtime_test_token" }
     });
@@ -108,7 +117,7 @@ describe("createPlatformClient", () => {
         "content-type": "application/json",
         "x-agent-arena-agent-token": "agent_runtime_test_token"
       },
-      body: JSON.stringify(mockPlatformSnapshot.latestIntent)
+      body: JSON.stringify(expectedIntentBody)
     });
   });
 
@@ -134,5 +143,22 @@ describe("createPlatformClient", () => {
     await expect(client.submitIntent("agent_runtime_test_token", mockPlatformSnapshot.latestIntent)).rejects.toBeInstanceOf(
       PlatformClientError
     );
+  });
+
+  it("maps non-JSON error responses to PlatformClientError", async () => {
+    const fetcher = vi.fn(async () =>
+      new Response("<html>Server Error</html>", {
+        status: 500,
+        headers: { "content-type": "text/html" }
+      })
+    );
+    const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
+
+    await expect(client.listCompetitions()).rejects.toMatchObject({
+      name: "PlatformClientError",
+      code: "REQUEST_FAILED",
+      message: "Platform request failed: 500"
+    });
+    await expect(client.listCompetitions()).rejects.toBeInstanceOf(PlatformClientError);
   });
 });
