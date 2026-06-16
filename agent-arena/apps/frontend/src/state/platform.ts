@@ -24,6 +24,13 @@ export function createInitialPlatformState(snapshot: PlatformSnapshot): Platform
 
   return {
     ...snapshot,
+    agents: [...snapshot.agents],
+    competitions: [...snapshot.competitions],
+    intents: [...snapshot.intents],
+    riskDecisions: [...snapshot.riskDecisions],
+    executions: [...snapshot.executions],
+    leaderboard: [...snapshot.leaderboard],
+    replay: [...snapshot.replay],
     activeView: "competition",
     selectedAgentId: firstAgent.id,
     selectedCompetitionId: firstCompetition.id
