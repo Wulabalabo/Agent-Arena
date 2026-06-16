@@ -1,25 +1,93 @@
-import { useState } from "react";
-import { ArenaShell } from "./components/arena/ArenaShell";
-import { ArenaLobby } from "./components/lobby/ArenaLobby";
+import { useMemo, useState } from "react";
+import { AgentPairingPanel } from "./components/platform/AgentPairingPanel";
+import { CompetitionLobby } from "./components/platform/CompetitionLobby";
+import { LeaderboardPanel } from "./components/platform/LeaderboardPanel";
+import { LiveCompetition } from "./components/platform/LiveCompetition";
+import { ReplayTimeline } from "./components/platform/ReplayTimeline";
+import { SkillDocsPanel } from "./components/platform/SkillDocsPanel";
+import { TradingWalletPanel } from "./components/platform/TradingWalletPanel";
 import { AppNav } from "./components/navigation/AppNav";
-import { AgentWorkshop } from "./components/workshop/AgentWorkshop";
+import { mockPlatformSnapshot } from "./features/platform/mock";
+import {
+  createInitialPlatformState,
+  getSelectedAgent,
+  getSelectedCompetition,
+  selectAgent,
+  selectPlatformView,
+  type PlatformView
+} from "./state/platform";
 
-type AppView = "lobby" | "arena" | "workshop";
+const runtimeCredential = "agent_runtime_test_token";
+const apiBaseUrl = "http://127.0.0.1:8787";
 
 export default function App() {
-  const [view, setView] = useState<AppView>("lobby");
+  const [state, setState] = useState(() => createInitialPlatformState(mockPlatformSnapshot));
+  const selectedAgent = useMemo(() => getSelectedAgent(state), [state]);
+  const selectedCompetition = useMemo(() => getSelectedCompetition(state), [state]);
+
+  function navigate(view: PlatformView) {
+    setState((currentState) => selectPlatformView(currentState, view));
+  }
+
+  function handleSelectAgent(agentId: string) {
+    setState((currentState) => selectAgent(currentState, agentId));
+  }
 
   return (
     <main className="min-h-screen bg-transparent text-on-surface">
-      <AppNav activeView={view} onNavigate={setView} />
+      <AppNav activeView={state.activeView} onNavigate={navigate} />
 
-      {view === "arena" ? (
-        <ArenaShell />
-      ) : view === "workshop" ? (
-        <AgentWorkshop onPreviewArena={() => setView("arena")} />
-      ) : (
-        <ArenaLobby onEnterArena={() => setView("arena")} onOpenWorkshop={() => setView("workshop")} />
-      )}
+      <div className="paper-frame mx-auto grid max-w-[1440px] gap-4 px-4 py-4">
+        {state.activeView === "competition" ? (
+          <section aria-label="Agent competition console" className="paper-card-sm p-5">
+            <p className="paper-label text-on-surface-variant">Testnet</p>
+            <h1 className="mt-2 max-w-3xl font-display text-2xl font-black uppercase text-on-surface">
+              AI Agents compete in DeepBook Predict Testnet arenas
+            </h1>
+            <p className="mt-2 text-sm font-bold text-on-surface-variant">
+              Pair an external Agent, fund its trading wallet, and watch platform records connect intent, policy, and Predict tx proof.
+            </p>
+          </section>
+        ) : null}
+
+        {state.activeView === "lobby" ? (
+          <CompetitionLobby
+            competitions={state.competitions}
+            leaderboard={state.leaderboard}
+            onEnterCompetition={() => navigate("competition")}
+            onOpenPairing={() => navigate("setup")}
+            onOpenSkills={() => navigate("skills")}
+          />
+        ) : state.activeView === "setup" ? (
+          <AgentPairingPanel
+            agent={selectedAgent}
+            claimUrl="http://127.0.0.1:8787/agent-arena/claim/agent_1"
+            expiresAt="2026-06-16T11:00:00.000Z"
+            registrationCode="AGENT-ARENA-TESTNET-001"
+            runtimeCredential={runtimeCredential}
+          />
+        ) : state.activeView === "wallet" ? (
+          <TradingWalletPanel agent={selectedAgent} tradingWallet={state.tradingWallet} />
+        ) : state.activeView === "competition" ? (
+          <LiveCompetition
+            agents={state.agents}
+            competition={selectedCompetition}
+            executions={state.executions}
+            intents={state.intents}
+            riskDecisions={state.riskDecisions}
+            selectedAgent={selectedAgent}
+            tradingWallet={state.tradingWallet}
+            onSelectAgent={handleSelectAgent}
+            onViewReplay={() => navigate("replay")}
+          />
+        ) : state.activeView === "leaderboard" ? (
+          <LeaderboardPanel entries={state.leaderboard} />
+        ) : state.activeView === "replay" ? (
+          <ReplayTimeline events={state.replay} />
+        ) : (
+          <SkillDocsPanel apiBaseUrl={apiBaseUrl} />
+        )}
+      </div>
     </main>
   );
 }

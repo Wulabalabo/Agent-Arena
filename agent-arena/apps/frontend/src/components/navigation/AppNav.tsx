@@ -1,14 +1,19 @@
 import { useState } from "react";
+import type { PlatformView } from "../../state/platform";
 
 interface AppNavProps {
-  activeView: "lobby" | "arena" | "workshop";
-  onNavigate: (view: "lobby" | "arena" | "workshop") => void;
+  activeView: PlatformView;
+  onNavigate: (view: PlatformView) => void;
 }
 
-const navItems: Array<{ id: "lobby" | "arena" | "workshop"; label: string }> = [
+const navItems: Array<{ id: PlatformView; label: string }> = [
   { id: "lobby", label: "Lobby" },
-  { id: "arena", label: "Live Arena" },
-  { id: "workshop", label: "Workshop" }
+  { id: "setup", label: "Pair Agent" },
+  { id: "wallet", label: "Wallet" },
+  { id: "competition", label: "Competition" },
+  { id: "leaderboard", label: "Leaderboard" },
+  { id: "replay", label: "Replay" },
+  { id: "skills", label: "Skills" }
 ];
 
 export function AppNav({ activeView, onNavigate }: AppNavProps) {
@@ -40,22 +45,19 @@ export function AppNav({ activeView, onNavigate }: AppNavProps) {
                 {item.label}
               </button>
             ))}
-            <span className="border-b-2 border-transparent px-0.5 py-1 font-display text-xs font-semibold text-on-surface-variant/70">
-              Portfolio
-            </span>
           </nav>
         </div>
 
         <div className="flex items-center gap-2">
           <span className="paper-chip paper-chip-green hidden px-2 py-1 md:inline-flex">
-            Predicting
+            Testnet
           </span>
           <button
             className="paper-button paper-button-primary px-3 py-1.5 font-display text-xs font-black uppercase"
             type="button"
             onClick={() => setWalletConnected((connected) => !connected)}
           >
-            {walletConnected ? "Wallet Connected" : "Connect Wallet"}
+            {walletConnected ? "Owner Connected" : "Connect Owner"}
           </button>
         </div>
       </div>
