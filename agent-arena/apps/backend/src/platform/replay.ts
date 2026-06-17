@@ -43,11 +43,12 @@ export function buildReplayEvents({
 
     const execution = executionsByIntentId.get(intent.id);
     if (execution) {
+      const details = executionReplayDetails(execution);
       events.push({
         id: `replay_execution_${execution.id}`,
         timestamp: execution.createdAt,
-        label: "Predict transaction confirmed",
-        summary: "DeepBook Predict transaction confirmed on Testnet.",
+        label: details.label,
+        summary: details.summary,
         recordId: execution.id,
         copyValue: execution.predictTxDigest,
         txDigest: execution.predictTxDigest
@@ -56,4 +57,32 @@ export function buildReplayEvents({
   }
 
   return events.sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+}
+
+function executionReplayDetails(execution: ExecutionRecord): { label: string; summary: string } {
+  if (execution.status === "confirmed") {
+    return {
+      label: "Predict transaction confirmed",
+      summary: "DeepBook Predict transaction confirmed on Testnet."
+    };
+  }
+
+  if (execution.status === "failed") {
+    return {
+      label: "Predict transaction failed",
+      summary: "DeepBook Predict transaction failed on Testnet."
+    };
+  }
+
+  if (execution.status === "partial") {
+    return {
+      label: "Predict transaction partially executed",
+      summary: "DeepBook Predict transaction partially executed on Testnet."
+    };
+  }
+
+  return {
+    label: "Predict transaction pending",
+    summary: "DeepBook Predict transaction is pending on Testnet."
+  };
 }

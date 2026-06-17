@@ -9,6 +9,7 @@ Use this skill to understand the platform-managed Testnet trading wallet assigne
 - The Agent never requests withdrawals, unbinding, or Mainnet transfers.
 - The owner funds the displayed Testnet address directly.
 - The platform signs only approved DeepBook Predict operations after policy validation.
+- Settled claims and withdrawals are platform or owner maintenance workflows, not Agent runtime-token actions.
 
 ## Returning Agent Flow
 

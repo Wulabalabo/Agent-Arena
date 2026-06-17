@@ -275,6 +275,129 @@ describe("Agent Arena platform API", () => {
     expect(body.status).toBe("accepted");
   });
 
+  it("submits authenticated range intents through the configured Predict adapter", async () => {
+    const store = new (await import("./mock-store")).PlatformMockStore();
+    const adapterCalls: unknown[] = [];
+    const fetch = createPlatformFetchHandler(store, {
+      predictExecutionAdapter: async (input) => {
+        adapterCalls.push(input);
+        return {
+          status: "confirmed",
+          predictTxDigest: "0xrange_intent_digest"
+        };
+      }
+    });
+    const claimed = await claimTestAgent(fetch, { displayName: "Range API Agent" });
+
+    const response = await fetch(new Request("http://localhost/api/arena/intents", {
+      method: "POST",
+      headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token },
+      body: JSON.stringify({
+        competitionId: "btc-15m-001",
+        agentId: claimed.agent.id,
+        idempotencyKey: "intent-api-range",
+        action: "open_range",
+        market: {
+          kind: "range",
+          oracleId: "0xbtc15m",
+          expiry: "2026-06-15T10:15:00.000Z",
+          lowerStrike: "64000000000000",
+          higherStrike: "66000000000000"
+        },
+        quantity: "10",
+        maxCost: "5.00",
+        confidence: 0.64,
+        reason: "Range API execution.",
+        createdAt: "2026-06-15T10:04:12.000Z"
+      })
+    }));
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "executed",
+      predictTxDigest: "0xrange_intent_digest"
+    });
+    expect(adapterCalls).toMatchObject([
+      {
+        agentId: claimed.agent.id,
+        walletId: claimed.tradingWallet.id,
+        predictOperation: "mint_range",
+        predictPayload: {
+          operation: "mint_range",
+          market: {
+            kind: "range",
+            lowerStrike: "64000000000000",
+            higherStrike: "66000000000000"
+          },
+          quantity: "10",
+          maxCost: "5.00"
+        }
+      }
+    ]);
+  });
+
+  it("returns a Predict execution error when the configured adapter fails", async () => {
+    const store = new (await import("./mock-store")).PlatformMockStore();
+    const fetch = createPlatformFetchHandler(store, {
+      predictExecutionAdapter: async () => ({
+        status: "failed",
+        predictTxDigest: "0xfailed_digest"
+      })
+    });
+    const claimed = await claimTestAgent(fetch, { displayName: "Failed API Agent" });
+
+    const response = await fetch(new Request("http://localhost/api/arena/intents", {
+      method: "POST",
+      headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token },
+      body: JSON.stringify({
+        competitionId: "btc-15m-001",
+        agentId: claimed.agent.id,
+        idempotencyKey: "intent-api-failed",
+        action: "open_directional",
+        market: {
+          kind: "directional",
+          oracleId: "0xbtc15m",
+          expiry: "2026-06-15T10:15:00.000Z",
+          strike: "65000000000000",
+          isUp: true
+        },
+        quantity: "10",
+        maxCost: "5.00",
+        confidence: 0.64,
+        reason: "Adapter failure.",
+        createdAt: "2026-06-15T10:04:12.000Z"
+      })
+    }));
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "PREDICT_EXECUTION_FAILED",
+        details: {
+          status: "failed",
+          intentId: "intent_1",
+          riskDecisionId: "risk_1",
+          executionId: "exec_1",
+          predictTxDigest: "0xfailed_digest"
+        }
+      }
+    });
+    expect(store.findIntentById("intent_1")).toMatchObject({
+      status: "failed",
+      rejectionCode: "PREDICT_EXECUTION_FAILED"
+    });
+
+    const leaderboard = await fetch(new Request("http://localhost/api/arena/leaderboard?competitionId=btc-15m-001"));
+    expect(leaderboard.status).toBe(200);
+    await expect(leaderboard.json()).resolves.toMatchObject({
+      entries: [{
+        agentId: claimed.agent.id,
+        executionCount: 0,
+        invalidIntentCount: 1
+      }]
+    });
+  });
+
   it("rejects authenticated intents for a different agent", async () => {
     const fetch = createPlatformFetchHandler();
     const first = await claimTestAgent(fetch, { displayName: "First Agent" });

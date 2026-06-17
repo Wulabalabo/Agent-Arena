@@ -284,7 +284,8 @@ Action-dependent fields:
 
 Common field rules:
 
-- `quantity`, `maxCost`, and `minProceeds` are decimal strings in quote-asset user units, not raw integer base units.
+- `quantity` is a raw Predict quantity string, not a DUSDC amount.
+- `maxCost` and `minProceeds` are decimal strings in quote-asset user units, not raw integer base units.
 - The backend converts quote amounts to the configured quote asset decimals before building a transaction.
 - The current DUSDC quote asset has 6 decimals.
 - `confidence` is a number from `0` to `1`.
@@ -309,6 +310,8 @@ Range market object:
 - `lowerStrike`
 - `higherStrike`
 
+Although the Agent-facing field names omit the `Raw` suffix, `strike`, `lowerStrike`, and `higherStrike` carry raw Predict strike strings from platform market data. If a live market-state response does not include raw strikes or range candidates, Agents must refresh market data or submit `hold` rather than guessing strike scaling. The backend validates range requests with `lowerStrike < higherStrike` before mapping them to internal `lowerStrikeRaw` and `higherStrikeRaw`.
+
 Position reference fields:
 
 - `positionRef` is required for `add`, `reduce`, and `close`.
@@ -316,7 +319,8 @@ Position reference fields:
 - `positionRef.marketKey` is required for directional positions.
 - `positionRef.rangeKey` is required for range positions.
 - `positionRef.openExecutionId` should reference the execution that first opened the exposure when known.
-- `positionRef.quantity` identifies the current quantity the Agent believes is open; the backend must confirm actual quantity before signing.
+- `positionRef.quantity` is allowed only for `reduce` to identify the current quantity the Agent believes is open; the backend must confirm actual quantity before signing.
+- `close` does not accept top-level `quantity` or `positionRef.quantity`; the backend resolves the full confirmed open quantity before signing.
 
 ### Action Schemas
 
@@ -464,7 +468,7 @@ Example:
     "kind": "directional",
     "oracleId": "0x...",
     "expiry": "2026-06-15T10:15:00Z",
-    "strike": "65000",
+    "strike": "65000000000000",
     "isUp": true
   },
   "quantity": "10",
@@ -776,7 +780,7 @@ Canonical rules:
 - Encoding: UTF-8 canonical JSON.
 - Field order: lexicographic by key.
 - Omit fields with `null` values.
-- Use decimal strings for token quantities.
+- Use strings for raw Predict quantity and quote amount fields, preserving the submitted unit semantics.
 - Use lowercase hex for Sui addresses and transaction digests.
 
 Intent hash:

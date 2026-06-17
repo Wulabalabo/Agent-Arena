@@ -2,16 +2,13 @@ export const agentActions = Object.freeze([
   "hold",
   "open_directional",
   "open_range",
-  "add",
   "reduce",
-  "close",
-  "switch_direction",
-  "adjust_range"
+  "close"
 ] as const);
 
 export type AgentAction = (typeof agentActions)[number];
 export type RoundStatus = "pre_open" | "live" | "expired" | "settled";
-export type IntentStatus = "accepted" | "rejected" | "executed" | "partial";
+export type IntentStatus = "accepted" | "rejected" | "executed" | "partial" | "failed";
 export type ExecutionStatus = "queued" | "signed" | "submitted" | "confirmed" | "failed" | "partial";
 export type OwnerWithdrawalStatus = "dry_run_ok" | "submitted" | "failed";
 export type PositionKind = "directional" | "range";
@@ -107,7 +104,7 @@ export interface PositionRef {
   marketKey?: string;
   rangeKey?: string;
   openExecutionId?: string;
-  quantity: string;
+  quantity?: string;
 }
 
 export interface AgentIntent {

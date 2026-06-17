@@ -156,26 +156,26 @@ export function validateIntentPayload(payload: unknown): ValidatedIntentPayload 
     case "open_directional":
       rejectFields(record, ["positionRef", "minProceeds"], action);
       validated.market = validateDirectionalMarket(record.market);
-      validated.quantity = validateDecimalString(record.quantity, "quantity");
+      validated.quantity = validateRawIntegerString(record.quantity, "quantity");
       validated.maxCost = validateDecimalString(record.maxCost, "maxCost");
       break;
     case "open_range":
       rejectFields(record, ["positionRef", "minProceeds"], action);
       validated.market = validateRangeMarket(record.market);
-      validated.quantity = validateDecimalString(record.quantity, "quantity");
+      validated.quantity = validateRawIntegerString(record.quantity, "quantity");
       validated.maxCost = validateDecimalString(record.maxCost, "maxCost");
       break;
     case "reduce":
       rejectFields(record, ["market", "maxCost"], action);
-      validated.positionRef = validatePositionRef(record.positionRef);
-      validated.quantity = validateDecimalString(record.quantity, "quantity");
+      validated.positionRef = validatePositionRef(record.positionRef, { allowQuantity: true });
+      validated.quantity = validateRawIntegerString(record.quantity, "quantity");
       if (record.minProceeds !== undefined) {
         validated.minProceeds = validateDecimalString(record.minProceeds, "minProceeds");
       }
       break;
     case "close":
       rejectFields(record, ["market", "quantity", "maxCost"], action);
-      validated.positionRef = validatePositionRef(record.positionRef);
+      validated.positionRef = validatePositionRef(record.positionRef, { allowQuantity: false });
       if (record.minProceeds !== undefined) {
         validated.minProceeds = validateDecimalString(record.minProceeds, "minProceeds");
       }
@@ -269,7 +269,7 @@ function validateDirectionalMarket(value: unknown): DirectionalMarket {
     kind: "directional",
     oracleId: validateNonEmptyString(market.oracleId, "market.oracleId"),
     expiry: validateNonEmptyString(market.expiry, "market.expiry"),
-    strike: validateDecimalString(market.strike, "market.strike"),
+    strike: validateRawIntegerString(market.strike, "market.strike"),
     isUp: validateBoolean(market.isUp, "market.isUp")
   };
 }
@@ -281,12 +281,18 @@ function validateRangeMarket(value: unknown): RangeMarket {
     throw new PlatformInputError("market must be range");
   }
 
+  const lowerStrike = validateRawIntegerString(market.lowerStrike, "market.lowerStrike");
+  const higherStrike = validateRawIntegerString(market.higherStrike, "market.higherStrike");
+  if (BigInt(lowerStrike) >= BigInt(higherStrike)) {
+    throw new PlatformInputError("market.lowerStrike must be less than market.higherStrike");
+  }
+
   return {
     kind: "range",
     oracleId: validateNonEmptyString(market.oracleId, "market.oracleId"),
     expiry: validateNonEmptyString(market.expiry, "market.expiry"),
-    lowerStrike: validateDecimalString(market.lowerStrike, "market.lowerStrike"),
-    higherStrike: validateDecimalString(market.higherStrike, "market.higherStrike")
+    lowerStrike,
+    higherStrike
   };
 }
 
@@ -298,7 +304,7 @@ function validateBoolean(value: unknown, field: string): boolean {
   return value;
 }
 
-function validatePositionRef(value: unknown): PositionRef {
+function validatePositionRef(value: unknown, options: { allowQuantity: boolean }): PositionRef {
   const positionRef = asRecord(value, "positionRef");
   const kind = positionRef.kind;
   if (kind !== "directional" && kind !== "range") {
@@ -314,9 +320,15 @@ function validatePositionRef(value: unknown): PositionRef {
   );
 
   const validated: PositionRef = {
-    kind,
-    quantity: validateDecimalString(positionRef.quantity, "positionRef.quantity")
+    kind
   };
+
+  if (positionRef.quantity !== undefined) {
+    if (!options.allowQuantity) {
+      throw new PlatformInputError("positionRef does not allow quantity");
+    }
+    validated.quantity = validateRawIntegerString(positionRef.quantity, "positionRef.quantity");
+  }
 
   if (positionRef.openExecutionId !== undefined) {
     validated.openExecutionId = validateNonEmptyString(positionRef.openExecutionId, "positionRef.openExecutionId");

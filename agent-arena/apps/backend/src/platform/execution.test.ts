@@ -96,7 +96,19 @@ describe("mock intent execution", () => {
         executionId: execution.id,
         agentId: agent.id,
         walletId: wallet.id,
-        predictOperation: "mint_directional"
+        predictOperation: "mint_directional",
+        predictPayload: {
+          operation: "mint_directional",
+          market: {
+            kind: "directional",
+            oracleId: "0xbtc15m",
+            expiry: "2026-06-15T10:15:00.000Z",
+            strike: "65000",
+            isUp: true
+          },
+          quantity: "10",
+          maxCost: "5.00"
+        }
       }
     ]);
     expect(execution).toMatchObject({
@@ -107,6 +119,266 @@ describe("mock intent execution", () => {
       predictTxDigest: "0xlive_digest",
       status: "confirmed"
     });
+  });
+
+  it("maps accepted range open intents to typed Predict adapter payloads", async () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store, "Range Adapter");
+    const wallet = store.bindTradingWallet(agent.id, "0xagentwallet");
+    store.seedCompetition();
+    const adapterCalls: unknown[] = [];
+
+    const result = await submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-open-range-adapter",
+      action: "open_range",
+      market: {
+        kind: "range",
+        oracleId: "0xbtc15m",
+        expiry: "2026-06-15T10:15:00.000Z",
+        lowerStrike: "64000000000000",
+        higherStrike: "66000000000000"
+      },
+      quantity: "10",
+      maxCost: "5.00",
+      confidence: 0.62,
+      reason: "Range execution path.",
+      createdAt: "2026-06-15T10:03:12.000Z"
+    }, {
+      predictExecutionAdapter: async (input: unknown) => {
+        adapterCalls.push(input);
+        return {
+          status: "confirmed",
+          predictTxDigest: "0xrange_digest"
+        };
+      }
+    });
+
+    expect(result.status).toBe("executed");
+    expect(adapterCalls).toEqual([
+      {
+        intentId: "intent_1",
+        riskDecisionId: "risk_1",
+        executionId: "exec_1",
+        agentId: agent.id,
+        walletId: wallet.id,
+        predictOperation: "mint_range",
+        predictPayload: {
+          operation: "mint_range",
+          market: {
+            kind: "range",
+            oracleId: "0xbtc15m",
+            expiry: "2026-06-15T10:15:00.000Z",
+            lowerStrike: "64000000000000",
+            higherStrike: "66000000000000"
+          },
+          quantity: "10",
+          maxCost: "5.00"
+        }
+      }
+    ]);
+  });
+
+  it("records a failed Predict adapter result without marking the intent executed", async () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store, "Failed Adapter");
+    store.bindTradingWallet(agent.id, "0xagentwallet");
+    store.seedCompetition();
+
+    const result = await submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-failed-adapter",
+      action: "open_directional",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "2026-06-15T10:15:00.000Z",
+        strike: "65000000000000",
+        isUp: true
+      },
+      quantity: "10",
+      maxCost: "5.00",
+      confidence: 0.72,
+      reason: "Adapter returns failed.",
+      createdAt: "2026-06-15T10:03:12.000Z"
+    }, {
+      predictExecutionAdapter: async () => ({
+        status: "failed",
+        predictTxDigest: "0xfailed_digest"
+      })
+    });
+
+    const [intent] = store.listIntents();
+    const [execution] = store.listExecutions();
+
+    expect(result).toMatchObject({
+      status: "failed",
+      intentId: "intent_1",
+      riskDecisionId: "risk_1",
+      executionId: "exec_1",
+      predictTxDigest: "0xfailed_digest",
+      rejectionCode: "PREDICT_EXECUTION_FAILED"
+    });
+    expect(intent).toMatchObject({
+      status: "failed",
+      rejectionCode: "PREDICT_EXECUTION_FAILED"
+    });
+    expect(execution).toMatchObject({
+      status: "failed",
+      predictTxDigest: "0xfailed_digest"
+    });
+  });
+
+  it("records adapter exceptions as failed executions and makes idempotency replay queryable", async () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store, "Throwing Adapter");
+    store.bindTradingWallet(agent.id, "0xagentwallet");
+    store.seedCompetition();
+    let calls = 0;
+    const payload = {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-throwing-adapter",
+      action: "open_directional",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "2026-06-15T10:15:00.000Z",
+        strike: "65000000000000",
+        isUp: true
+      },
+      quantity: "10",
+      maxCost: "5.00",
+      confidence: 0.72,
+      reason: "Adapter throws.",
+      createdAt: "2026-06-15T10:03:12.000Z"
+    };
+
+    const first = await submitIntentWithMockExecution(store, payload, {
+      predictExecutionAdapter: async () => {
+        calls += 1;
+        throw new Error("dry run rejected");
+      }
+    });
+    const second = await submitIntentWithMockExecution(store, payload, {
+      predictExecutionAdapter: async () => {
+        calls += 1;
+        return {
+          status: "confirmed",
+          predictTxDigest: "0xshould_not_run"
+        };
+      }
+    });
+
+    expect(first).toMatchObject({
+      status: "failed",
+      executionId: "exec_1",
+      rejectionCode: "PREDICT_EXECUTION_FAILED"
+    });
+    expect(second).toEqual(first);
+    expect(calls).toBe(1);
+    expect(store.listIntents()[0]).toMatchObject({
+      status: "failed",
+      rejectionCode: "PREDICT_EXECUTION_FAILED"
+    });
+    expect(store.listExecutions()[0]).toMatchObject({
+      status: "failed",
+      predictTxDigest: null
+    });
+  });
+
+  it("maps range reduce and close intents to typed Predict adapter payloads", async () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store, "Range Manager");
+    const wallet = store.bindTradingWallet(agent.id, "0xagentwallet");
+    store.seedCompetition();
+    const adapterCalls: unknown[] = [];
+    const adapter = async (input: unknown) => {
+      adapterCalls.push(input);
+      return {
+        status: "confirmed" as const,
+        predictTxDigest: `0xdigest_${adapterCalls.length}`
+      };
+    };
+
+    await submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-reduce-range-adapter",
+      action: "reduce",
+      positionRef: {
+        kind: "range",
+        rangeKey: "btc-range-64000-66000",
+        openExecutionId: "exec_open",
+        quantity: "10"
+      },
+      quantity: "4",
+      minProceeds: "1",
+      confidence: 0.58,
+      reason: "Trim range.",
+      createdAt: "2026-06-15T10:06:12.000Z"
+    }, {
+      predictExecutionAdapter: adapter
+    });
+
+    await submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-close-range-adapter",
+      action: "close",
+      positionRef: {
+        kind: "range",
+        rangeKey: "btc-range-64000-66000",
+        openExecutionId: "exec_open"
+      },
+      minProceeds: "1",
+      confidence: 0.52,
+      reason: "Close range.",
+      createdAt: "2026-06-15T10:07:12.000Z"
+    }, {
+      predictExecutionAdapter: adapter
+    });
+
+    expect(adapterCalls).toEqual([
+      {
+        intentId: "intent_1",
+        riskDecisionId: "risk_1",
+        executionId: "exec_1",
+        agentId: agent.id,
+        walletId: wallet.id,
+        predictOperation: "redeem_range",
+        predictPayload: {
+          operation: "redeem_range",
+          positionRef: {
+            kind: "range",
+            rangeKey: "btc-range-64000-66000",
+            openExecutionId: "exec_open",
+            quantity: "10"
+          },
+          quantity: "4",
+          minProceeds: "1"
+        }
+      },
+      {
+        intentId: "intent_2",
+        riskDecisionId: "risk_2",
+        executionId: "exec_2",
+        agentId: agent.id,
+        walletId: wallet.id,
+        predictOperation: "close_range",
+        predictPayload: {
+          operation: "close_range",
+          positionRef: {
+            kind: "range",
+            rangeKey: "btc-range-64000-66000",
+            openExecutionId: "exec_open"
+          },
+          minProceeds: "1"
+        }
+      }
+    ]);
   });
 
   it("rejects exposure when no wallet is bound", () => {

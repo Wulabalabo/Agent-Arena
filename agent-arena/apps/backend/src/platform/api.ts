@@ -7,6 +7,7 @@ import {
 import { getAllowedOperations } from "./competitions";
 import {
   PlatformExecutionError,
+  type SubmitIntentExecutionOptions,
   submitIntentWithMockExecution
 } from "./execution";
 import { PlatformMockStore } from "./mock-store";
@@ -51,6 +52,7 @@ export interface OwnerWithdrawalServiceResult {
 
 export interface CreatePlatformFetchHandlerOptions {
   ownerWithdrawalService?: (input: OwnerWithdrawalServiceInput) => Promise<OwnerWithdrawalServiceResult>;
+  predictExecutionAdapter?: SubmitIntentExecutionOptions["predictExecutionAdapter"];
 }
 
 export function createPlatformFetchHandler(
@@ -176,7 +178,7 @@ export function createPlatformFetchHandler(
       }
 
       if (request.method === "POST" && matchesRoute(route, ["intents"])) {
-        return await submitIntent(request, store);
+        return await submitIntent(request, store, options.predictExecutionAdapter);
       }
 
       if (request.method === "GET" && route.length === 2 && route[0] === "intents") {
@@ -313,7 +315,11 @@ async function withdrawTradingWallet(
   return jsonResponse({ withdrawal }, 201);
 }
 
-async function submitIntent(request: Request, store: PlatformMockStore): Promise<Response> {
+async function submitIntent(
+  request: Request,
+  store: PlatformMockStore,
+  predictExecutionAdapter: CreatePlatformFetchHandlerOptions["predictExecutionAdapter"]
+): Promise<Response> {
   const auth = authenticateAgentRuntimeRequest(request, store);
   const body = await readJsonObject(request);
   const bodyAgentId = validateNonEmptyString(body.agentId, "agentId");
@@ -321,7 +327,11 @@ async function submitIntent(request: Request, store: PlatformMockStore): Promise
     return errorResponse(403, "AGENT_MISMATCH", "Authenticated agent does not match intent agentId");
   }
 
-  const result = submitIntentWithMockExecution(store, body);
+  const result = await submitIntentWithMockExecution(
+    store,
+    body,
+    predictExecutionAdapter ? { predictExecutionAdapter } : {}
+  );
   if (result.status === "rejected") {
     return errorResponse(
       400,
@@ -330,6 +340,21 @@ async function submitIntent(request: Request, store: PlatformMockStore): Promise
       {
         intentId: result.intentId,
         riskDecisionId: result.riskDecisionId,
+        status: result.status
+      }
+    );
+  }
+
+  if (result.status === "failed") {
+    return errorResponse(
+      502,
+      result.rejectionCode ?? "PREDICT_EXECUTION_FAILED",
+      `Predict execution failed: ${result.rejectionCode ?? "PREDICT_EXECUTION_FAILED"}`,
+      {
+        intentId: result.intentId,
+        riskDecisionId: result.riskDecisionId,
+        executionId: result.executionId,
+        predictTxDigest: result.predictTxDigest,
         status: result.status
       }
     );
@@ -389,13 +414,16 @@ function createLeaderboardEntries({
 
     const invalidIntentCount = intents.filter((intent) => (
       intent.agentId === agentId &&
-      intent.status === "rejected"
+      (intent.status === "rejected" || intent.status === "failed")
     )).length;
-    const executedIntentCount = agentExecutions.filter((execution) => (
+    const countableExecutions = agentExecutions.filter((execution) => (
+      execution.status === "confirmed" || execution.status === "partial"
+    ));
+    const executedIntentCount = countableExecutions.filter((execution) => (
       intentsById.get(execution.intentId)?.status === "executed"
     )).length;
-    const executionCount = agentExecutions.length;
-    const finalExecutionAt = agentExecutions
+    const executionCount = countableExecutions.length;
+    const finalExecutionAt = countableExecutions
       .map((execution) => execution.createdAt)
       .sort()
       .at(-1) ?? mockNow;

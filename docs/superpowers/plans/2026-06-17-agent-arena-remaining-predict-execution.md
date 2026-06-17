@@ -677,7 +677,7 @@ Submit after dry-run and confirm the manager position goes to zero and manager D
 - Modify `agent-arena/apps/backend/src/platform/validation.test.ts`
 - Modify `agent-arena/skills/deepbook-predict-btc-15m.md`
 
-- [ ] **Step 1: Preserve final MVP action set**
+- [x] **Step 1: Preserve final MVP action set**
 
 Keep the existing external Agent actions:
 - `hold`
@@ -694,21 +694,21 @@ Use `positionRef.kind` and nested fields to map:
 
 Do not allow Agent actions for withdrawal. Do not add Agent-facing `claim_settled_*` actions until the product explicitly wants Agents to initiate claims; settled claim may be platform/owner maintenance first.
 
-- [ ] **Step 2: Add validation tests**
+- [x] **Step 2: Add validation tests**
 
 Prove:
-- Range requires `lowerStrikeRaw < higherStrikeRaw`.
+- Range requires `lowerStrike < higherStrike` in the Agent-facing schema, with both fields carrying raw Predict strike strings.
 - Close actions do not accept quantity.
 - Reduce actions require quantity.
 - `reduce` and `close` require a typed `positionRef.kind`.
 - Claim operations are not accepted through Agent runtime-token schema in this phase.
 - Unknown fields are rejected.
 
-- [ ] **Step 3: Implement validation**
+- [x] **Step 3: Implement validation**
 
 Map external Agent action names to internal Predict operations.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run:
 ```powershell
@@ -724,7 +724,7 @@ Expected: all tests pass.
 - Modify `agent-arena/apps/backend/src/platform/api.ts`
 - Modify `agent-arena/apps/backend/src/platform/api.test.ts`
 
-- [ ] **Step 1: Write failing tests for real execution mode**
+- [x] **Step 1: Write failing tests for real execution mode**
 
 Prove:
 - Accepted `open_range` intent becomes internal `mint_range`.
@@ -737,11 +737,13 @@ Prove:
 
 Add a small adapter that calls the Predict execution service after platform risk validation and execution-record creation. The adapter must build typed internal operation inputs itself; it must not forward arbitrary raw request bodies from the Agent route.
 
-- [ ] **Step 3: Preserve mock mode**
+Current checkpoint: the platform now passes a typed, allowlisted `predictPayload` into an injected adapter after intent/risk/execution records are created. The concrete production bridge to internal Predict signing remains incomplete until claimed platform wallets are backed by the internal wallet store, PredictManager ids are bound to trading wallets, and user-unit quantities/costs are converted into raw Predict execution fields.
+
+- [x] **Step 3: Preserve mock mode**
 
 Keep existing mock execution path for local demos where Predict config is absent.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run:
 ```powershell
@@ -757,7 +759,7 @@ Expected: all tests pass.
 - Modify `agent-arena/skills/agent-wallet.md`
 - Modify `agent-arena/scripts/validate-skills.ts` if examples are validated.
 
-- [ ] **Step 1: Document action lifecycle**
+- [x] **Step 1: Document action lifecycle**
 
 Skill must tell Agents:
 - Get registration code.
@@ -769,18 +771,18 @@ Skill must tell Agents:
 - Never request withdrawal.
 - Use `reduce` and `close` with `positionRef.kind` rather than operation names like `redeem_range`.
 
-- [ ] **Step 2: Document raw units**
+- [x] **Step 2: Document raw units**
 
 Spell out:
 - DUSDC has 6 decimals.
 - BTC price/strike uses Predict raw strike units already returned by API.
 - Quantity is raw Predict quantity, not DUSDC amount.
 
-- [ ] **Step 3: Document range semantics**
+- [x] **Step 3: Document range semantics**
 
 Range settlement is `(lower, higher]` according to the verified Predict source. Direction is not part of `RangeKey`.
 
-- [ ] **Step 4: Validate docs**
+- [x] **Step 4: Validate docs**
 
 Run:
 ```powershell

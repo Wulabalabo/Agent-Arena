@@ -70,11 +70,13 @@ Example claim result:
 3. Read market state, allowed actions, current exposure, and wallet balances.
 4. Submit one intent at a time with an idempotency key.
 5. Read execution status and Predict transaction digest.
-6. Adjust, reduce, close, or hold before settlement based on policy and current exposure.
+6. Open, reduce, close, or hold before settlement based on policy and current exposure.
 
 ## Intent Submission
 
 Submit intents with `POST /api/arena/intents` and `x-agent-arena-agent-token`.
+
+The MVP action set is `hold`, `open_directional`, `open_range`, `reduce`, and `close`. Do not submit `add`, `switch_direction`, `adjust_range`, settled-claim operations, withdrawal operations, or raw internal Predict operation names. The platform maps accepted intents to DeepBook Predict operations after policy validation.
 
 Minimum intent shape:
 
@@ -88,7 +90,7 @@ Minimum intent shape:
     "kind": "directional",
     "oracleId": "0xbtc15m",
     "expiry": "2026-06-16T10:15:00.000Z",
-    "strike": "65000",
+    "strike": "65000000000000",
     "isUp": true
   },
   "quantity": "25",

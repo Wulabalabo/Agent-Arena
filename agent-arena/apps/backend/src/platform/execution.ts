@@ -1,6 +1,14 @@
 import type { PlatformMockStore } from "./mock-store";
 import { evaluateIntentRisk } from "./risk";
-import type { AgentIntent, ExecutionRecord, IntentStatus, RiskDecision } from "./types";
+import type {
+  AgentIntent,
+  DirectionalMarket,
+  ExecutionRecord,
+  IntentStatus,
+  PositionRef,
+  RangeMarket,
+  RiskDecision
+} from "./types";
 import { type ValidatedIntentPayload, validateIntentPayload } from "./validation";
 
 export interface MockExecutionResponse {
@@ -18,8 +26,34 @@ export interface PredictIntentExecutionAdapterInput {
   executionId: string;
   agentId: string;
   walletId: string;
-  predictOperation: string;
+  predictOperation: PredictIntentExecutionPayload["operation"];
+  predictPayload: PredictIntentExecutionPayload;
 }
+
+export type PredictIntentExecutionPayload =
+  | {
+    operation: "mint_directional";
+    market: DirectionalMarket;
+    quantity: string;
+    maxCost: string;
+  }
+  | {
+    operation: "mint_range";
+    market: RangeMarket;
+    quantity: string;
+    maxCost: string;
+  }
+  | {
+    operation: "redeem_directional" | "redeem_range";
+    positionRef: PositionRef;
+    quantity: string;
+    minProceeds?: string;
+  }
+  | {
+    operation: "close_directional" | "close_range";
+    positionRef: PositionRef;
+    minProceeds?: string;
+  };
 
 export interface PredictIntentExecutionAdapterResult {
   status: ExecutionRecord["status"];
@@ -31,6 +65,8 @@ export interface SubmitIntentExecutionOptions {
     input: PredictIntentExecutionAdapterInput
   ) => PredictIntentExecutionAdapterResult | Promise<PredictIntentExecutionAdapterResult>;
 }
+
+const predictExecutionFailedCode = "PREDICT_EXECUTION_FAILED";
 
 export class PlatformExecutionError extends Error {
   constructor(message: string) {
@@ -160,13 +196,18 @@ async function executeWithPredictAdapter(input: {
   };
   input.store.saveExecution(queuedExecution);
 
-  const result = await input.predictExecutionAdapter({
-    intentId: input.intent.id,
-    riskDecisionId: input.riskDecisionId,
-    executionId: input.executionId,
-    agentId: input.intent.agentId,
-    walletId: wallet.id,
-    predictOperation: predictOperationForIntent(input.intent)
+  const predictPayload = predictPayloadForIntent(input.intent);
+  const result = await callPredictExecutionAdapter({
+    predictExecutionAdapter: input.predictExecutionAdapter,
+    adapterInput: {
+      intentId: input.intent.id,
+      riskDecisionId: input.riskDecisionId,
+      executionId: input.executionId,
+      agentId: input.intent.agentId,
+      walletId: wallet.id,
+      predictOperation: predictPayload.operation,
+      predictPayload
+    }
   });
 
   const execution: ExecutionRecord = {
@@ -176,36 +217,104 @@ async function executeWithPredictAdapter(input: {
   };
   input.store.saveExecution(execution);
 
+  const intentStatus = intentStatusForExecutionStatus(result.status);
+  const rejectionCode = intentStatus === "failed" ? predictExecutionFailedCode : null;
   input.store.saveIntent({
     ...input.intent,
-    status: "executed",
-    rejectionCode: null
+    status: intentStatus,
+    rejectionCode
   });
 
   return {
-    status: "executed",
+    status: intentStatus,
     intentId: input.intent.id,
     riskDecisionId: input.riskDecisionId,
     executionId: input.executionId,
-    predictTxDigest: execution.predictTxDigest ?? undefined
+    predictTxDigest: execution.predictTxDigest ?? undefined,
+    rejectionCode: rejectionCode ?? undefined
   };
 }
 
-function predictOperationForIntent(intent: AgentIntent): string {
+async function callPredictExecutionAdapter(input: {
+  predictExecutionAdapter: NonNullable<SubmitIntentExecutionOptions["predictExecutionAdapter"]>;
+  adapterInput: PredictIntentExecutionAdapterInput;
+}): Promise<PredictIntentExecutionAdapterResult> {
+  try {
+    return await input.predictExecutionAdapter(input.adapterInput);
+  } catch {
+    return {
+      status: "failed",
+      predictTxDigest: null
+    };
+  }
+}
+
+function intentStatusForExecutionStatus(status: ExecutionRecord["status"]): IntentStatus {
+  if (status === "confirmed") {
+    return "executed";
+  }
+
+  if (status === "partial") {
+    return "partial";
+  }
+
+  if (status === "failed") {
+    return "failed";
+  }
+
+  return "accepted";
+}
+
+function predictPayloadForIntent(intent: AgentIntent): PredictIntentExecutionPayload {
   if (intent.action === "open_directional") {
-    return "mint_directional";
+    if (intent.market?.kind !== "directional" || !intent.quantity || !intent.maxCost) {
+      throw new PlatformExecutionError("PREDICT_PAYLOAD_INVALID:open_directional");
+    }
+
+    return {
+      operation: "mint_directional",
+      market: intent.market,
+      quantity: intent.quantity,
+      maxCost: intent.maxCost
+    };
   }
 
   if (intent.action === "open_range") {
-    return "mint_range";
+    if (intent.market?.kind !== "range" || !intent.quantity || !intent.maxCost) {
+      throw new PlatformExecutionError("PREDICT_PAYLOAD_INVALID:open_range");
+    }
+
+    return {
+      operation: "mint_range",
+      market: intent.market,
+      quantity: intent.quantity,
+      maxCost: intent.maxCost
+    };
   }
 
   if (intent.action === "reduce") {
-    return intent.positionRef?.kind === "range" ? "redeem_range" : "redeem_directional";
+    if (!intent.positionRef || !intent.quantity) {
+      throw new PlatformExecutionError("PREDICT_PAYLOAD_INVALID:reduce");
+    }
+
+    return {
+      operation: intent.positionRef.kind === "range" ? "redeem_range" : "redeem_directional",
+      positionRef: intent.positionRef,
+      quantity: intent.quantity,
+      ...(intent.minProceeds ? { minProceeds: intent.minProceeds } : {})
+    };
   }
 
   if (intent.action === "close") {
-    return intent.positionRef?.kind === "range" ? "close_range" : "close_directional";
+    if (!intent.positionRef) {
+      throw new PlatformExecutionError("PREDICT_PAYLOAD_INVALID:close");
+    }
+
+    return {
+      operation: intent.positionRef.kind === "range" ? "close_range" : "close_directional",
+      positionRef: intent.positionRef,
+      ...(intent.minProceeds ? { minProceeds: intent.minProceeds } : {})
+    };
   }
 
   throw new PlatformExecutionError(`PREDICT_OPERATION_UNSUPPORTED:${intent.action}`);
@@ -269,15 +378,18 @@ function createStoredResponse(store: PlatformMockStore, intent: AgentIntent): Mo
     };
   }
 
+  const execution = store.findExecutionByIntentId(intent.id);
+
   if (intent.status === "accepted") {
     return {
       status: "accepted",
       intentId: intent.id,
-      riskDecisionId: riskDecision.id
+      riskDecisionId: riskDecision.id,
+      executionId: execution?.id,
+      predictTxDigest: execution?.predictTxDigest ?? undefined
     };
   }
 
-  const execution = store.findExecutionByIntentId(intent.id);
   if (!execution) {
     throw new PlatformExecutionError("MISSING_EXECUTION");
   }
@@ -287,7 +399,8 @@ function createStoredResponse(store: PlatformMockStore, intent: AgentIntent): Mo
     intentId: intent.id,
     riskDecisionId: riskDecision.id,
     executionId: execution.id,
-    predictTxDigest: execution.predictTxDigest ?? undefined
+    predictTxDigest: execution.predictTxDigest ?? undefined,
+    rejectionCode: intent.status === "failed" ? intent.rejectionCode ?? predictExecutionFailedCode : undefined
   };
 }
 

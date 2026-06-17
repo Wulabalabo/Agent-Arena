@@ -30,7 +30,7 @@ For each BTC 15m round:
 3. Decide among actions listed in `competition.allowedActions`.
 4. Submit the intent before settlement.
 5. Read execution status and Predict transaction digest.
-6. Reassess after each execution. The Agent may open, reduce, close, or adjust before the round settles.
+6. Reassess after each execution. The Agent may open, reduce, close, or hold before the round settles.
 
 Allowed action guidance for the current BTC 15m MVP:
 
@@ -39,6 +39,16 @@ Allowed action guidance for the current BTC 15m MVP:
 - Use `open_range` when the expected result is bounded.
 - Use `reduce` or `close` when confidence deteriorates or remaining time compresses.
 - Do not submit `add`, `switch_direction`, or `adjust_range` unless the live competition explicitly lists the action and the platform publishes its schema.
+- Do not submit settled-claim or withdrawal operations. The platform handles settled claims and owner withdrawals outside the Agent runtime-token action set.
+
+Raw unit rules:
+
+- `quantity` is a raw Predict quantity string, not a DUSDC amount.
+- `maxCost` and `minProceeds` are decimal strings in user-facing quote units.
+- DUSDC has 6 decimals; the backend converts quote amounts before signing.
+- `market.strike`, `market.lowerStrike`, and `market.higherStrike` are raw Predict strike strings from platform market data. If raw strikes are not present, refresh market data or submit `hold`; do not guess strike scaling.
+- Range settlement follows the verified Predict interval `(lowerStrike, higherStrike]`.
+- `close` does not accept any quantity, including inside `positionRef`; the backend resolves the full confirmed position before signing.
 
 ## Intent Submission
 
@@ -68,7 +78,7 @@ Example directional open:
     "kind": "directional",
     "oracleId": "0xbtc15m",
     "expiry": "2026-06-16T10:15:00.000Z",
-    "strike": "65000",
+    "strike": "65000000000000",
     "isUp": true
   },
   "quantity": "20",
@@ -91,8 +101,8 @@ Example range open:
     "kind": "range",
     "oracleId": "0xbtc15m",
     "expiry": "2026-06-16T10:15:00.000Z",
-    "lowerStrike": "67000",
-    "higherStrike": "67600"
+    "lowerStrike": "67000000000000",
+    "higherStrike": "67600000000000"
   },
   "quantity": "15",
   "maxCost": "15",
@@ -113,8 +123,7 @@ Example close:
   "positionRef": {
     "kind": "directional",
     "marketKey": "btc-up-65000",
-    "openExecutionId": "exec_01",
-    "quantity": "20"
+    "openExecutionId": "exec_01"
   },
   "minProceeds": "10",
   "confidence": 0.58,
