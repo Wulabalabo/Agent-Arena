@@ -800,7 +800,7 @@ Expected: validation passes.
 - Modify `agent-arena/apps/frontend/src/features/predict/live-market.ts`
 - Modify `agent-arena/apps/frontend/src/features/predict/live-market.test.ts`
 
-- [ ] **Step 1: Add wallet status display**
+- [x] **Step 1: Add wallet status display**
 
 Show:
 - wallet DUSDC balance.
@@ -809,7 +809,7 @@ Show:
 - open range quantity.
 - claimable settled state.
 
-- [ ] **Step 2: Add owner-only controls**
+- [x] **Step 2: Add owner-only controls**
 
 Show owner-only:
 - withdraw from manager.
@@ -818,11 +818,11 @@ Show owner-only:
 
 Do not show withdrawal to Agent runtime-token flows, and do not call `/api/arena/internal/*` from browser UI.
 
-- [ ] **Step 3: Add range display**
+- [x] **Step 3: Add range display**
 
 Show selected range as lower/higher raw strike and normalized display price if available.
 
-- [ ] **Step 4: Verify frontend tests**
+- [x] **Step 4: Verify frontend tests**
 
 Run:
 ```powershell
@@ -835,17 +835,17 @@ Expected: all tests pass.
 
 ## End-to-End Acceptance
 
-- [ ] Backend unit tests pass:
+- [x] Backend unit tests pass:
 ```powershell
 bun run --cwd agent-arena/apps/backend test
 ```
 
-- [ ] Skill docs validate:
+- [x] Skill docs validate:
 ```powershell
 bun run --cwd agent-arena validate:skills
 ```
 
-- [ ] Frontend typecheck and targeted tests pass:
+- [x] Frontend typecheck and targeted tests pass:
 ```powershell
 bun run --cwd agent-arena/apps/frontend typecheck
 bun run --cwd agent-arena/apps/frontend vitest run src/components/platform/TradingWalletPanel.test.tsx src/components/platform/LiveCompetition.test.tsx src/features/predict/live-market.test.ts

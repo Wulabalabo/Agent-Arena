@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AgentPairingPanel } from "./components/platform/AgentPairingPanel";
 import { CompetitionLobby } from "./components/platform/CompetitionLobby";
 import { LeaderboardPanel } from "./components/platform/LeaderboardPanel";
@@ -7,6 +7,14 @@ import { ReplayTimeline } from "./components/platform/ReplayTimeline";
 import { SkillDocsPanel } from "./components/platform/SkillDocsPanel";
 import { TradingWalletPanel } from "./components/platform/TradingWalletPanel";
 import { AppNav } from "./components/navigation/AppNav";
+import { createPredictClient } from "./features/predict/client";
+import { predictConfig } from "./features/predict/config";
+import {
+  loadLiveBtcMarketSnapshot,
+  refreshLiveBtcMarketPrice,
+  type LiveBtcMarketSnapshot
+} from "./features/predict/live-market";
+import { useLiveBtcMarketSnapshot } from "./features/predict/use-live-btc-market";
 import { mockPlatformSnapshot } from "./features/platform/mock";
 import {
   createInitialPlatformState,
@@ -20,10 +28,30 @@ import {
 const runtimeCredential = "agent_runtime_test_token";
 const apiBaseUrl = "http://127.0.0.1:8787/api/arena";
 
-export default function App() {
+interface AppProps {
+  liveMarketLoader?: () => Promise<LiveBtcMarketSnapshot>;
+}
+
+export default function App({ liveMarketLoader }: AppProps = {}) {
   const [state, setState] = useState(() => createInitialPlatformState(mockPlatformSnapshot));
   const selectedAgent = useMemo(() => getSelectedAgent(state), [state]);
   const selectedCompetition = useMemo(() => getSelectedCompetition(state), [state]);
+  const predictClient = useMemo(() => createPredictClient({ serverUrl: predictConfig.serverUrl }), []);
+  const defaultLiveMarketLoader = useCallback(
+    () => loadLiveBtcMarketSnapshot({ client: predictClient, config: predictConfig }),
+    [predictClient]
+  );
+  const defaultLiveMarketRefreshLoader = useCallback(
+    (snapshot: LiveBtcMarketSnapshot) => refreshLiveBtcMarketPrice({ client: predictClient, snapshot }),
+    [predictClient]
+  );
+  const liveMarket = useLiveBtcMarketSnapshot({
+    enabled: state.activeView === "competition",
+    fullRefreshEveryMs: 5_000,
+    loader: liveMarketLoader ?? defaultLiveMarketLoader,
+    pollIntervalMs: 500,
+    refreshLoader: liveMarketLoader ? undefined : defaultLiveMarketRefreshLoader
+  });
 
   function navigate(view: PlatformView) {
     setState((currentState) => selectPlatformView(currentState, view));
@@ -77,6 +105,9 @@ export default function App() {
             riskDecisions={state.riskDecisions}
             selectedAgent={selectedAgent}
             tradingWallet={state.tradingWallet}
+            liveMarketSnapshot={liveMarket.snapshot}
+            liveMarketStatus={liveMarket.status}
+            liveMarketError={liveMarket.error}
             onSelectAgent={handleSelectAgent}
             onViewReplay={() => navigate("replay")}
           />
