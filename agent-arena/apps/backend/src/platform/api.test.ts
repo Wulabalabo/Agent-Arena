@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createAgentArenaFetchHandler } from "../server";
 import { createPlatformFetchHandler } from "./api";
+import { createPerformanceLedgerRecord, createRegistrationCodeHash } from "./performance-ledger";
 
 async function claimTestAgent(
   fetch: ReturnType<typeof createPlatformFetchHandler>,
@@ -91,6 +92,71 @@ describe("Agent Arena platform API", () => {
       "execution:read"
     ]);
     expect(body).not.toHaveProperty("apiKey");
+  });
+
+  it("claims a pairing code through an injected claimed-Agent wallet service and stores identity ledger rows", async () => {
+    const store = new (await import("./mock-store")).PlatformMockStore();
+    const walletServiceCalls: unknown[] = [];
+    const fetch = createPlatformFetchHandler(store, {
+      agentWalletService: async (input) => {
+        walletServiceCalls.push(input);
+        return {
+          id: "wallet_internal_001",
+          address: "0xclaimedwallet",
+          testnetSuiBalance: "0",
+          quoteBalance: "0",
+          predictManagerStatus: "ready",
+          predictManagerId: "0xmanager"
+        };
+      }
+    });
+    const draft = await (await fetch(new Request("http://localhost/api/arena/agent/init", {
+      method: "POST",
+      body: JSON.stringify({ displayName: "Ledger Agent" })
+    }))).json();
+
+    const response = await fetch(new Request("http://localhost/api/arena/owner/agents/claim", {
+      method: "POST",
+      body: JSON.stringify({
+        registrationCode: draft.registrationCode,
+        ownerAddress: "0xowner",
+        signature: "0xsignedClaimMessage",
+        twitterHandle: "@Ledger_Agent"
+      })
+    }));
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(walletServiceCalls).toEqual([{
+      agentId: body.agent.id,
+      displayName: "Ledger Agent"
+    }]);
+    expect(body.tradingWallet).toMatchObject({
+      id: "wallet_internal_001",
+      agentId: body.agent.id,
+      address: "0xclaimedwallet",
+      predictManagerStatus: "ready",
+      predictManagerId: "0xmanager"
+    });
+    expect(body.tradingWallet).not.toHaveProperty("privateKey");
+    expect(body.tradingWallet).not.toHaveProperty("encryptedPrivateKey");
+
+    const registrationCodeHash = createRegistrationCodeHash(draft.registrationCode);
+    expect(store.getIdentityBindingByAgentId(body.agent.id)).toMatchObject({
+      agentDraftId: draft.agentDraftId,
+      registrationCodeHash,
+      agentId: body.agent.id,
+      ownerAddress: "0xowner",
+      twitterHandle: "Ledger_Agent",
+      tradingWalletId: "wallet_internal_001",
+      walletAddress: "0xclaimedwallet",
+      predictManagerId: "0xmanager"
+    });
+    expect(store.listPerformanceLedger({ agentId: body.agent.id })).toMatchObject([
+      { kind: "pairing", registrationCodeHash },
+      { kind: "wallet_binding", tradingWalletId: "wallet_internal_001" }
+    ]);
+    expect(JSON.stringify(store.listPerformanceLedger({ agentId: body.agent.id }))).not.toContain(draft.registrationCode);
   });
 
   it("rejects owner wallet withdrawal when only an Agent runtime token is supplied", async () => {
@@ -273,6 +339,126 @@ describe("Agent Arena platform API", () => {
     expect(intentResponse.status).toBe(201);
     const body = await intentResponse.json();
     expect(body.status).toBe("accepted");
+  });
+
+  it("serves authenticated Agent positions and execution details without cross-Agent access", async () => {
+    const store = new (await import("./mock-store")).PlatformMockStore();
+    const fetch = createPlatformFetchHandler(store);
+    const first = await claimTestAgent(fetch, { displayName: "Position Agent" });
+    const second = await claimTestAgent(fetch, { displayName: "Other Agent", ownerAddress: "0xowner2" });
+
+    store.savePositionSnapshot({
+      agentId: first.agent.id,
+      competitionId: "btc-15m-001",
+      positionRef: {
+        kind: "range",
+        rangeKey: "btc-range-64000-66000-1781701200000",
+        openExecutionId: "exec_1"
+      },
+      oracleId: "0xbtc15m",
+      expiryMs: "1781701200000",
+      lowerStrikeRaw: "64000000000000",
+      higherStrikeRaw: "66000000000000",
+      quantityRaw: "10",
+      status: "open",
+      updatedAt: "2026-06-15T10:05:00.000Z"
+    });
+    store.saveExecution({
+      id: "exec_1",
+      intentId: "intent_1",
+      agentId: first.agent.id,
+      competitionId: "btc-15m-001",
+      riskDecisionId: "risk_1",
+      status: "confirmed",
+      predictTxDigest: "0xpredictdigest",
+      action: "open_range",
+      createdAt: "2026-06-15T10:05:00.000Z"
+    });
+    store.saveIntent({
+      id: "intent_1",
+      competitionId: "btc-15m-001",
+      agentId: first.agent.id,
+      idempotencyKey: "position-agent-intent",
+      action: "open_range",
+      market: {
+        kind: "range",
+        oracleId: "0xbtc15m",
+        expiry: "1781701200000",
+        lowerStrike: "64000000000000",
+        higherStrike: "66000000000000"
+      },
+      quantity: "10",
+      maxCost: "1000000",
+      confidence: 0.64,
+      reason: "Position Agent opens a test range.",
+      createdAt: "2026-06-15T10:05:00.000Z",
+      status: "executed",
+      rejectionCode: null
+    });
+
+    const positions = await fetch(new Request(
+      "http://localhost/api/arena/agent/positions?competitionId=btc-15m-001",
+      { headers: { "x-agent-arena-agent-token": first.runtimeCredential.token } }
+    ));
+    const intent = await fetch(new Request(
+      "http://localhost/api/arena/intents/intent_1",
+      { headers: { "x-agent-arena-agent-token": first.runtimeCredential.token } }
+    ));
+    const intentForbidden = await fetch(new Request(
+      "http://localhost/api/arena/intents/intent_1",
+      { headers: { "x-agent-arena-agent-token": second.runtimeCredential.token } }
+    ));
+    const execution = await fetch(new Request(
+      "http://localhost/api/arena/executions/exec_1",
+      { headers: { "x-agent-arena-agent-token": first.runtimeCredential.token } }
+    ));
+    const forbidden = await fetch(new Request(
+      "http://localhost/api/arena/executions/exec_1",
+      { headers: { "x-agent-arena-agent-token": second.runtimeCredential.token } }
+    ));
+
+    expect(positions.status).toBe(200);
+    await expect(positions.json()).resolves.toMatchObject({
+      positions: [{
+        agentId: first.agent.id,
+        competitionId: "btc-15m-001",
+        positionRef: {
+          kind: "range",
+          rangeKey: "btc-range-64000-66000-1781701200000"
+        },
+        quantityRaw: "10",
+        status: "open"
+      }]
+    });
+    expect(intent.status).toBe(200);
+    await expect(intent.json()).resolves.toMatchObject({
+      intent: {
+        id: "intent_1",
+        agentId: first.agent.id,
+        status: "executed"
+      }
+    });
+    expect(intentForbidden.status).toBe(404);
+    await expect(intentForbidden.json()).resolves.toMatchObject({
+      error: {
+        code: "INTENT_NOT_FOUND"
+      }
+    });
+    expect(execution.status).toBe(200);
+    await expect(execution.json()).resolves.toMatchObject({
+      execution: {
+        id: "exec_1",
+        agentId: first.agent.id,
+        predictTxDigest: "0xpredictdigest",
+        status: "confirmed"
+      }
+    });
+    expect(forbidden.status).toBe(404);
+    await expect(forbidden.json()).resolves.toMatchObject({
+      error: {
+        code: "EXECUTION_NOT_FOUND"
+      }
+    });
   });
 
   it("submits authenticated range intents through the configured Predict adapter", async () => {
@@ -529,7 +715,9 @@ describe("Agent Arena platform API", () => {
       }]
     });
 
-    const intent = await fetch(new Request("http://localhost/api/arena/intents/intent_1"));
+    const intent = await fetch(new Request("http://localhost/api/arena/intents/intent_1", {
+      headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token }
+    }));
     expect(intent.status).toBe(200);
     await expect(intent.json()).resolves.toMatchObject({
       intent: {
@@ -550,6 +738,84 @@ describe("Agent Arena platform API", () => {
           txDigest: "0xmock_exec_1"
         }
       ]
+    });
+  });
+
+  it("serves leaderboard entries aggregated from the performance ledger by Agent identity", async () => {
+    const store = new (await import("./mock-store")).PlatformMockStore();
+    const fetch = createPlatformFetchHandler(store);
+    const agent = store.createClaimedAgent({
+      displayName: "Ledger Ranker",
+      ownerAddress: "0xowner",
+      twitterHandle: "@Ledger_Ranker"
+    });
+
+    store.recordPerformanceLedger(createPerformanceLedgerRecord({
+      kind: "execution",
+      agentDraftId: "draft_1",
+      registrationCodeHash: "sha256:abc",
+      agentId: agent.id,
+      ownerAddress: "0xowner",
+      tradingWalletId: "wallet_1",
+      walletAddress: "0xwallet1",
+      predictManagerId: "0xmanager1",
+      competitionId: "btc-15m-001",
+      oracleId: "0xbtc15m",
+      expiryMs: "1781701200000",
+      intentId: "intent_1",
+      riskDecisionId: "risk_1",
+      executionId: "exec_1",
+      txDigest: "0xdigest1",
+      action: "open_directional",
+      positionKind: "directional",
+      quantityRaw: "10",
+      costRaw: "100",
+      proceedsRaw: null,
+      status: "confirmed",
+      errorCode: null,
+      policyDrift: "none",
+      createdAt: "2026-06-15T10:04:00.000Z",
+      serverReceivedAt: "2026-06-15T10:04:00.100Z"
+    }));
+    store.recordPerformanceLedger(createPerformanceLedgerRecord({
+      kind: "execution",
+      agentDraftId: "draft_1",
+      registrationCodeHash: "sha256:abc",
+      agentId: agent.id,
+      ownerAddress: "0xowner",
+      tradingWalletId: "wallet_2",
+      walletAddress: "0xwallet2",
+      predictManagerId: "0xmanager2",
+      competitionId: "btc-15m-001",
+      oracleId: "0xbtc15m",
+      expiryMs: "1781701200000",
+      intentId: "intent_2",
+      riskDecisionId: "risk_2",
+      executionId: "exec_2",
+      txDigest: "0xdigest2",
+      action: "close",
+      positionKind: "directional",
+      quantityRaw: "10",
+      costRaw: null,
+      proceedsRaw: "120",
+      status: "confirmed",
+      errorCode: null,
+      policyDrift: "none",
+      createdAt: "2026-06-15T10:10:00.000Z",
+      serverReceivedAt: "2026-06-15T10:10:00.100Z"
+    }));
+
+    const response = await fetch(new Request("http://localhost/api/arena/leaderboard?competitionId=btc-15m-001"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      entries: [{
+        rank: 1,
+        agentId: agent.id,
+        displayName: "Ledger Ranker",
+        twitterHandle: "Ledger_Ranker",
+        executionCount: 2
+      }]
     });
   });
 

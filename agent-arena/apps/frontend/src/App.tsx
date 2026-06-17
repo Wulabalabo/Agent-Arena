@@ -102,6 +102,7 @@ export default function App({ liveMarketLoader }: AppProps = {}) {
             competition={selectedCompetition}
             executions={state.executions}
             intents={state.intents}
+            positions={state.positions}
             riskDecisions={state.riskDecisions}
             selectedAgent={selectedAgent}
             tradingWallet={state.tradingWallet}

@@ -1,5 +1,13 @@
 import { Activity, Clock3, Play, Radio, RotateCcw } from "lucide-react";
-import type { AgentProfile, Competition, ExecutionRecord, AgentIntent, RiskDecision, TradingWallet } from "../../features/platform/types";
+import type {
+  AgentIntent,
+  AgentPositionSnapshot,
+  AgentProfile,
+  Competition,
+  ExecutionRecord,
+  RiskDecision,
+  TradingWallet
+} from "../../features/platform/types";
 import type { LiveBtcMarketEvent, LiveBtcMarketSnapshot } from "../../features/predict/live-market";
 import type { LiveBtcMarketStatus } from "../../features/predict/use-live-btc-market";
 import { AgentActivityPanel } from "./AgentActivityPanel";
@@ -9,6 +17,7 @@ interface LiveCompetitionProps {
   competition?: Competition;
   executions: ExecutionRecord[];
   intents: AgentIntent[];
+  positions?: AgentPositionSnapshot[];
   riskDecisions: RiskDecision[];
   selectedAgent?: AgentProfile;
   tradingWallet: TradingWallet;
@@ -24,6 +33,7 @@ export function LiveCompetition({
   competition,
   executions,
   intents,
+  positions = [],
   riskDecisions,
   selectedAgent,
   tradingWallet,
@@ -118,6 +128,7 @@ export function LiveCompetition({
       <AgentActivityPanel
         executions={executions}
         intents={intents}
+        positions={positions}
         riskDecisions={riskDecisions}
         tradingWallet={tradingWallet}
       />

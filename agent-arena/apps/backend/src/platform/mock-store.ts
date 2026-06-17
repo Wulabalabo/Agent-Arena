@@ -7,8 +7,11 @@ import {
   type Competition,
   type ExecutionRecord,
   type ExposureStatus,
+  type AgentIdentityBinding,
+  type AgentPositionSnapshot,
   type IntentMarket,
   type OwnerWithdrawalRecord,
+  type PerformanceLedgerRecord,
   type PositionRef,
   type RiskDecision,
   type TradingWallet
@@ -33,6 +36,9 @@ export class PlatformMockStore {
   private readonly pairingDraftIdsByCode = new Map<string, string>();
   private readonly tradingWallets = new Map<string, TradingWallet>();
   private readonly tradingWalletIdsByAgentId = new Map<string, string>();
+  private readonly identityBindingsByAgentId = new Map<string, AgentIdentityBinding>();
+  private readonly performanceLedger: PerformanceLedgerRecord[] = [];
+  private readonly positionSnapshots: AgentPositionSnapshot[] = [];
   private readonly competitions = new Map<string, Competition>();
   private readonly intents = new Map<string, AgentIntent>();
   private readonly intentIdsByIdempotencyKey = new Map<string, string>();
@@ -125,6 +131,10 @@ export class PlatformMockStore {
     return agent ? cloneAgent(agent) : undefined;
   }
 
+  listAgents(): AgentProfile[] {
+    return [...this.agents.values()].map(cloneAgent);
+  }
+
   updateAgentExposureStatus(agentId: string, exposureStatus: ExposureStatus): AgentProfile {
     const agent = this.agents.get(agentId);
     if (!agent) {
@@ -139,20 +149,28 @@ export class PlatformMockStore {
     return cloneAgent(updated);
   }
 
-  bindTradingWallet(agentId: string, address: string): TradingWallet {
+  bindTradingWallet(
+    agentId: string,
+    address: string,
+    overrides: Partial<Pick<
+      TradingWallet,
+      "id" | "testnetSuiBalance" | "quoteBalance" | "predictManagerStatus" | "predictManagerId"
+    >> = {}
+  ): TradingWallet {
     const agent = this.agents.get(agentId);
     if (!agent) {
       throw new Error("AGENT_NOT_FOUND");
     }
 
     const wallet: TradingWallet = {
-      id: `wallet_${this.nextWalletNumber}`,
+      id: overrides.id ?? `wallet_${this.nextWalletNumber}`,
       agentId,
       address,
       status: "active",
-      testnetSuiBalance: "0",
-      quoteBalance: "0",
-      predictManagerStatus: "missing",
+      testnetSuiBalance: overrides.testnetSuiBalance ?? "0",
+      quoteBalance: overrides.quoteBalance ?? "0",
+      predictManagerStatus: overrides.predictManagerStatus ?? "missing",
+      predictManagerId: overrides.predictManagerId ?? null,
       createdAt: "2026-06-15T00:00:00.000Z"
     };
     this.nextWalletNumber += 1;
@@ -192,6 +210,40 @@ export class PlatformMockStore {
   getTradingWalletById(walletId: string): TradingWallet | undefined {
     const wallet = this.tradingWallets.get(walletId);
     return wallet ? cloneTradingWallet(wallet) : undefined;
+  }
+
+  saveIdentityBinding(binding: AgentIdentityBinding): AgentIdentityBinding {
+    this.identityBindingsByAgentId.set(binding.agentId, cloneIdentityBinding(binding));
+    return cloneIdentityBinding(binding);
+  }
+
+  getIdentityBindingByAgentId(agentId: string): AgentIdentityBinding | undefined {
+    const binding = this.identityBindingsByAgentId.get(agentId);
+    return binding ? cloneIdentityBinding(binding) : undefined;
+  }
+
+  recordPerformanceLedger(record: PerformanceLedgerRecord): PerformanceLedgerRecord {
+    this.performanceLedger.push(clonePerformanceLedgerRecord(record));
+    return clonePerformanceLedgerRecord(record);
+  }
+
+  listPerformanceLedger(filter: { agentId?: string; competitionId?: string } = {}): PerformanceLedgerRecord[] {
+    return this.performanceLedger
+      .filter((record) => !filter.agentId || record.agentId === filter.agentId)
+      .filter((record) => !filter.competitionId || record.competitionId === filter.competitionId)
+      .map(clonePerformanceLedgerRecord);
+  }
+
+  savePositionSnapshot(snapshot: AgentPositionSnapshot): AgentPositionSnapshot {
+    this.positionSnapshots.push(clonePositionSnapshot(snapshot));
+    return clonePositionSnapshot(snapshot);
+  }
+
+  listPositionSnapshots(filter: { agentId?: string; competitionId?: string } = {}): AgentPositionSnapshot[] {
+    return this.positionSnapshots
+      .filter((snapshot) => !filter.agentId || snapshot.agentId === filter.agentId)
+      .filter((snapshot) => !filter.competitionId || snapshot.competitionId === filter.competitionId)
+      .map(clonePositionSnapshot);
   }
 
   seedCompetition(competition: Competition = createMockCompetition("btc-15m-001")): Competition {
@@ -258,6 +310,11 @@ export class PlatformMockStore {
     return execution ? cloneExecution(execution) : undefined;
   }
 
+  findExecutionById(executionId: string): ExecutionRecord | undefined {
+    const execution = this.executions.get(executionId);
+    return execution ? cloneExecution(execution) : undefined;
+  }
+
   recordOwnerWithdrawal(input: Omit<OwnerWithdrawalRecord, "id" | "createdAt">): OwnerWithdrawalRecord {
     const withdrawal: OwnerWithdrawalRecord = {
       ...input,
@@ -300,6 +357,21 @@ function clonePairingDraft(draft: AgentPairingDraft): AgentPairingDraft {
 
 function cloneTradingWallet(wallet: TradingWallet): TradingWallet {
   return { ...wallet };
+}
+
+function cloneIdentityBinding(binding: AgentIdentityBinding): AgentIdentityBinding {
+  return { ...binding };
+}
+
+function clonePerformanceLedgerRecord(record: PerformanceLedgerRecord): PerformanceLedgerRecord {
+  return { ...record };
+}
+
+function clonePositionSnapshot(snapshot: AgentPositionSnapshot): AgentPositionSnapshot {
+  return {
+    ...snapshot,
+    positionRef: clonePositionRef(snapshot.positionRef)
+  };
 }
 
 function cloneCompetition(competition: Competition): Competition {

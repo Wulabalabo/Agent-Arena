@@ -15,6 +15,8 @@ describe("TradingWalletPanel", () => {
     expect(screen.getByText(/Testnet trading wallet/i)).toBeInTheDocument();
     expect(screen.getByText("0xagentwallet_agent_1")).toBeInTheDocument();
     expect(screen.getByText(/Copy deposit address/i)).toBeInTheDocument();
+    expect(screen.getByText(/Execution container/i)).toBeInTheDocument();
+    expect(screen.getByText("0xmanager_agent_1")).toBeInTheDocument();
     expect(screen.getByText(/Never exposes private keys/i)).toBeInTheDocument();
     expect(screen.getByText(/platform signs only approved DeepBook Predict operations/i)).toBeInTheDocument();
   });

@@ -1,3 +1,5 @@
+import type { AgentProfile, PerformanceLedgerRecord } from "./types";
+
 export interface MvpScoreInput {
   netPnlPct: number;
   maxDrawdownPct: number;
@@ -46,6 +48,79 @@ export function sortLeaderboard(entries: readonly LeaderboardEntry[]): Leaderboa
       || compareAscendingString(left.finalExecutionAt, right.finalExecutionAt)
       || compareAscendingString(left.agentId, right.agentId)
     ));
+}
+
+export function createLedgerLeaderboardEntries(input: {
+  agents: readonly AgentProfile[];
+  ledger: readonly PerformanceLedgerRecord[];
+  competitionId: string;
+}): LeaderboardEntry[] {
+  const agentsById = new Map(input.agents.map((agent) => [agent.id, agent]));
+  const rowsByAgentId = new Map<string, PerformanceLedgerRecord[]>();
+  for (const row of input.ledger) {
+    if (row.competitionId !== input.competitionId) {
+      continue;
+    }
+
+    const rows = rowsByAgentId.get(row.agentId) ?? [];
+    rows.push(row);
+    rowsByAgentId.set(row.agentId, rows);
+  }
+
+  const entries = [...rowsByAgentId.entries()]
+    .map(([agentId, rows]) => {
+      const agent = agentsById.get(agentId);
+      if (!agent) {
+        return null;
+      }
+
+      const countableExecutions = rows.filter((row) => (
+        row.kind === "execution" &&
+        (row.status === "confirmed" || row.status === "confirmed_policy_drift" || row.status === "partial")
+      ));
+      const invalidIntentCount = rows.filter((row) => (
+        (row.kind === "intent" && row.status === "rejected") ||
+        (row.kind === "execution" && row.status === "failed")
+      )).length;
+      const executionCount = countableExecutions.length;
+      const finalExecutionAt = countableExecutions
+        .map((row) => row.createdAt)
+        .sort()
+        .at(-1) ?? agent.createdAt;
+      const hitRatePct = executionCount === 0 ? 0 : 1;
+      const netPnlPct = executionCount * 0.01;
+      const maxDrawdownPct = invalidIntentCount * 0.005;
+      const capitalEfficiencyPct = Math.min(1, executionCount / 6);
+
+      return {
+        rank: 0,
+        agentId,
+        displayName: agent.displayName,
+        twitterHandle: agent.twitterHandle,
+        twitterVerified: agent.twitterVerified,
+        score: calculateMvpScore({
+          netPnlPct,
+          maxDrawdownPct,
+          capitalEfficiencyPct,
+          hitRatePct,
+          executionCount,
+          invalidIntentCount
+        }),
+        netPnlPct,
+        maxDrawdownPct,
+        capitalEfficiencyPct,
+        hitRatePct,
+        executionCount,
+        invalidIntentCount,
+        finalExecutionAt
+      };
+    })
+    .filter((entry): entry is LeaderboardEntry => entry !== null);
+
+  return sortLeaderboard(entries).map((entry, index) => ({
+    ...entry,
+    rank: index + 1
+  }));
 }
 
 function compareDescendingNumber(left: number, right: number): number {

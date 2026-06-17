@@ -1,7 +1,9 @@
 import type {
   AgentIntent,
+  AgentPositionSnapshot,
   AgentProfile,
   Competition,
+  ExecutionRecord,
   LeaderboardEntry,
   PairingDraft,
   PlatformErrorBody,
@@ -49,6 +51,14 @@ interface TradingWalletResponse {
   wallet: TradingWallet;
 }
 
+interface AgentPositionsResponse {
+  positions: AgentPositionSnapshot[];
+}
+
+interface ExecutionResponse {
+  execution: ExecutionRecord;
+}
+
 interface LeaderboardResponse {
   entries: LeaderboardEntry[];
 }
@@ -85,6 +95,14 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
       requestJson<TradingWalletResponse>(fetcher, `${root}/agent/wallet`, {
         headers: createRuntimeHeaders(runtimeCredential)
       }).then((response) => response.wallet),
+    listAgentPositions: (runtimeCredential: string, competitionId: string) =>
+      requestJson<AgentPositionsResponse>(
+        fetcher,
+        `${root}/agent/positions?competitionId=${encodeURIComponent(competitionId)}`,
+        {
+          headers: createRuntimeHeaders(runtimeCredential)
+        }
+      ).then((response) => response.positions),
     listCompetitions: () =>
       requestJson<CompetitionListResponse>(fetcher, `${root}/competition/list-active`).then((response) => response.competitions),
     getCompetition: (competitionId: string) =>
@@ -97,6 +115,10 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
         `${root}/intents`,
         jsonPost(createSubmitIntentBody(intent), createRuntimeHeaders(runtimeCredential))
       ),
+    getExecution: (runtimeCredential: string, executionId: string) =>
+      requestJson<ExecutionResponse>(fetcher, `${root}/executions/${encodeURIComponent(executionId)}`, {
+        headers: createRuntimeHeaders(runtimeCredential)
+      }).then((response) => response.execution),
     listLeaderboard: (competitionId: string) =>
       requestJson<LeaderboardResponse>(
         fetcher,

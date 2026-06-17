@@ -29,6 +29,7 @@ export function createInitialPlatformState(snapshot: PlatformSnapshot): Platform
     intents: [...snapshot.intents],
     riskDecisions: [...snapshot.riskDecisions],
     executions: [...snapshot.executions],
+    positions: [...snapshot.positions],
     leaderboard: [...snapshot.leaderboard],
     replay: [...snapshot.replay],
     activeView: "competition",

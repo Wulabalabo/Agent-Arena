@@ -14,6 +14,18 @@ export type OwnerWithdrawalStatus = "dry_run_ok" | "submitted" | "failed";
 export type PositionKind = "directional" | "range";
 export type AgentRuntimeStatus = "waiting" | "active" | "cooldown" | "rejected" | "offline";
 export type ExposureStatus = "flat" | "directional" | "range" | "closing" | "settled";
+export type PositionSnapshotStatus = "open" | "reduced" | "closed" | "settled";
+export type PerformanceLedgerKind =
+  | "pairing"
+  | "wallet_binding"
+  | "intent"
+  | "risk"
+  | "execution"
+  | "position"
+  | "settlement"
+  | "claim"
+  | "score";
+export type PolicyDrift = "none" | "cost_exceeded" | "proceeds_below_minimum" | "unknown";
 
 export interface Competition {
   id: string;
@@ -65,7 +77,96 @@ export interface TradingWallet {
   testnetSuiBalance: string;
   quoteBalance: string;
   predictManagerStatus: "missing" | "ready";
+  predictManagerId: string | null;
   createdAt: string;
+}
+
+export interface AgentIdentityBinding {
+  agentDraftId: string;
+  registrationCodeHash: string;
+  agentId: string;
+  ownerAddress: string;
+  twitterHandle: string | null;
+  tradingWalletId: string;
+  walletAddress: string;
+  predictManagerId: string | null;
+  createdAt: string;
+  claimedAt: string;
+}
+
+export interface PerformanceLedgerRecord {
+  kind: PerformanceLedgerKind;
+  agentDraftId: string | null;
+  registrationCodeHash: string | null;
+  agentId: string;
+  ownerAddress: string | null;
+  tradingWalletId: string | null;
+  walletAddress: string | null;
+  predictManagerId: string | null;
+  competitionId: string | null;
+  oracleId: string | null;
+  expiryMs: string | null;
+  intentId: string | null;
+  riskDecisionId: string | null;
+  executionId: string | null;
+  txDigest: string | null;
+  action: AgentAction | null;
+  positionKind: PositionKind | null;
+  quantityRaw: string | null;
+  costRaw: string | null;
+  proceedsRaw: string | null;
+  status: string;
+  errorCode: string | null;
+  policyDrift: PolicyDrift;
+  createdAt: string;
+  serverReceivedAt: string;
+}
+
+export interface AgentPositionSnapshot {
+  agentId: string;
+  competitionId: string;
+  positionRef: PositionRef;
+  oracleId: string;
+  expiryMs: string;
+  strikeRaw?: string;
+  direction?: "up" | "down";
+  lowerStrikeRaw?: string;
+  higherStrikeRaw?: string;
+  quantityRaw: string;
+  status: PositionSnapshotStatus;
+  updatedAt: string;
+}
+
+export interface MarketSnapshot {
+  competitionId: string;
+  status: RoundStatus;
+  serverTimeMs: string;
+  oracleId: string;
+  oracleStatus: "inactive" | "active" | "expired" | "settled";
+  expiryMs: string;
+  timeToExpiryMs: string;
+  underlyingAsset: "BTC";
+  spotPriceRaw: string;
+  forwardPriceRaw: string;
+  priceDecimals: 9;
+  strikeGrid: {
+    minStrikeRaw: string;
+    maxStrikeRaw: string;
+    strikeStepRaw: string;
+  };
+  allowedActions: AgentAction[];
+  allowedOperations: {
+    canHold: boolean;
+    canOpen: boolean;
+    canReduce: boolean;
+    canClose: boolean;
+  };
+  lateWindow: {
+    isFinalMinute: boolean;
+    openAllowedByPlatform: boolean;
+    openMayFailOnPredictQuote: boolean;
+  };
+  fetchedAt: string;
 }
 
 export interface OwnerWithdrawalRecord {

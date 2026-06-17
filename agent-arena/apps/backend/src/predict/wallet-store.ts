@@ -57,10 +57,6 @@ export function createMemoryWalletStore(options: CreateMemoryWalletStoreOptions)
 
   return {
     async createWallet(input) {
-      if (input.bindingMode === "claimed_agent") {
-        throw new Error("CLAIMED_AGENT_BINDING_NOT_ENABLED");
-      }
-
       const keypair = new Ed25519Keypair();
       const walletId = `wallet_internal_${String(nextWalletNumber).padStart(3, "0")}`;
       nextWalletNumber += 1;
@@ -143,10 +139,6 @@ export function createJsonWalletStore(options: CreateJsonWalletStoreOptions): Me
 
   return {
     async createWallet(input) {
-      if (input.bindingMode === "claimed_agent") {
-        throw new Error("CLAIMED_AGENT_BINDING_NOT_ENABLED");
-      }
-
       const file = await loadWalletFile(options.storePath);
       const keypair = new Ed25519Keypair();
       const walletId = `wallet_internal_${String(file.nextWalletNumber).padStart(3, "0")}`;

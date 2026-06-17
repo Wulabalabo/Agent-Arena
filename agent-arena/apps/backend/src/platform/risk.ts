@@ -9,12 +9,14 @@ export type RiskRejectionCode =
   | "ACTION_NOT_ALLOWED"
   | "WALLET_NOT_BOUND"
   | "ROUND_NOT_LIVE"
+  | "PENDING_EXECUTION_EXISTS"
   | "RISK_LIMIT_EXCEEDED";
 
 export interface RiskEvaluationInput {
   intent: AgentIntent;
   competition: Competition | undefined;
   tradingWallet: TradingWallet | undefined;
+  hasPendingExecution?: boolean;
 }
 
 export interface RiskEvaluation {
@@ -25,7 +27,8 @@ export interface RiskEvaluation {
 export function evaluateIntentRisk({
   intent,
   competition,
-  tradingWallet
+  tradingWallet,
+  hasPendingExecution = false
 }: RiskEvaluationInput): RiskEvaluation {
   if (!competition) {
     return reject("ROUND_NOT_LIVE");
@@ -41,6 +44,10 @@ export function evaluateIntentRisk({
 
   if (intent.action === "hold") {
     return accept();
+  }
+
+  if (hasPendingExecution) {
+    return reject("PENDING_EXECUTION_EXISTS");
   }
 
   if (!tradingWallet || tradingWallet.status !== "active") {

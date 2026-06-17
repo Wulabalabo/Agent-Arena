@@ -1,9 +1,11 @@
 import type { PlatformMockStore } from "./mock-store";
+import { createPerformanceLedgerRecord } from "./performance-ledger";
 import { evaluateIntentRisk } from "./risk";
 import type {
   AgentIntent,
   DirectionalMarket,
   ExecutionRecord,
+  ExecutionStatus,
   IntentStatus,
   PositionRef,
   RangeMarket,
@@ -58,6 +60,8 @@ export type PredictIntentExecutionPayload =
 export interface PredictIntentExecutionAdapterResult {
   status: ExecutionRecord["status"];
   predictTxDigest?: string | null;
+  errorCode?: string;
+  errorMessage?: string;
 }
 
 export interface SubmitIntentExecutionOptions {
@@ -108,11 +112,13 @@ export function submitIntentWithMockExecution(
   const intentId = `intent_${store.listIntents().length + 1}`;
   const draftIntent = createIntent(intentId, validated, "accepted", null);
   store.saveIntent(draftIntent);
+  recordIntentLedger(store, draftIntent);
 
   const riskEvaluation = evaluateIntentRisk({
     intent: draftIntent,
     competition: store.getCompetition(draftIntent.competitionId),
-    tradingWallet: store.getTradingWalletByAgentId(draftIntent.agentId)
+    tradingWallet: store.getTradingWalletByAgentId(draftIntent.agentId),
+    hasPendingExecution: hasPendingTradeExecution(store, draftIntent)
   });
 
   const riskDecisionId = `risk_${store.listRiskDecisions().length + 1}`;
@@ -125,6 +131,7 @@ export function submitIntentWithMockExecution(
   };
 
   store.saveRiskDecision(riskDecision);
+  recordRiskLedger(store, draftIntent, riskDecision);
 
   if (!riskEvaluation.accepted) {
     const rejectedIntent = createIntent(intentId, validated, "rejected", riskEvaluation.rejectionCode);
@@ -159,6 +166,7 @@ export function submitIntentWithMockExecution(
 
   const execution = createMockExecution(executionId, draftIntent, riskDecisionId);
   store.saveExecution(execution);
+  recordExecutionLedger(store, draftIntent, execution);
   const executedIntent = createIntent(intentId, validated, "executed", null);
   store.saveIntent(executedIntent);
 
@@ -216,6 +224,7 @@ async function executeWithPredictAdapter(input: {
     predictTxDigest: result.predictTxDigest ?? null
   };
   input.store.saveExecution(execution);
+  recordExecutionLedger(input.store, input.intent, execution);
 
   const intentStatus = intentStatusForExecutionStatus(result.status);
   const rejectionCode = intentStatus === "failed" ? predictExecutionFailedCode : null;
@@ -263,6 +272,97 @@ function intentStatusForExecutionStatus(status: ExecutionRecord["status"]): Inte
   }
 
   return "accepted";
+}
+
+function hasPendingTradeExecution(store: PlatformMockStore, intent: AgentIntent): boolean {
+  if (intent.action === "hold") {
+    return false;
+  }
+
+  return store.listExecutions().some((execution) => (
+    execution.agentId === intent.agentId &&
+    execution.competitionId === intent.competitionId &&
+    execution.action !== "hold" &&
+    isPendingExecutionStatus(execution.status)
+  ));
+}
+
+function isPendingExecutionStatus(status: ExecutionStatus): boolean {
+  return status === "queued" || status === "signed" || status === "submitted";
+}
+
+function recordIntentLedger(store: PlatformMockStore, intent: AgentIntent): void {
+  const wallet = store.getTradingWalletByAgentId(intent.agentId);
+  store.recordPerformanceLedger(createPerformanceLedgerRecord({
+    ...createLedgerBase(store, intent, wallet),
+    kind: "intent",
+    riskDecisionId: null,
+    executionId: null,
+    txDigest: null,
+    status: intent.status,
+    errorCode: intent.rejectionCode,
+    policyDrift: "none"
+  }));
+}
+
+function recordRiskLedger(store: PlatformMockStore, intent: AgentIntent, riskDecision: RiskDecision): void {
+  const wallet = store.getTradingWalletByAgentId(intent.agentId);
+  store.recordPerformanceLedger(createPerformanceLedgerRecord({
+    ...createLedgerBase(store, intent, wallet),
+    kind: "risk",
+    riskDecisionId: riskDecision.id,
+    executionId: null,
+    txDigest: null,
+    status: riskDecision.accepted ? "accepted" : "rejected",
+    errorCode: riskDecision.rejectionCode,
+    policyDrift: "none"
+  }));
+}
+
+function recordExecutionLedger(store: PlatformMockStore, intent: AgentIntent, execution: ExecutionRecord): void {
+  const wallet = store.getTradingWalletByAgentId(intent.agentId);
+  store.recordPerformanceLedger(createPerformanceLedgerRecord({
+    ...createLedgerBase(store, intent, wallet),
+    kind: "execution",
+    riskDecisionId: execution.riskDecisionId,
+    executionId: execution.id,
+    txDigest: execution.predictTxDigest,
+    status: execution.status,
+    errorCode: execution.status === "failed" ? predictExecutionFailedCode : null,
+    policyDrift: "none"
+  }));
+}
+
+function createLedgerBase(
+  store: PlatformMockStore,
+  intent: AgentIntent,
+  wallet: ReturnType<PlatformMockStore["getTradingWalletByAgentId"]>
+) {
+  const binding = store.getIdentityBindingByAgentId(intent.agentId);
+  const agent = store.getAgent(intent.agentId);
+  const market = intent.market;
+  const positionKind = market?.kind ?? intent.positionRef?.kind ?? null;
+
+  return {
+    agentDraftId: binding?.agentDraftId ?? null,
+    registrationCodeHash: binding?.registrationCodeHash ?? null,
+    agentId: intent.agentId,
+    ownerAddress: binding?.ownerAddress ?? agent?.ownerAddress ?? null,
+    tradingWalletId: wallet?.id ?? binding?.tradingWalletId ?? null,
+    walletAddress: wallet?.address ?? binding?.walletAddress ?? null,
+    predictManagerId: wallet?.predictManagerId ?? binding?.predictManagerId ?? null,
+    competitionId: intent.competitionId,
+    oracleId: market?.oracleId ?? null,
+    expiryMs: market?.expiry ?? null,
+    intentId: intent.id,
+    action: intent.action,
+    positionKind,
+    quantityRaw: intent.quantity ?? intent.positionRef?.quantity ?? null,
+    costRaw: intent.maxCost ?? null,
+    proceedsRaw: intent.minProceeds ?? null,
+    createdAt: intent.createdAt,
+    serverReceivedAt: intent.createdAt
+  };
 }
 
 function predictPayloadForIntent(intent: AgentIntent): PredictIntentExecutionPayload {

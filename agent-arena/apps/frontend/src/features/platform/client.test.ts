@@ -64,7 +64,7 @@ describe("createPlatformClient", () => {
       twitterVerified: false
     });
     expect(result.tradingWallet).toMatchObject({
-      id: "wallet_1",
+      id: "wallet_internal_001",
       status: "active",
       address: "0xagentwallet_agent_1"
     });
@@ -110,8 +110,8 @@ describe("createPlatformClient", () => {
       market: {
         kind: "directional",
         oracleId: "0xbtc15m",
-        expiry: "2026-06-16T10:15:00.000Z",
-        strike: "65000",
+        expiry: "1781701200000",
+        strike: "65000000000000",
         isUp: true
       },
       quantity: "10",
@@ -128,6 +128,39 @@ describe("createPlatformClient", () => {
         "x-agent-arena-agent-token": "agent_runtime_test_token"
       },
       body: JSON.stringify(expectedIntentBody)
+    });
+  });
+
+  it("reads positions and execution records with the runtime credential header", async () => {
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes("/agent/positions")) {
+        return new Response(JSON.stringify({ positions: mockPlatformSnapshot.positions }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      return new Response(JSON.stringify({ execution: mockPlatformSnapshot.executions[0] }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+    const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
+
+    const positions = await client.listAgentPositions("agent_runtime_test_token", "btc-15m-001");
+    const execution = await client.getExecution("agent_runtime_test_token", "exec_1");
+
+    expect(positions[0]?.positionRef.marketKey).toBe("btc-up-65000000000000-1781701200000");
+    expect(execution.id).toBe("exec_1");
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      "https://platform.test/api/arena/agent/positions?competitionId=btc-15m-001",
+      {
+        headers: { "x-agent-arena-agent-token": "agent_runtime_test_token" }
+      }
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(2, "https://platform.test/api/arena/executions/exec_1", {
+      headers: { "x-agent-arena-agent-token": "agent_runtime_test_token" }
     });
   });
 

@@ -4,20 +4,25 @@ import {
   createAgentRuntimeCredential,
   runtimeTokenHeader
 } from "./auth";
-import { getAllowedOperations } from "./competitions";
 import {
   PlatformExecutionError,
   type SubmitIntentExecutionOptions,
   submitIntentWithMockExecution
 } from "./execution";
+import { createMarketSnapshot } from "./market-snapshot";
 import { PlatformMockStore } from "./mock-store";
 import { buildReplayEvents } from "./replay";
 import {
+  createPerformanceLedgerRecord,
+  createRegistrationCodeHash
+} from "./performance-ledger";
+import {
   calculateMvpScore,
+  createLedgerLeaderboardEntries,
   sortLeaderboard,
   type LeaderboardEntry
 } from "./scoring";
-import type { AgentIntent, Competition, ExecutionRecord, OwnerWithdrawalStatus } from "./types";
+import type { AgentIntent, ExecutionRecord, OwnerWithdrawalStatus } from "./types";
 import { PlatformInputError } from "./validation";
 import {
   validateDisplayName,
@@ -50,7 +55,22 @@ export interface OwnerWithdrawalServiceResult {
   txDigest?: string | null;
 }
 
+export interface AgentWalletServiceInput {
+  agentId: string;
+  displayName: string;
+}
+
+export interface AgentWalletServiceResult {
+  id: string;
+  address: string;
+  testnetSuiBalance?: string;
+  quoteBalance?: string;
+  predictManagerStatus?: "missing" | "ready";
+  predictManagerId?: string | null;
+}
+
 export interface CreatePlatformFetchHandlerOptions {
+  agentWalletService?: (input: AgentWalletServiceInput) => Promise<AgentWalletServiceResult>;
   ownerWithdrawalService?: (input: OwnerWithdrawalServiceInput) => Promise<OwnerWithdrawalServiceResult>;
   predictExecutionAdapter?: SubmitIntentExecutionOptions["predictExecutionAdapter"];
 }
@@ -89,8 +109,10 @@ export function createPlatformFetchHandler(
             "GET /api/arena/competition/list-active",
             "GET /api/arena/competition/:id",
             "GET /api/arena/competition/:id/market-state",
+            "GET /api/arena/agent/positions?competitionId=...",
             "POST /api/arena/intents",
             "GET /api/arena/intents/:id",
+            "GET /api/arena/executions/:id",
             "GET /api/arena/leaderboard?competitionId=...",
             "POST /api/arena/owner/trading-wallets/:walletId/withdraw",
             "GET /api/arena/owner/agents/:id/replay"
@@ -103,7 +125,7 @@ export function createPlatformFetchHandler(
       }
 
       if (request.method === "POST" && matchesRoute(route, ["owner", "agents", "claim"])) {
-        return await claimAgent(request, store);
+        return await claimAgent(request, store, options.agentWalletService);
       }
 
       if (
@@ -135,6 +157,11 @@ export function createPlatformFetchHandler(
         return jsonResponse({
           wallet: store.getTradingWalletByAgentId(auth.agentId) ?? null
         });
+      }
+
+      if (request.method === "GET" && matchesRoute(route, ["agent", "positions"])) {
+        const auth = authenticateAgentRuntimeRequest(request, store);
+        return getAgentPositions(url, store, auth.agentId);
       }
 
       if (
@@ -174,7 +201,7 @@ export function createPlatformFetchHandler(
           return errorResponse(404, "COMPETITION_NOT_FOUND", "Competition not found");
         }
 
-        return jsonResponse({ marketState: createMarketState(competition) });
+        return jsonResponse({ marketState: createMarketSnapshot(competition, Date.parse(mockNow)) });
       }
 
       if (request.method === "POST" && matchesRoute(route, ["intents"])) {
@@ -182,7 +209,13 @@ export function createPlatformFetchHandler(
       }
 
       if (request.method === "GET" && route.length === 2 && route[0] === "intents") {
-        return getIntent(route[1], store);
+        const auth = authenticateAgentRuntimeRequest(request, store);
+        return getIntent(route[1], store, auth.agentId);
+      }
+
+      if (request.method === "GET" && route.length === 2 && route[0] === "executions") {
+        const auth = authenticateAgentRuntimeRequest(request, store);
+        return getExecution(route[1], store, auth.agentId);
       }
 
       if (request.method === "GET" && matchesRoute(route, ["leaderboard"])) {
@@ -222,7 +255,8 @@ async function initAgentPairing(request: Request, store: PlatformMockStore): Pro
 
 async function claimAgent(
   request: Request,
-  store: PlatformMockStore
+  store: PlatformMockStore,
+  agentWalletService?: CreatePlatformFetchHandlerOptions["agentWalletService"]
 ): Promise<Response> {
   const body = await readJsonObject(request);
   const registrationCode = validateNonEmptyString(body.registrationCode, "registrationCode").trim();
@@ -240,7 +274,93 @@ async function claimAgent(
     twitterHandle
   });
   store.markPairingDraftClaimed(draft.id);
-  const wallet = store.bindTradingWallet(agent.id, `0xagentwallet_${agent.id}`);
+  const walletResult = agentWalletService
+    ? await agentWalletService({
+      agentId: agent.id,
+      displayName: agent.displayName
+    })
+    : {
+      id: `wallet_${agent.id}`,
+      address: `0xagentwallet_${agent.id}`,
+      testnetSuiBalance: "0",
+      quoteBalance: "0",
+      predictManagerStatus: "missing" as const,
+      predictManagerId: null
+    };
+  const wallet = store.bindTradingWallet(agent.id, walletResult.address, {
+    id: walletResult.id,
+    testnetSuiBalance: walletResult.testnetSuiBalance ?? "0",
+    quoteBalance: walletResult.quoteBalance ?? "0",
+    predictManagerStatus: walletResult.predictManagerStatus ?? "missing",
+    predictManagerId: walletResult.predictManagerId ?? null
+  });
+  const registrationCodeHash = createRegistrationCodeHash(registrationCode);
+  store.saveIdentityBinding({
+    agentDraftId: draft.id,
+    registrationCodeHash,
+    agentId: agent.id,
+    ownerAddress,
+    twitterHandle: agent.twitterHandle,
+    tradingWalletId: wallet.id,
+    walletAddress: wallet.address,
+    predictManagerId: wallet.predictManagerId,
+    createdAt: draft.createdAt,
+    claimedAt: mockNow
+  });
+  store.recordPerformanceLedger(createPerformanceLedgerRecord({
+    kind: "pairing",
+    agentDraftId: draft.id,
+    registrationCodeHash,
+    agentId: agent.id,
+    ownerAddress,
+    tradingWalletId: wallet.id,
+    walletAddress: wallet.address,
+    predictManagerId: wallet.predictManagerId,
+    competitionId: null,
+    oracleId: null,
+    expiryMs: null,
+    intentId: null,
+    riskDecisionId: null,
+    executionId: null,
+    txDigest: null,
+    action: null,
+    positionKind: null,
+    quantityRaw: null,
+    costRaw: null,
+    proceedsRaw: null,
+    status: "claimed",
+    errorCode: null,
+    policyDrift: "none",
+    createdAt: draft.createdAt,
+    serverReceivedAt: mockNow
+  }));
+  store.recordPerformanceLedger(createPerformanceLedgerRecord({
+    kind: "wallet_binding",
+    agentDraftId: draft.id,
+    registrationCodeHash,
+    agentId: agent.id,
+    ownerAddress,
+    tradingWalletId: wallet.id,
+    walletAddress: wallet.address,
+    predictManagerId: wallet.predictManagerId,
+    competitionId: null,
+    oracleId: null,
+    expiryMs: null,
+    intentId: null,
+    riskDecisionId: null,
+    executionId: null,
+    txDigest: null,
+    action: null,
+    positionKind: null,
+    quantityRaw: null,
+    costRaw: null,
+    proceedsRaw: null,
+    status: wallet.status,
+    errorCode: null,
+    policyDrift: "none",
+    createdAt: wallet.createdAt,
+    serverReceivedAt: mockNow
+  }));
   const credential = createAgentRuntimeCredential(store, agent.id, mockNow);
 
   return jsonResponse({
@@ -374,6 +494,18 @@ function getLeaderboard(url: URL, store: PlatformMockStore): Response {
     return errorResponse(404, "COMPETITION_NOT_FOUND", "Competition not found");
   }
 
+  const ledger = store.listPerformanceLedger({ competitionId });
+  if (ledger.length > 0) {
+    return jsonResponse({
+      competitionId,
+      entries: createLedgerLeaderboardEntries({
+        agents: store.listAgents(),
+        ledger,
+        competitionId
+      })
+    });
+  }
+
   const intentsById = new Map(store.listIntents().map((intent) => [intent.id, intent]));
   const entries = createLeaderboardEntries({
     store,
@@ -462,13 +594,33 @@ function createLeaderboardEntries({
   }));
 }
 
-function getIntent(intentId: string, store: PlatformMockStore): Response {
+function getAgentPositions(url: URL, store: PlatformMockStore, agentId: string): Response {
+  const competitionId = url.searchParams.get("competitionId");
+  if (!competitionId) {
+    return errorResponse(400, "INVALID_INPUT", "competitionId query parameter is required");
+  }
+
+  return jsonResponse({
+    positions: store.listPositionSnapshots({ agentId, competitionId })
+  });
+}
+
+function getIntent(intentId: string, store: PlatformMockStore, agentId: string): Response {
   const intent = store.findIntentById(intentId);
-  if (!intent) {
+  if (!intent || intent.agentId !== agentId) {
     return errorResponse(404, "INTENT_NOT_FOUND", "Intent not found");
   }
 
   return jsonResponse({ intent });
+}
+
+function getExecution(executionId: string, store: PlatformMockStore, agentId: string): Response {
+  const execution = store.findExecutionById(executionId);
+  if (!execution || execution.agentId !== agentId) {
+    return errorResponse(404, "EXECUTION_NOT_FOUND", "Execution not found");
+  }
+
+  return jsonResponse({ execution });
 }
 
 function getAgentReplay(agentId: string, store: PlatformMockStore): Response {
@@ -485,21 +637,6 @@ function getAgentReplay(agentId: string, store: PlatformMockStore): Response {
       executions: store.listExecutions()
     })
   });
-}
-
-function createMarketState(competition: Competition) {
-  return {
-    competitionId: competition.id,
-    marketSymbol: competition.marketSymbol,
-    status: competition.status,
-    allowedOperations: getAllowedOperations(competition.status),
-    oracleId: competition.oracleId,
-    expiry: competition.expiry,
-    startsAt: competition.startsAt,
-    expiresAt: competition.expiresAt,
-    settlesAt: competition.settlesAt,
-    predictObjectId: competition.predictObjectId
-  };
 }
 
 async function readJsonObject(request: Request): Promise<Record<string, unknown>> {

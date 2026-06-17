@@ -49,6 +49,74 @@ describe("mock intent execution", () => {
     expect(execution.riskDecisionId).toBe(riskDecision.id);
   });
 
+  it("records performance ledger rows for intent, risk, and execution chains", () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store, "Ledger Trader");
+    const wallet = store.bindTradingWallet(agent.id, "0xagentwallet", {
+      predictManagerId: "0xmanager"
+    });
+    store.seedCompetition();
+
+    const result = submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-ledger-1",
+      action: "open_directional",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "1781701200000",
+        strike: "65000000000000",
+        isUp: true
+      },
+      quantity: "10",
+      maxCost: "500",
+      confidence: 0.72,
+      reason: "Record this chain.",
+      createdAt: "2026-06-15T10:03:12.000Z"
+    });
+
+    expect(result).toMatchObject({
+      status: "executed",
+      intentId: "intent_1",
+      riskDecisionId: "risk_1",
+      executionId: "exec_1"
+    });
+    expect(store.listPerformanceLedger({ agentId: agent.id })).toMatchObject([
+      {
+        kind: "intent",
+        agentId: agent.id,
+        tradingWalletId: wallet.id,
+        intentId: "intent_1",
+        riskDecisionId: null,
+        executionId: null,
+        action: "open_directional",
+        status: "accepted"
+      },
+      {
+        kind: "risk",
+        agentId: agent.id,
+        tradingWalletId: wallet.id,
+        intentId: "intent_1",
+        riskDecisionId: "risk_1",
+        executionId: null,
+        action: "open_directional",
+        status: "accepted"
+      },
+      {
+        kind: "execution",
+        agentId: agent.id,
+        tradingWalletId: wallet.id,
+        intentId: "intent_1",
+        riskDecisionId: "risk_1",
+        executionId: "exec_1",
+        txDigest: "0xmock_exec_1",
+        action: "open_directional",
+        status: "confirmed"
+      }
+    ]);
+  });
+
   it("calls a live Predict adapter only with stored intent, risk, execution, and wallet identity", async () => {
     const store = new PlatformMockStore();
     const agent = createClaimedTestAgent(store, "Live Adapter");
@@ -286,6 +354,60 @@ describe("mock intent execution", () => {
     expect(store.listExecutions()[0]).toMatchObject({
       status: "failed",
       predictTxDigest: null
+    });
+  });
+
+  it("rejects a new trade intent while another trade execution is pending but still accepts hold", () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store);
+    store.bindTradingWallet(agent.id, "0xagentwallet");
+    store.seedCompetition();
+    store.saveExecution({
+      id: "exec_pending",
+      intentId: "intent_pending",
+      agentId: agent.id,
+      competitionId: "btc-15m-001",
+      riskDecisionId: "risk_pending",
+      status: "queued",
+      predictTxDigest: null,
+      action: "open_directional",
+      createdAt: "2026-06-15T10:03:00.000Z"
+    });
+
+    const blocked = submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-pending-blocked",
+      action: "open_directional",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "2026-06-15T10:15:00.000Z",
+        strike: "65000000000000",
+        isUp: true
+      },
+      quantity: "10",
+      maxCost: "5.00",
+      confidence: 0.7,
+      reason: "Should wait for pending execution.",
+      createdAt: "2026-06-15T10:04:12.000Z"
+    });
+    const hold = submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-pending-hold",
+      action: "hold",
+      confidence: 0.4,
+      reason: "Holding while previous execution settles.",
+      createdAt: "2026-06-15T10:04:13.000Z"
+    });
+
+    expect(blocked).toMatchObject({
+      status: "rejected",
+      rejectionCode: "PENDING_EXECUTION_EXISTS"
+    });
+    expect(hold).toMatchObject({
+      status: "accepted"
     });
   });
 

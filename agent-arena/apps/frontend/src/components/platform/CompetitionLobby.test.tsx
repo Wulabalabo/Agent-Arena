@@ -19,6 +19,7 @@ describe("CompetitionLobby", () => {
     expect(screen.getByText(/BTC-USD/i)).toBeInTheDocument();
     expect(screen.getByText(/Current competition/i)).toBeInTheDocument();
     expect(screen.getByText(/Current leader/i)).toBeInTheDocument();
+    expect(screen.getByText(/@Sui_Agent \(unverified\)/i)).toBeInTheDocument();
     expect(screen.getByText(/Enter Live Competition/i)).toBeInTheDocument();
     expect(screen.getByText(/Pair Agent/i)).toBeInTheDocument();
     expect(screen.getByText(/Open Skill Docs/i)).toBeInTheDocument();

@@ -27,6 +27,7 @@ describe("platform state", () => {
     expect(state.intents).not.toBe(mockPlatformSnapshot.intents);
     expect(state.riskDecisions).not.toBe(mockPlatformSnapshot.riskDecisions);
     expect(state.executions).not.toBe(mockPlatformSnapshot.executions);
+    expect(state.positions).not.toBe(mockPlatformSnapshot.positions);
     expect(state.leaderboard).not.toBe(mockPlatformSnapshot.leaderboard);
     expect(state.replay).not.toBe(mockPlatformSnapshot.replay);
   });

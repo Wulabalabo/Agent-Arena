@@ -30,7 +30,8 @@ export function TradingWalletPanel({ agent, ownerWithdrawal, tradingWallet }: Tr
         </button>
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+      <div className="mt-3 grid gap-2 sm:grid-cols-4">
+        <Metric label="Container ID" value={tradingWallet.id} />
         <Metric label="Testnet SUI" value={tradingWallet.testnetSuiBalance} />
         <Metric label="Quote" value={tradingWallet.quoteBalance} />
         <Metric label="PredictManager" value={tradingWallet.predictManagerStatus} />
@@ -40,8 +41,9 @@ export function TradingWalletPanel({ agent, ownerWithdrawal, tradingWallet }: Tr
         <InfoRow
           icon={<ShieldCheck aria-hidden="true" size={16} />}
           label="Never exposes private keys"
-          value="The platform signs only approved DeepBook Predict operations for this agent."
+          value="Wallet is the execution container. The platform signs only approved DeepBook Predict operations for this agent."
         />
+        <MonoInfo label="PredictManager ID" value={tradingWallet.predictManagerId ?? "not created"} />
       </div>
 
       {ownerWithdrawal ? (
@@ -67,6 +69,15 @@ export function TradingWalletPanel({ agent, ownerWithdrawal, tradingWallet }: Tr
         Refresh balances
       </button>
     </section>
+  );
+}
+
+function MonoInfo({ label, value }: { label: string; value: string }) {
+  return (
+    <p className="mt-2 min-w-0 break-all font-mono text-[11px] font-bold text-on-surface-variant">
+      <span className="font-display text-[10px] uppercase">{label}: </span>
+      {value}
+    </p>
   );
 }
 

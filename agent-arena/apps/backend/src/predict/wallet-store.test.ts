@@ -30,14 +30,22 @@ describe("internal wallet store", () => {
     expect(wallet).not.toHaveProperty("encryptedPrivateKey");
   });
 
-  it("rejects claimed-agent mode until formal claim verification is implemented", async () => {
+  it("creates a claimed-agent wallet without returning private key material", async () => {
     const store = createMemoryWalletStore({ walletSecret: "secret", quoteAssetType });
 
-    await expect(store.createWallet({
+    const wallet = await store.createWallet({
       agentId: "agent_1",
       bindingMode: "claimed_agent",
-      label: "should-not-work"
-    })).rejects.toThrow("CLAIMED_AGENT_BINDING_NOT_ENABLED");
+      label: "claimed-agent"
+    });
+
+    expect(wallet.id).toMatch(/^wallet_internal_/);
+    expect(wallet.agentId).toBe("agent_1");
+    expect(wallet.bindingMode).toBe("claimed_agent");
+    expect(wallet.label).toBe("claimed-agent");
+    expect(wallet.address).toMatch(/^0x/);
+    expect(wallet).not.toHaveProperty("privateKey");
+    expect(wallet).not.toHaveProperty("encryptedPrivateKey");
   });
 
   it("returns a defensive wallet copy without key material", async () => {

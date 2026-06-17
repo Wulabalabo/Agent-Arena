@@ -15,6 +15,7 @@ export type OwnerWithdrawalStatus = "dry_run_ok" | "submitted" | "failed";
 export type AgentRuntimeStatus = "waiting" | "active" | "cooldown" | "rejected" | "offline";
 export type ExposureStatus = "flat" | "directional" | "range" | "closing" | "settled";
 export type PositionKind = "directional" | "range";
+export type PositionSnapshotStatus = "open" | "reduced" | "closed" | "settled";
 
 export interface AgentProfile {
   id: string;
@@ -50,6 +51,17 @@ export interface TradingWallet {
   testnetSuiBalance: string;
   quoteBalance: string;
   predictManagerStatus: "missing" | "ready";
+  predictManagerId: string | null;
+}
+
+export interface AgentIdentityBinding {
+  agentId: string;
+  ownerAddress: string;
+  twitterHandle: string | null;
+  tradingWalletId: string;
+  walletAddress: string;
+  predictManagerId: string | null;
+  claimedAt: string;
 }
 
 export interface OwnerWithdrawalRecord {
@@ -99,7 +111,22 @@ export interface PositionRef {
   marketKey?: string;
   rangeKey?: string;
   openExecutionId?: string;
-  quantity: string;
+  quantity?: string;
+}
+
+export interface AgentPositionSnapshot {
+  agentId: string;
+  competitionId: string;
+  positionRef: PositionRef;
+  oracleId: string;
+  expiryMs: string;
+  strikeRaw?: string;
+  direction?: "up" | "down";
+  lowerStrikeRaw?: string;
+  higherStrikeRaw?: string;
+  quantityRaw: string;
+  status: PositionSnapshotStatus;
+  updatedAt: string;
 }
 
 export interface AgentIntent {
@@ -183,12 +210,14 @@ export interface ReplayEvent {
 
 export interface PlatformSnapshot {
   agents: AgentProfile[];
+  identityBinding: AgentIdentityBinding;
   tradingWallet: TradingWallet;
   competitions: Competition[];
   latestIntent: AgentIntent;
   intents: AgentIntent[];
   riskDecisions: RiskDecision[];
   executions: ExecutionRecord[];
+  positions: AgentPositionSnapshot[];
   leaderboard: LeaderboardEntry[];
   replay: ReplayEvent[];
 }
