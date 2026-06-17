@@ -432,7 +432,7 @@ Request for directional:
   "walletId": "wallet_internal_001",
   "operation": "mint_directional",
   "oracleId": "0x...",
-  "expiryMs": 1781622900000,
+  "expiryMs": "1781622900000",
   "strikeRaw": "65600000000000",
   "isUp": true,
   "quantityRaw": "100000"
@@ -446,7 +446,7 @@ Request for range:
   "walletId": "wallet_internal_001",
   "operation": "mint_range",
   "oracleId": "0x...",
-  "expiryMs": 1781622900000,
+  "expiryMs": "1781622900000",
   "lowerStrikeRaw": "65500000000000",
   "higherStrikeRaw": "65700000000000",
   "quantityRaw": "100000"
@@ -488,16 +488,20 @@ Request for directional mint:
 {
   "walletId": "wallet_internal_001",
   "operation": "mint_directional",
+  "managerId": "0x...",
   "oracleId": "0x...",
-  "expiryMs": 1781622900000,
+  "expiryMs": "1781622900000",
   "strikeRaw": "65600000000000",
   "isUp": true,
   "quantityRaw": "100000",
-  "maxCostRaw": "1000000"
+  "maxCostRaw": "1000000",
+  "dryRunOnly": true
 }
 ```
 
-`maxCostRaw` is a platform pre-submit guardrail. It is checked against the latest preview or dry-run estimate immediately before submit, but it is not enforced atomically by the DeepBook Predict contract.
+`dryRunOnly=true` builds the real directional mint PTB and runs Sui dry-run only. `dryRunOnly=false` requests a real Testnet submit and must be rejected unless `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` is also set. Omitting `dryRunOnly` must fail closed rather than defaulting to submit.
+
+`maxCostRaw` is a platform guardrail and audit bound. It is checked against caller-provided estimates when present and compared against dry-run or post-submit actual cost when available, but it is not enforced atomically by the DeepBook Predict contract.
 
 Request for range mint:
 
@@ -506,7 +510,7 @@ Request for range mint:
   "walletId": "wallet_internal_001",
   "operation": "mint_range",
   "oracleId": "0x...",
-  "expiryMs": 1781622900000,
+  "expiryMs": "1781622900000",
   "lowerStrikeRaw": "65500000000000",
   "higherStrikeRaw": "65700000000000",
   "quantityRaw": "100000",
@@ -521,7 +525,7 @@ Request for partial redeem:
   "walletId": "wallet_internal_001",
   "operation": "redeem_directional",
   "oracleId": "0x...",
-  "expiryMs": 1781622900000,
+  "expiryMs": "1781622900000",
   "strikeRaw": "65600000000000",
   "isUp": true,
   "quantityRaw": "50000",
@@ -538,7 +542,7 @@ Request for close:
   "walletId": "wallet_internal_001",
   "operation": "close_directional",
   "oracleId": "0x...",
-  "expiryMs": 1781622900000,
+  "expiryMs": "1781622900000",
   "strikeRaw": "65600000000000",
   "isUp": true,
   "minProceedsRaw": "1"
@@ -555,15 +559,20 @@ Response:
     "id": "exec_internal_001",
     "walletId": "wallet_internal_001",
     "operation": "mint_directional",
-    "status": "confirmed",
-    "txDigest": "0x...",
+    "status": "dry_run_ok",
+    "dryRunDigest": "0x...",
     "oracleId": "0x...",
     "quantityRaw": "100000",
     "previewCostRaw": "8006",
     "actualCostRaw": "8006",
     "policyDrift": "none",
-    "createdAt": "2026-06-17T00:00:00.000Z",
-    "confirmedAt": "2026-06-17T00:00:03.000Z"
+    "createdAt": "2026-06-17T00:00:00.000Z"
+  },
+  "transaction": {
+    "operation": "mint_directional",
+    "mode": "dry_run",
+    "status": "dry_run_ok",
+    "actualCostRaw": "8006"
   }
 }
 ```
@@ -582,7 +591,7 @@ Response:
     {
       "id": "exec_internal_001",
       "operation": "mint_directional",
-      "status": "confirmed",
+      "status": "submitted",
       "txDigest": "0x..."
     }
   ]
@@ -592,6 +601,13 @@ Response:
 ## Operation Mapping
 
 The exact PTB object mutability and type argument list must be verified with dry-run against the configured Testnet package before any submit path is enabled. DeepBook Predict Testnet contracts are still provisional, so the builder should fail closed if the package ABI does not match this mapping.
+
+Current implementation status:
+
+- `predict::create_manager`: dry-run and submit wired.
+- `predict_manager::deposit<DUSDC>`: dry-run and submit wired after a manager id exists.
+- `market_key::up/down` plus `predict::mint<DUSDC>`: dry-run wired, submit guarded by `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` and explicit `dryRunOnly=false`.
+- `predict::redeem`, `predict::mint_range`, and `predict::redeem_range`: planned mapping only; execution must remain disabled until position resolution, PTB builders, dry-run evidence, and tests are added.
 
 ### Create Manager
 
@@ -696,6 +712,8 @@ arguments:
   - &Clock
   - ctx is implicit
 ```
+
+The current backend records `PositionMinted.cost` as `actualCostRaw` when the event is present. This value is used for policy drift auditing against `maxCostRaw`.
 
 ### Redeem Directional
 
@@ -861,10 +879,11 @@ The first live test flow is:
 7. Backend dry-runs `predict::create_manager` when no manager exists and blocks deposit until a real manager id exists.
 8. Operator explicitly enables Testnet submit and calls setup with `dryRunOnly=false`.
 9. Backend creates the manager first, confirms the manager id from events or object changes, and only then deposits DUSDC.
-10. Operator runs one small mint.
-11. Operator runs one partial redeem.
-12. Operator runs one full close or settled claim when available.
-13. Operator runs one range mint and one range redeem.
+10. Operator runs one small directional mint with `dryRunOnly=true`.
+11. Operator explicitly enables Testnet submit and runs the same small directional mint with `dryRunOnly=false`.
+12. Operator runs one partial redeem after position resolution is implemented.
+13. Operator runs one full close or settled claim when available.
+14. Operator runs one range mint and one range redeem after range PTBs are implemented.
 
 The API should return a clear address and funding instruction. It should never ask the operator to paste private key material into chat or frontend.
 
@@ -884,7 +903,8 @@ Suggested modes:
 --setup --wallet-id <id> --deposit-dusdc-raw 5000000
 --setup --wallet-id <id> --deposit-dusdc-raw 0 --submit
 --setup --wallet-id <id> --manager-id <manager-id> --deposit-dusdc-raw 5000000 --submit
---mint-up --wallet-id <id> --quantity-raw 100000 --max-cost-raw 1000000
+--mint-up --wallet-id <id> --manager-id <manager-id> --oracle-id <oracle-id> --quantity-raw 100000 --max-cost-raw 1000000
+--mint-up --wallet-id <id> --manager-id <manager-id> --oracle-id <oracle-id> --quantity-raw 100000 --max-cost-raw 1000000 --submit
 --redeem-last --wallet-id <id> --quantity-raw 50000 --min-proceeds-raw 1
 --close-last --wallet-id <id> --min-proceeds-raw 1
 --mint-range --wallet-id <id> --quantity-raw 100000 --max-cost-raw 1000000
@@ -893,7 +913,7 @@ Suggested modes:
 
 The script may call the internal HTTP API or import backend modules directly. It must redact private keys in output.
 
-Real submit must remain opt-in. `--submit` is not enough by itself; the local environment must also set `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true`. Without both gates, setup returns `PREDICT_SUBMIT_DISABLED`.
+Real submit must remain opt-in. `--submit` is not enough by itself; the local environment must also set `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true`. Without both gates, setup and directional mint return `PREDICT_SUBMIT_DISABLED`.
 
 ## Error Codes
 
@@ -960,10 +980,10 @@ The spec is implemented when:
 - After funding, setup can create or reuse a `PredictManager`.
 - After setup, setup can deposit DUSDC into the manager.
 - A small directional mint can be dry-run and then submitted.
-- A partial directional redeem can be dry-run and then submitted.
-- A full close can redeem the backend-confirmed remaining quantity.
-- A small range mint can be dry-run and then submitted.
-- A range redeem can be dry-run and then submitted.
+- A partial directional redeem can be dry-run and then submitted after position resolution is implemented.
+- A full close can redeem the backend-confirmed remaining quantity after position resolution is implemented.
+- A small range mint can be dry-run and then submitted after range PTBs are implemented.
+- A range redeem can be dry-run and then submitted after range position resolution is implemented.
 - Every submitted transaction has a digest, execution record, and signing audit.
 - No frontend code path can access private keys.
 - No external Agent runtime credential can call the internal probe endpoints.
@@ -978,13 +998,15 @@ The spec is implemented when:
 6. Add PredictManager discovery through local binding, Predict server, or event index, with onchain owner verification.
 7. Add two-phase setup: create manager first, then deposit after the manager object exists.
 8. Add preview builders for `get_trade_amounts` and `get_range_trade_amounts`.
-9. Add operation builders for market keys, range keys, mint, redeem, mint_range, and redeem_range.
-10. Add dry-run wrapper and ABI fail-closed gate.
-11. Add signed submit wrapper with pre-submit guardrails and post-submit policy drift audit.
+9. Add operation builders for market keys and directional mint.
+10. Add dry-run wrapper and ABI fail-closed gate for directional mint.
+11. Add signed submit wrapper with pre-submit guardrails and post-submit policy drift audit for directional mint.
 12. Add execution and signing audit persistence.
 13. Add smoke script.
 14. Run create-wallet and funding handoff.
-15. After funding, run setup, mint, redeem, range mint, and range redeem.
+15. After funding, run setup and directional mint.
+16. Add position resolution and directional redeem/close.
+17. Add range key, range mint, and range redeem PTBs.
 
 ## Open Questions
 

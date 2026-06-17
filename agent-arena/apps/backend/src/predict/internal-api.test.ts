@@ -716,6 +716,162 @@ describe("createInternalPredictFetchHandler", () => {
     ]);
   });
 
+  it("dry-runs a directional mint execution without requiring submit enablement", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const dryRuns: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async dryRunMintDirectional(input) {
+          dryRuns.push(input);
+          return {
+            operation: "mint_directional",
+            mode: "dry_run",
+            status: "dry_run_ok",
+            txDigest: "dry-run-digest",
+            managerId: input.managerId,
+            oracleId: input.oracleId,
+            expiryMs: input.expiryMs,
+            strikeRaw: input.strikeRaw,
+            direction: input.direction,
+            quantityRaw: input.quantityRaw,
+            maxCostRaw: input.maxCostRaw,
+            actualCostRaw: "8006"
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "mint_directional",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        strikeRaw: "65000000000000",
+        direction: "down",
+        quantityRaw: "100000",
+        maxCostRaw: "1000000",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution: {
+        id: "exec_internal_001",
+        status: "dry_run_ok",
+        dryRunDigest: "dry-run-digest",
+        actualCostRaw: "8006",
+        policyDrift: "none"
+      },
+      transaction: {
+        operation: "mint_directional",
+        mode: "dry_run",
+        status: "dry_run_ok",
+        direction: "down"
+      }
+    });
+    expect(dryRuns).toHaveLength(1);
+    await expect(executionStore.listSigningAudits({
+      executionId: "exec_internal_001"
+    })).resolves.toMatchObject([
+      {
+        transactionKind: "predict_mint_dry_run",
+        status: "confirmed",
+        txDigest: "dry-run-digest"
+      }
+    ]);
+  });
+
+  it("submits a directional mint execution only when Predict submit is enabled", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const submissions: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      enablePredictSubmit: true,
+      tradeExecutor: {
+        async submitMintDirectional(input) {
+          submissions.push(input);
+          return {
+            operation: "mint_directional",
+            mode: "submit",
+            status: "submitted",
+            txDigest: "submit-digest",
+            managerId: input.managerId,
+            oracleId: input.oracleId,
+            expiryMs: input.expiryMs,
+            strikeRaw: input.strikeRaw,
+            direction: input.direction,
+            quantityRaw: input.quantityRaw,
+            maxCostRaw: input.maxCostRaw,
+            actualCostRaw: "8006"
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "mint_directional",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        strikeRaw: "65000000000000",
+        direction: "up",
+        quantityRaw: "100000",
+        maxCostRaw: "1000000",
+        estimatedCostRaw: "8006",
+        dryRunOnly: false
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution: {
+        id: "exec_internal_001",
+        status: "submitted",
+        txDigest: "submit-digest",
+        actualCostRaw: "8006",
+        policyDrift: "none"
+      },
+      transaction: {
+        operation: "mint_directional",
+        mode: "submit",
+        status: "submitted",
+        txDigest: "submit-digest"
+      }
+    });
+    expect(submissions).toHaveLength(1);
+    await expect(executionStore.listSigningAudits({
+      executionId: "exec_internal_001"
+    })).resolves.toMatchObject([
+      {
+        transactionKind: "predict_mint_submit",
+        status: "submitted",
+        txDigest: "submit-digest"
+      }
+    ]);
+  });
+
   it("rejects close_directional execute with caller quantity before creating an execution", async () => {
     const executionStore = createMemoryExecutionStore({
       now: () => "2026-06-17T00:00:00.000Z"

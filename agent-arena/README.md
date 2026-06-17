@@ -121,6 +121,8 @@ Optional environment:
 
 ```powershell
 $env:AGENT_ARENA_WALLET_STORE_PATH="$PWD\apps\backend\data\predict-wallets.json"
+$env:AGENT_ARENA_SMOKE_MANAGER_ID="<predict-manager-id>"
+$env:AGENT_ARENA_SMOKE_ORACLE_ID="<oracle-object-id>"
 $env:AGENT_ARENA_SMOKE_EXPIRY_MS="<expiry-ms>"
 $env:AGENT_ARENA_SMOKE_STRIKE_RAW="<strike-raw>"
 $env:AGENT_ARENA_SMOKE_LOWER_STRIKE_RAW="<lower-strike-raw>"
@@ -140,9 +142,10 @@ Send Testnet SUI for gas and Testnet DUSDC with 6 decimals to the returned addre
 bun run smoke:predict -- --check-balances --wallet-id <wallet-id>
 bun run smoke:predict -- --setup --wallet-id <wallet-id> --deposit-dusdc-raw 5000000
 bun run smoke:predict -- --preview-up --wallet-id <wallet-id> --quantity-raw 100000
+bun run smoke:predict -- --mint-up --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --quantity-raw 100000 --max-cost-raw 1000000
 ```
 
-The setup command currently reports the manager/deposit plan and blocked states; it does not submit `create_manager` or DUSDC deposit transactions. Real submit commands for setup, `mint`, `redeem`, `mint_range`, and `redeem_range` are intentionally disabled on the current branch. They must stay disabled until the PTB builder and Testnet ABI dry-run have been wired and reviewed.
+Setup supports dry-run by default and real Testnet submit only when both conditions are true: the command passes `--submit`, and `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` is set in the backend environment. Directional mint uses the same two-gate pattern and defaults to dry-run. `redeem`, `close`, `mint_range`, and `redeem_range` remain disabled until position resolution and their PTB builders are wired and reviewed.
 
 Public boundary:
 

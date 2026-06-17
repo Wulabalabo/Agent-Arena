@@ -3,13 +3,20 @@ import {
   type MemoryExecutionStore
 } from "./execution-store";
 import { createPredictConfig } from "./config";
-import { PredictGuardrailError, assertRawIntegerString, evaluatePreSubmitGuardrails } from "./guardrails";
+import {
+  PredictGuardrailError,
+  assertRawIntegerString,
+  classifyPolicyDrift,
+  evaluatePreSubmitGuardrails
+} from "./guardrails";
 import { assertInternalRequest } from "./internal-auth";
 import { type DiscoveredPredictManager, PredictManagerError, planManagerSetup } from "./manager";
 import type { PredictSetupExecutor } from "./setup-executor";
+import type { PredictTradeExecutor, PredictTradeTransactionSummary } from "./trade-executor";
 import {
   buildPredictOperationPlan,
   type BuildPredictOperationPlanInput,
+  type DirectionalMarketSide,
   type PredictOperation,
   type PredictOperationPlan
 } from "./transactions";
@@ -30,6 +37,7 @@ interface InternalPredictHandlerOptions {
   quoteAssetType?: string;
   resolveManager?: (wallet: InternalTradingWallet) => Promise<DiscoveredPredictManager | null>;
   setupExecutor?: PredictSetupExecutor;
+  tradeExecutor?: PredictTradeExecutor;
   enablePredictSubmit?: boolean;
   env?: Record<string, string | undefined>;
 }
@@ -42,6 +50,7 @@ export function createInternalPredictFetchHandler({
   quoteAssetType,
   resolveManager,
   setupExecutor,
+  tradeExecutor,
   enablePredictSubmit,
   env
 }: InternalPredictHandlerOptions) {
@@ -86,7 +95,14 @@ export function createInternalPredictFetchHandler({
       }
 
       if (pathname === "/api/arena/internal/predict/execute" && request.method === "POST") {
-        return await handleExecute(request, getWalletStore().walletStore, executionStore);
+        const resolved = getWalletStore();
+        return await handleExecute(
+          request,
+          resolved.walletStore,
+          executionStore,
+          tradeExecutor,
+          resolved.enablePredictSubmit
+        );
       }
 
       if (pathname === "/api/arena/internal/predict/executions" && request.method === "GET") {
@@ -421,7 +437,9 @@ function buildSetupBaseResponse(
 async function handleExecute(
   request: Request,
   walletStore: MemoryWalletStore,
-  executionStore: MemoryExecutionStore
+  executionStore: MemoryExecutionStore,
+  tradeExecutor: PredictTradeExecutor | undefined,
+  enablePredictSubmit: boolean
 ): Promise<Response> {
   const body = await parseJsonBody(request);
   const wallet = await loadWallet(walletStore, requiredString(body, "walletId"));
@@ -472,10 +490,103 @@ async function handleExecute(
     throw error;
   }
 
+  if (operation === "mint_directional" && body.dryRunOnly === true) {
+    if (!tradeExecutor?.dryRunMintDirectional) {
+      throw new InternalApiError(
+        503,
+        "PREDICT_TRADE_EXECUTOR_REQUIRED",
+        "Predict trade executor is required before dry-running mint_directional"
+      );
+    }
+
+    try {
+      const transaction = await tradeExecutor.dryRunMintDirectional(
+        mintDirectionalExecutorInput(wallet, operationPlan)
+      );
+      const updatedExecution = await executionStore.updateExecution(execution.id, {
+        status: "dry_run_ok",
+        dryRunDigest: transaction.txDigest,
+        actualCostRaw: transaction.actualCostRaw,
+        policyDrift: classifyPolicyDrift({
+          operation,
+          actualCostRaw: transaction.actualCostRaw,
+          maxCostRaw: operationPlan.maxCostRaw
+        })
+      });
+      await recordMintSigningAudit(executionStore, wallet, execution.id, operation, transaction);
+
+      return jsonResponse({
+        execution: updatedExecution,
+        transaction
+      });
+    } catch (error) {
+      return await failedExecutionResponse(error, executionStore, wallet, execution.id, operation, "predict_mint_dry_run");
+    }
+  }
+
+  if (operation === "mint_directional" && body.dryRunOnly === false) {
+    if (!enablePredictSubmit) {
+      const disabledExecution = await executionStore.updateExecution(execution.id, {
+        status: "failed",
+        errorCode: "PREDICT_SUBMIT_DISABLED",
+        errorMessage: "Real Predict submit is disabled. Set AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true and pass dryRunOnly=false."
+      });
+      await executionStore.recordSigningAudit({
+        walletId: wallet.id,
+        agentId: wallet.agentId,
+        executionId: execution.id,
+        operation,
+        transactionKind: "predict_mint_submit",
+        status: "failed",
+        errorCode: "PREDICT_SUBMIT_DISABLED"
+      });
+
+      return errorResponseWithDetails(
+        501,
+        "PREDICT_SUBMIT_DISABLED",
+        "Real Predict submit is disabled. Set AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true and pass dryRunOnly=false.",
+        { execution: disabledExecution }
+      );
+    }
+
+    if (!tradeExecutor?.submitMintDirectional) {
+      throw new InternalApiError(
+        503,
+        "PREDICT_TRADE_EXECUTOR_REQUIRED",
+        "Predict trade executor is required before submitting mint_directional"
+      );
+    }
+
+    try {
+      const transaction = await tradeExecutor.submitMintDirectional(
+        mintDirectionalExecutorInput(wallet, operationPlan)
+      );
+      const updatedExecution = await executionStore.updateExecution(execution.id, {
+        status: "submitted",
+        submittedAt: new Date().toISOString(),
+        txDigest: transaction.txDigest,
+        actualCostRaw: transaction.actualCostRaw,
+        policyDrift: classifyPolicyDrift({
+          operation,
+          actualCostRaw: transaction.actualCostRaw,
+          maxCostRaw: operationPlan.maxCostRaw
+        })
+      });
+      await recordMintSigningAudit(executionStore, wallet, execution.id, operation, transaction);
+
+      return jsonResponse({
+        execution: updatedExecution,
+        transaction
+      });
+    } catch (error) {
+      return await failedExecutionResponse(error, executionStore, wallet, execution.id, operation, "predict_mint_submit");
+    }
+  }
+
   const disabledExecution = await executionStore.updateExecution(execution.id, {
     status: "failed",
     errorCode: "PREDICT_SUBMIT_DISABLED",
-    errorMessage: "Real Predict submit is disabled for Task 7."
+    errorMessage: "Real Predict submit is disabled for this operation or missing an explicit dryRunOnly mode."
   });
   await executionStore.recordSigningAudit({
     walletId: wallet.id,
@@ -490,9 +601,95 @@ async function handleExecute(
   return errorResponseWithDetails(
     501,
     "PREDICT_SUBMIT_DISABLED",
-    "Real Predict submit is disabled for Task 7.",
+    "Real Predict submit is disabled for this operation or missing an explicit dryRunOnly mode.",
     { execution: disabledExecution }
   );
+}
+
+function mintDirectionalExecutorInput(
+  wallet: InternalTradingWallet,
+  operationPlan: PredictOperationPlan
+): Parameters<NonNullable<PredictTradeExecutor["dryRunMintDirectional"]>>[0] {
+  return {
+    wallet,
+    managerId: requiredPlanObjectId(operationPlan, "managerId"),
+    oracleId: requiredPlanObjectId(operationPlan, "oracleId"),
+    expiryMs: requiredPlanKeyInput(operationPlan, "expiryMs"),
+    strikeRaw: requiredPlanKeyInput(operationPlan, "strikeRaw"),
+    direction: requiredPlanKeyInput(operationPlan, "direction") as DirectionalMarketSide,
+    quantityRaw: requiredPlanValue(operationPlan.quantityRaw, "quantityRaw"),
+    maxCostRaw: requiredPlanValue(operationPlan.maxCostRaw, "maxCostRaw")
+  };
+}
+
+async function recordMintSigningAudit(
+  executionStore: MemoryExecutionStore,
+  wallet: InternalTradingWallet,
+  executionId: string,
+  operation: PredictOperation,
+  transaction: PredictTradeTransactionSummary
+): Promise<void> {
+  await executionStore.recordSigningAudit({
+    walletId: wallet.id,
+    agentId: wallet.agentId,
+    executionId,
+    operation,
+    transactionKind: transaction.mode === "dry_run" ? "predict_mint_dry_run" : "predict_mint_submit",
+    txDigest: transaction.txDigest,
+    status: transaction.mode === "dry_run" ? "confirmed" : "submitted",
+    errorCode: transaction.errorCode
+  });
+}
+
+async function failedExecutionResponse(
+  error: unknown,
+  executionStore: MemoryExecutionStore,
+  wallet: InternalTradingWallet,
+  executionId: string,
+  operation: PredictOperation,
+  transactionKind: string
+): Promise<Response> {
+  const message = error instanceof Error ? error.message : "Predict transaction execution failed";
+  const failedExecution = await executionStore.updateExecution(executionId, {
+    status: "failed",
+    errorCode: "PREDICT_TRANSACTION_FAILED",
+    errorMessage: message
+  });
+  await executionStore.recordSigningAudit({
+    walletId: wallet.id,
+    agentId: wallet.agentId,
+    executionId,
+    operation,
+    transactionKind,
+    status: "failed",
+    errorCode: "PREDICT_TRANSACTION_FAILED"
+  });
+
+  return errorResponseWithDetails(
+    502,
+    "PREDICT_TRANSACTION_FAILED",
+    message,
+    { execution: failedExecution }
+  );
+}
+
+function requiredPlanObjectId(plan: PredictOperationPlan, key: string): string {
+  return requiredPlanValue(plan.objectIds[key], key);
+}
+
+function requiredPlanKeyInput<Key extends keyof PredictOperationPlan["keyInputs"]>(
+  plan: PredictOperationPlan,
+  key: Key
+): NonNullable<PredictOperationPlan["keyInputs"][Key]> {
+  return requiredPlanValue(plan.keyInputs[key], String(key)) as NonNullable<PredictOperationPlan["keyInputs"][Key]>;
+}
+
+function requiredPlanValue(value: string | undefined, fieldName: string): string {
+  if (value === undefined || value.trim() === "") {
+    throw new InternalApiError(400, "INVALID_INPUT", `Missing ${fieldName}`);
+  }
+
+  return value;
 }
 
 function internalErrorToResponse(error: unknown): Response {

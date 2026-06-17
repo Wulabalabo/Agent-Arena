@@ -176,6 +176,37 @@ export function buildPredictTransactionFromPlan(
       return tx;
     }
 
+    case "mint_directional": {
+      const direction = requiredKeyInput(plan, "direction");
+      const strikeRaw = assertRawIntegerString(requiredKeyInput(plan, "strikeRaw"), "strikeRaw");
+      const expiryMs = assertRawIntegerString(requiredKeyInput(plan, "expiryMs"), "expiryMs");
+      const quantityRaw = assertRawIntegerString(plan.quantityRaw, "quantityRaw");
+      const managerId = requiredObjectId(plan, "managerId");
+      const oracleId = requiredObjectId(plan, "oracleId");
+      const marketKey = tx.moveCall({
+        target: `${options.predictPackageId}::market_key::${direction}`,
+        arguments: [
+          tx.pure.id(oracleId),
+          tx.pure.u64(expiryMs),
+          tx.pure.u64(strikeRaw)
+        ]
+      });
+
+      tx.moveCall({
+        target: `${options.predictPackageId}::predict::mint`,
+        typeArguments: [options.quoteAssetType],
+        arguments: [
+          tx.object(options.predictObjectId),
+          tx.object(managerId),
+          tx.object(oracleId),
+          marketKey,
+          tx.pure.u64(quantityRaw),
+          tx.object(options.clockObjectId)
+        ]
+      });
+      return tx;
+    }
+
     default:
       throw new Error("PREDICT_PTB_UNSUPPORTED_OPERATION");
   }
@@ -304,6 +335,18 @@ function requiredObjectId(plan: PredictOperationPlan, key: string): string {
   const value = plan.objectIds[key];
   if (!value) {
     throw new Error(`MISSING_${key.toUpperCase()}`);
+  }
+
+  return value;
+}
+
+function requiredKeyInput<Key extends keyof PredictOperationPlan["keyInputs"]>(
+  plan: PredictOperationPlan,
+  key: Key
+): NonNullable<PredictOperationPlan["keyInputs"][Key]> {
+  const value = plan.keyInputs[key];
+  if (value === undefined) {
+    throw new Error(`MISSING_${String(key).toUpperCase()}`);
   }
 
   return value;

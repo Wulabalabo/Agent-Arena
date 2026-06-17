@@ -262,7 +262,10 @@ describe("buildPredictOperationPlan", () => {
       quoteAssetType,
       clockObjectId
     });
-    const data = tx.getData() as { commands: Array<Record<string, any>> };
+    const data = tx.getData() as {
+      commands: Array<Record<string, any>>;
+      inputs: Array<Record<string, any>>;
+    };
 
     expect(data.commands).toHaveLength(2);
     expect(data.commands[0]!.$kind).toBe("SplitCoins");
@@ -274,7 +277,7 @@ describe("buildPredictOperationPlan", () => {
     });
   });
 
-  it("rejects building PTBs for trading operations until live setup is proven", () => {
+  it("builds a directional mint PTB from market key creation into predict mint", () => {
     const plan = buildPredictOperationPlan({
       operation: "mint_directional",
       direction: "up",
@@ -286,13 +289,31 @@ describe("buildPredictOperationPlan", () => {
       oracleId: "0x00000000000000000000000000000000000000000000000000000000000000dd"
     });
 
-    expect(() =>
-      buildPredictTransactionFromPlan(plan, {
-        predictPackageId,
-        predictObjectId,
-        quoteAssetType,
-        clockObjectId
-      })
-    ).toThrow("PREDICT_PTB_UNSUPPORTED_OPERATION");
+    const tx = buildPredictTransactionFromPlan(plan, {
+      predictPackageId,
+      predictObjectId,
+      quoteAssetType,
+      clockObjectId
+    });
+    const data = tx.getData() as { commands: Array<Record<string, any>> };
+
+    expect(data.commands).toHaveLength(2);
+    expect(data.commands[0]!.MoveCall).toMatchObject({
+      package: predictPackageId,
+      module: "market_key",
+      function: "up",
+      typeArguments: []
+    });
+    expect(data.commands[1]!.MoveCall).toMatchObject({
+      package: predictPackageId,
+      module: "predict",
+      function: "mint",
+      typeArguments: [quoteAssetType]
+    });
+    const inputJson = JSON.stringify(data.inputs);
+    expect(inputJson).toContain(predictObjectId);
+    expect(inputJson).toContain(managerId);
+    expect(inputJson).toContain("0x00000000000000000000000000000000000000000000000000000000000000dd");
+    expect(inputJson).toContain("0x0000000000000000000000000000000000000000000000000000000000000006");
   });
 });

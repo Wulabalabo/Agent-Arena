@@ -3,6 +3,7 @@ import { createPredictConfig } from "./predict/config";
 import { internalTokenHeader } from "./predict/internal-auth";
 import { createInternalPredictFetchHandler } from "./predict/internal-api";
 import { createPredictSetupExecutor } from "./predict/setup-executor";
+import { createPredictTradeExecutor } from "./predict/trade-executor";
 import type { CoinBalanceReader, PredictConfig } from "./predict/types";
 import { createJsonWalletStore } from "./predict/wallet-store";
 
@@ -90,6 +91,7 @@ export async function runInternalPredictExecutionSmoke(argv: string[] = Bun.argv
       quoteAssetType: config.quoteAssetType,
       enablePredictSubmit: config.enablePredictSubmit,
       setupExecutor: createPredictSetupExecutor({ config, walletStore }),
+      tradeExecutor: createPredictTradeExecutor({ config, walletStore }),
       resolveManager: explicitManagerId
         ? async (wallet) => ({
           managerId: explicitManagerId,
@@ -164,15 +166,19 @@ async function executeMode(
 
     case "mint-up": {
       const maxCostRaw = requiredArg(parsed, "max-cost-raw");
-      return await disabledExecute(fetchInternal, config.internalToken, {
+      const submit = hasFlag(parsed, "submit");
+      return await executePredict(fetchInternal, config.internalToken, submit, {
         walletId: requiredArg(parsed, "wallet-id"),
         operation: "mint_directional",
-        direction: "up",
+        managerId: requiredArgOrEnv(parsed, "manager-id", "AGENT_ARENA_SMOKE_MANAGER_ID"),
+        oracleId: requiredArgOrEnv(parsed, "oracle-id", "AGENT_ARENA_SMOKE_ORACLE_ID"),
+        direction: valueOrDefault(parsed, "direction", "up"),
         quantityRaw: requiredArg(parsed, "quantity-raw"),
         maxCostRaw,
         estimatedCostRaw: maxCostRaw,
         expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
-        strikeRaw: requiredArgOrEnv(parsed, "strike-raw", "AGENT_ARENA_SMOKE_STRIKE_RAW")
+        strikeRaw: requiredArgOrEnv(parsed, "strike-raw", "AGENT_ARENA_SMOKE_STRIKE_RAW"),
+        dryRunOnly: !submit
       });
     }
 
@@ -258,6 +264,27 @@ async function disabledExecute(
   return {
     safetyStatus: "PREDICT_SUBMIT_DISABLED",
     submitAttempted: false,
+    response
+  };
+}
+
+async function executePredict(
+  fetchInternal: (request: Request) => Promise<Response>,
+  internalToken: string,
+  submitAttempted: boolean,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const response = await callInternal(
+    fetchInternal,
+    "/api/arena/internal/predict/execute",
+    body,
+    "POST",
+    internalToken
+  );
+
+  return {
+    safetyStatus: submitAttempted ? "SUBMIT_REQUESTED" : "DRY_RUN_ONLY",
+    submitAttempted,
     response
   };
 }
