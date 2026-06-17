@@ -13,7 +13,13 @@ import type { MemoryWalletStore } from "./wallet-store";
 
 type DirectionalTradeOperation = "mint_directional" | "redeem_directional" | "close_directional";
 type RangeTradeOperation = "mint_range" | "redeem_range" | "close_range";
-type PredictTradeOperation = DirectionalTradeOperation | RangeTradeOperation;
+type ManagerWithdrawalOperation = "withdraw_manager_dusdc";
+type PredictTradeOperation = DirectionalTradeOperation | RangeTradeOperation | ManagerWithdrawalOperation;
+
+interface ManagerInput {
+  wallet: InternalTradingWallet;
+  managerId: string;
+}
 
 interface DirectionalPositionInput {
   wallet: InternalTradingWallet;
@@ -56,6 +62,16 @@ interface RedeemRangeExecutorInput extends RangePositionInput {
   minProceedsRaw: string;
 }
 
+interface WithdrawManagerDusdcExecutorInput extends ManagerInput {
+  operation: "withdraw_manager_dusdc";
+  amountRaw: string;
+  recipientAddress?: string;
+}
+
+export interface ManagerBalanceResolution extends ManagerInput {
+  balanceRaw: string;
+}
+
 export interface DirectionalPositionResolution extends DirectionalPositionInput {
   quantityRaw: string;
 }
@@ -70,13 +86,15 @@ export interface PredictTradeTransactionSummary {
   status: "dry_run_ok" | "submitted" | "failed";
   txDigest?: string;
   managerId: string;
-  oracleId: string;
-  expiryMs: string;
+  oracleId?: string;
+  expiryMs?: string;
   strikeRaw?: string;
   direction?: DirectionalMarketSide;
   lowerStrikeRaw?: string;
   higherStrikeRaw?: string;
-  quantityRaw: string;
+  quantityRaw?: string;
+  amountRaw?: string;
+  recipientAddress?: string;
   maxCostRaw?: string;
   minProceedsRaw?: string;
   actualCostRaw?: string;
@@ -88,6 +106,7 @@ export interface PredictTradeTransactionSummary {
 export interface PredictTradeExecutor {
   resolveDirectionalPosition?: (input: DirectionalPositionInput) => Promise<DirectionalPositionResolution>;
   resolveRangePosition?: (input: RangePositionInput) => Promise<RangePositionResolution>;
+  resolveManagerBalance?: (input: ManagerInput) => Promise<ManagerBalanceResolution>;
   dryRunMintDirectional?: (input: MintDirectionalExecutorInput) => Promise<PredictTradeTransactionSummary>;
   submitMintDirectional?: (input: MintDirectionalExecutorInput) => Promise<PredictTradeTransactionSummary>;
   dryRunRedeemDirectional?: (input: RedeemDirectionalExecutorInput) => Promise<PredictTradeTransactionSummary>;
@@ -96,6 +115,8 @@ export interface PredictTradeExecutor {
   submitMintRange?: (input: MintRangeExecutorInput) => Promise<PredictTradeTransactionSummary>;
   dryRunRedeemRange?: (input: RedeemRangeExecutorInput) => Promise<PredictTradeTransactionSummary>;
   submitRedeemRange?: (input: RedeemRangeExecutorInput) => Promise<PredictTradeTransactionSummary>;
+  dryRunWithdrawManagerDusdc?: (input: WithdrawManagerDusdcExecutorInput) => Promise<PredictTradeTransactionSummary>;
+  submitWithdrawManagerDusdc?: (input: WithdrawManagerDusdcExecutorInput) => Promise<PredictTradeTransactionSummary>;
 }
 
 interface CreatePredictTradeExecutorOptions {
@@ -130,6 +151,14 @@ export function createPredictTradeExecutor({
 
     async resolveRangePosition(input) {
       return await resolveRangePosition({
+        client,
+        transactionOptions,
+        ...input
+      });
+    },
+
+    async resolveManagerBalance(input) {
+      return await resolveManagerBalance({
         client,
         transactionOptions,
         ...input
@@ -218,6 +247,27 @@ export function createPredictTradeExecutor({
         transactionOptions,
         ...input
       });
+    },
+
+    async dryRunWithdrawManagerDusdc(input) {
+      const plan = buildWithdrawManagerDusdcPlan(input);
+      return await dryRunTradeTransaction({
+        client,
+        plan,
+        transactionOptions,
+        ...input
+      });
+    },
+
+    async submitWithdrawManagerDusdc(input) {
+      const plan = buildWithdrawManagerDusdcPlan(input);
+      return await submitTradeTransaction({
+        client,
+        walletStore,
+        plan,
+        transactionOptions,
+        ...input
+      });
     }
   };
 }
@@ -284,11 +334,38 @@ async function resolveRangePosition(input: {
   };
 }
 
+async function resolveManagerBalance(input: {
+  client: SuiJsonRpcClient;
+  transactionOptions: BuildPredictTransactionOptions;
+} & ManagerInput): Promise<ManagerBalanceResolution> {
+  const tx = buildManagerBalanceReadTransaction(input);
+  tx.setSenderIfNotSet(input.wallet.address);
+  const response = await input.client.devInspectTransactionBlock({
+    sender: input.wallet.address,
+    transactionBlock: tx
+  });
+  const status = transactionStatus(response);
+  if (!status.ok) {
+    throw new Error(`PREDICT_MANAGER_BALANCE_RESOLUTION_FAILED: ${status.error ?? "unknown error"}`);
+  }
+
+  const balanceRaw = extractFirstU64ReturnValue(response);
+  if (balanceRaw === undefined) {
+    throw new Error("PREDICT_MANAGER_BALANCE_RESOLUTION_FAILED: missing u64 return value");
+  }
+
+  return {
+    wallet: input.wallet,
+    managerId: input.managerId,
+    balanceRaw
+  };
+}
+
 async function dryRunTradeTransaction(input: {
   client: SuiJsonRpcClient;
   plan: PredictOperationPlan;
   transactionOptions: BuildPredictTransactionOptions;
-} & (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput | MintRangeExecutorInput | RedeemRangeExecutorInput)): Promise<PredictTradeTransactionSummary> {
+} & (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput | MintRangeExecutorInput | RedeemRangeExecutorInput | WithdrawManagerDusdcExecutorInput)): Promise<PredictTradeTransactionSummary> {
   const tx = buildPredictTransactionFromPlan(input.plan, input.transactionOptions);
   tx.setSenderIfNotSet(input.wallet.address);
   const transactionBlock = await tx.build({ client: input.client });
@@ -306,7 +383,7 @@ async function submitTradeTransaction(input: {
   walletStore: MemoryWalletStore;
   plan: PredictOperationPlan;
   transactionOptions: BuildPredictTransactionOptions;
-} & (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput | MintRangeExecutorInput | RedeemRangeExecutorInput)): Promise<PredictTradeTransactionSummary> {
+} & (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput | MintRangeExecutorInput | RedeemRangeExecutorInput | WithdrawManagerDusdcExecutorInput)): Promise<PredictTradeTransactionSummary> {
   await dryRunTradeTransaction(input);
 
   const signer = await input.walletStore.getSigner(input.wallet.id);
@@ -384,6 +461,15 @@ function buildRedeemRangePlan(input: RedeemRangeExecutorInput): PredictOperation
   });
 }
 
+function buildWithdrawManagerDusdcPlan(input: WithdrawManagerDusdcExecutorInput): PredictOperationPlan {
+  return buildPredictOperationPlan({
+    operation: "withdraw_manager_dusdc",
+    managerId: input.managerId,
+    quantityRaw: input.amountRaw,
+    recipientAddress: input.recipientAddress
+  });
+}
+
 function buildDirectionalPositionReadTransaction(input: {
   transactionOptions: BuildPredictTransactionOptions;
 } & DirectionalPositionInput) {
@@ -434,9 +520,24 @@ function buildRangePositionReadTransaction(input: {
   return tx;
 }
 
+function buildManagerBalanceReadTransaction(input: {
+  transactionOptions: BuildPredictTransactionOptions;
+} & ManagerInput) {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${input.transactionOptions.predictPackageId}::predict_manager::balance`,
+    typeArguments: [input.transactionOptions.quoteAssetType],
+    arguments: [
+      tx.object(input.managerId)
+    ]
+  });
+
+  return tx;
+}
+
 function summarizeDryRun(
   response: unknown,
-  input: MintDirectionalExecutorInput | RedeemDirectionalExecutorInput | MintRangeExecutorInput | RedeemRangeExecutorInput
+  input: MintDirectionalExecutorInput | RedeemDirectionalExecutorInput | MintRangeExecutorInput | RedeemRangeExecutorInput | WithdrawManagerDusdcExecutorInput
 ): PredictTradeTransactionSummary {
   const status = transactionStatus(response);
   const operation = "operation" in input ? input.operation : "mint_directional";
@@ -446,13 +547,15 @@ function summarizeDryRun(
     status: status.ok ? "dry_run_ok" : "failed",
     txDigest: digestFromResponse(response),
     managerId: input.managerId,
-    oracleId: input.oracleId,
-    expiryMs: input.expiryMs,
+    oracleId: "oracleId" in input ? input.oracleId : undefined,
+    expiryMs: "expiryMs" in input ? input.expiryMs : undefined,
     strikeRaw: "strikeRaw" in input ? input.strikeRaw : undefined,
     direction: "direction" in input ? input.direction : undefined,
     lowerStrikeRaw: "lowerStrikeRaw" in input ? input.lowerStrikeRaw : undefined,
     higherStrikeRaw: "higherStrikeRaw" in input ? input.higherStrikeRaw : undefined,
-    quantityRaw: input.quantityRaw,
+    quantityRaw: "quantityRaw" in input ? input.quantityRaw : undefined,
+    amountRaw: "amountRaw" in input ? input.amountRaw : undefined,
+    recipientAddress: "recipientAddress" in input ? input.recipientAddress : undefined,
     maxCostRaw: "maxCostRaw" in input ? input.maxCostRaw : undefined,
     minProceedsRaw: "minProceedsRaw" in input ? input.minProceedsRaw : undefined,
     actualCostRaw: extractActualCostRawForOperation(response, operation, ""),
@@ -464,7 +567,7 @@ function summarizeDryRun(
 
 function summarizeSubmit(
   response: SuiTransactionBlockResponse,
-  input: (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput | MintRangeExecutorInput | RedeemRangeExecutorInput) & { transactionOptions: BuildPredictTransactionOptions }
+  input: (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput | MintRangeExecutorInput | RedeemRangeExecutorInput | WithdrawManagerDusdcExecutorInput) & { transactionOptions: BuildPredictTransactionOptions }
 ): PredictTradeTransactionSummary {
   const status = transactionStatus(response);
   const operation = "operation" in input ? input.operation : "mint_directional";
@@ -474,13 +577,15 @@ function summarizeSubmit(
     status: status.ok ? "submitted" : "failed",
     txDigest: response.digest,
     managerId: input.managerId,
-    oracleId: input.oracleId,
-    expiryMs: input.expiryMs,
+    oracleId: "oracleId" in input ? input.oracleId : undefined,
+    expiryMs: "expiryMs" in input ? input.expiryMs : undefined,
     strikeRaw: "strikeRaw" in input ? input.strikeRaw : undefined,
     direction: "direction" in input ? input.direction : undefined,
     lowerStrikeRaw: "lowerStrikeRaw" in input ? input.lowerStrikeRaw : undefined,
     higherStrikeRaw: "higherStrikeRaw" in input ? input.higherStrikeRaw : undefined,
-    quantityRaw: input.quantityRaw,
+    quantityRaw: "quantityRaw" in input ? input.quantityRaw : undefined,
+    amountRaw: "amountRaw" in input ? input.amountRaw : undefined,
+    recipientAddress: "recipientAddress" in input ? input.recipientAddress : undefined,
     maxCostRaw: "maxCostRaw" in input ? input.maxCostRaw : undefined,
     minProceedsRaw: "minProceedsRaw" in input ? input.minProceedsRaw : undefined,
     actualCostRaw: extractActualCostRawForOperation(response, operation, input.transactionOptions.predictPackageId),

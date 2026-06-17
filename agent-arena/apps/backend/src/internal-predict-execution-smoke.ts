@@ -17,7 +17,8 @@ type CliMode =
   | "close-last"
   | "mint-range"
   | "redeem-range-last"
-  | "close-range-last";
+  | "close-range-last"
+  | "withdraw-manager-dusdc";
 
 interface ParsedArgs {
   mode: CliMode;
@@ -97,6 +98,23 @@ export function buildRangeRedeemExecuteBody(input: {
     expiryMs: input.expiryMs,
     lowerStrikeRaw: input.lowerStrikeRaw,
     higherStrikeRaw: input.higherStrikeRaw,
+    dryRunOnly: input.dryRunOnly
+  };
+}
+
+export function buildManagerWithdrawExecuteBody(input: {
+  walletId: string;
+  managerId: string;
+  amountRaw: string;
+  recipientAddress?: string;
+  dryRunOnly: boolean;
+}): Record<string, unknown> {
+  return {
+    walletId: input.walletId,
+    operation: "withdraw_manager_dusdc",
+    managerId: input.managerId,
+    amountRaw: input.amountRaw,
+    ...(input.recipientAddress ? { recipientAddress: input.recipientAddress } : {}),
     dryRunOnly: input.dryRunOnly
   };
 }
@@ -297,6 +315,17 @@ async function executeMode(
         dryRunOnly: !submit
       }));
     }
+
+    case "withdraw-manager-dusdc": {
+      const submit = hasFlag(parsed, "submit");
+      return await executePredict(fetchInternal, config.internalToken, submit, buildManagerWithdrawExecuteBody({
+        walletId: requiredArg(parsed, "wallet-id"),
+        managerId: requiredArgOrEnv(parsed, "manager-id", "AGENT_ARENA_SMOKE_MANAGER_ID"),
+        amountRaw: requiredArg(parsed, "amount-raw"),
+        recipientAddress: optionalArg(parsed, "recipient-address"),
+        dryRunOnly: !submit
+      }));
+    }
   }
 }
 
@@ -393,7 +422,8 @@ function isMode(value: string): value is CliMode {
     value === "close-last" ||
     value === "mint-range" ||
     value === "redeem-range-last" ||
-    value === "close-range-last";
+    value === "close-range-last" ||
+    value === "withdraw-manager-dusdc";
 }
 
 function isBooleanFlag(value: string): boolean {

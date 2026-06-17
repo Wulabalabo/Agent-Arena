@@ -463,6 +463,8 @@ async function handleExecute(
     oracleId: optionalString(body, "oracleId"),
     expiryMs: operationPlan.expiryMs,
     quantityRaw: operationPlan.quantityRaw,
+    amountRaw: operation === "withdraw_manager_dusdc" ? operationPlan.quantityRaw : undefined,
+    recipientAddress: operationPlan.objectIds.recipientAddress,
     previewCostRaw: optionalRawString(body, "estimatedCostRaw"),
     previewPayoutRaw: optionalRawString(body, "estimatedProceedsRaw"),
     maxCostRaw: operationPlan.maxCostRaw,
@@ -496,6 +498,30 @@ async function handleExecute(
       );
     }
     throw error;
+  }
+
+  if (operation === "withdraw_manager_dusdc" && body.dryRunOnly === true) {
+    return await executeManagerWithdrawal({
+      mode: "dry_run",
+      wallet,
+      operationPlan,
+      executionId: execution.id,
+      executionStore,
+      tradeExecutor,
+      enablePredictSubmit
+    });
+  }
+
+  if (operation === "withdraw_manager_dusdc" && body.dryRunOnly === false) {
+    return await executeManagerWithdrawal({
+      mode: "submit",
+      wallet,
+      operationPlan,
+      executionId: execution.id,
+      executionStore,
+      tradeExecutor,
+      enablePredictSubmit
+    });
   }
 
   if ((isDirectionalTradeOperation(operation) || isRangeTradeOperation(operation)) && body.dryRunOnly === true) {
@@ -626,6 +652,126 @@ async function buildExecutionPlanFromRequest(
     managerId: optionalString(body, "managerId"),
     oracleId: optionalString(body, "oracleId")
   });
+}
+
+async function executeManagerWithdrawal(input: {
+  mode: "dry_run" | "submit";
+  wallet: InternalTradingWallet;
+  operationPlan: PredictOperationPlan;
+  executionId: string;
+  executionStore: MemoryExecutionStore;
+  tradeExecutor: PredictTradeExecutor | undefined;
+  enablePredictSubmit: boolean;
+}): Promise<Response> {
+  const {
+    mode,
+    wallet,
+    operationPlan,
+    executionId,
+    executionStore,
+    tradeExecutor,
+    enablePredictSubmit
+  } = input;
+  const operation: PredictOperation = "withdraw_manager_dusdc";
+  const amountRaw = requiredPlanValue(operationPlan.quantityRaw, "amountRaw");
+  const recipientAddress = operationPlan.objectIds.recipientAddress;
+  const transactionKind = tradeTransactionKind(operation, mode);
+
+  if (mode === "submit" && !enablePredictSubmit) {
+    const disabledExecution = await executionStore.updateExecution(executionId, {
+      status: "failed",
+      errorCode: "PREDICT_SUBMIT_DISABLED",
+      errorMessage: "Real Predict submit is disabled. Set AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true and pass dryRunOnly=false."
+    });
+    await executionStore.recordSigningAudit({
+      walletId: wallet.id,
+      agentId: wallet.agentId,
+      executionId,
+      operation,
+      transactionKind,
+      status: "failed",
+      errorCode: "PREDICT_SUBMIT_DISABLED",
+      amountRaw,
+      recipientAddress
+    });
+
+    return errorResponseWithDetails(
+      501,
+      "PREDICT_SUBMIT_DISABLED",
+      "Real Predict submit is disabled. Set AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true and pass dryRunOnly=false.",
+      { execution: disabledExecution }
+    );
+  }
+
+  if (!tradeExecutor?.resolveManagerBalance) {
+    throw new InternalApiError(
+      503,
+      "PREDICT_MANAGER_BALANCE_RESOLVER_REQUIRED",
+      "Predict manager balance resolver is required before withdrawal"
+    );
+  }
+
+  const managerId = requiredPlanObjectId(operationPlan, "managerId");
+  const balance = await tradeExecutor.resolveManagerBalance({
+    wallet,
+    managerId
+  });
+  if (compareRawStrings(balance.balanceRaw, amountRaw) < 0) {
+    const failedExecution = await executionStore.updateExecution(executionId, {
+      status: "failed",
+      errorCode: "INSUFFICIENT_MANAGER_BALANCE",
+      errorMessage: "Requested withdrawal amount exceeds the backend-confirmed manager DUSDC balance"
+    });
+    await executionStore.recordSigningAudit({
+      walletId: wallet.id,
+      agentId: wallet.agentId,
+      executionId,
+      operation,
+      transactionKind,
+      status: "failed",
+      errorCode: "INSUFFICIENT_MANAGER_BALANCE",
+      amountRaw,
+      recipientAddress
+    });
+
+    return errorResponseWithDetails(
+      409,
+      "INSUFFICIENT_MANAGER_BALANCE",
+      "Requested withdrawal amount exceeds the backend-confirmed manager DUSDC balance",
+      { execution: failedExecution }
+    );
+  }
+
+  try {
+    const transaction = mode === "dry_run"
+      ? await dryRunManagerWithdrawal(tradeExecutor, wallet, operationPlan)
+      : await submitManagerWithdrawal(tradeExecutor, wallet, operationPlan);
+    const updatedExecution = await executionStore.updateExecution(executionId, {
+      status: mode === "dry_run" ? "dry_run_ok" : "submitted",
+      dryRunDigest: mode === "dry_run" ? transaction.txDigest : undefined,
+      submittedAt: mode === "submit" ? new Date().toISOString() : undefined,
+      txDigest: mode === "submit" ? transaction.txDigest : undefined,
+      amountRaw: transaction.amountRaw,
+      recipientAddress: transaction.recipientAddress,
+      policyDrift: "unknown"
+    });
+    await recordTradeSigningAudit(executionStore, wallet, executionId, operation, transaction);
+
+    return jsonResponse({
+      execution: updatedExecution,
+      transaction
+    });
+  } catch (error) {
+    return await failedExecutionResponse(
+      error,
+      executionStore,
+      wallet,
+      executionId,
+      operation,
+      transactionKind,
+      { amountRaw, recipientAddress }
+    );
+  }
 }
 
 async function executePredictTrade(input: {
@@ -786,6 +932,28 @@ async function submitPredictTrade(
   }
 
   throw new InternalApiError(400, "PREDICT_OPERATION_UNSUPPORTED", `${operation} is not supported for Predict trade execution`);
+}
+
+async function dryRunManagerWithdrawal(
+  tradeExecutor: PredictTradeExecutor | undefined,
+  wallet: InternalTradingWallet,
+  operationPlan: PredictOperationPlan
+): Promise<PredictTradeTransactionSummary> {
+  if (!tradeExecutor?.dryRunWithdrawManagerDusdc) {
+    throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict manager withdrawal executor is required");
+  }
+  return await tradeExecutor.dryRunWithdrawManagerDusdc(managerWithdrawalExecutorInput(wallet, operationPlan));
+}
+
+async function submitManagerWithdrawal(
+  tradeExecutor: PredictTradeExecutor | undefined,
+  wallet: InternalTradingWallet,
+  operationPlan: PredictOperationPlan
+): Promise<PredictTradeTransactionSummary> {
+  if (!tradeExecutor?.submitWithdrawManagerDusdc) {
+    throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict manager withdrawal executor is required");
+  }
+  return await tradeExecutor.submitWithdrawManagerDusdc(managerWithdrawalExecutorInput(wallet, operationPlan));
 }
 
 function mintDirectionalExecutorInput(
@@ -959,6 +1127,19 @@ function rangePositionInputFromPlan(
   };
 }
 
+function managerWithdrawalExecutorInput(
+  wallet: InternalTradingWallet,
+  operationPlan: PredictOperationPlan
+): Parameters<NonNullable<PredictTradeExecutor["dryRunWithdrawManagerDusdc"]>>[0] {
+  return {
+    wallet,
+    operation: "withdraw_manager_dusdc",
+    managerId: requiredPlanObjectId(operationPlan, "managerId"),
+    amountRaw: requiredPlanValue(operationPlan.quantityRaw, "amountRaw"),
+    recipientAddress: operationPlan.objectIds.recipientAddress
+  };
+}
+
 async function recordTradeSigningAudit(
   executionStore: MemoryExecutionStore,
   wallet: InternalTradingWallet,
@@ -974,11 +1155,17 @@ async function recordTradeSigningAudit(
     transactionKind: tradeTransactionKind(operation, transaction.mode),
     txDigest: transaction.txDigest,
     status: transaction.mode === "dry_run" ? "confirmed" : "submitted",
-    errorCode: transaction.errorCode
+    errorCode: transaction.errorCode,
+    amountRaw: transaction.amountRaw,
+    recipientAddress: transaction.recipientAddress
   });
 }
 
 function tradeTransactionKind(operation: PredictOperation, mode: "dry_run" | "submit"): string {
+  if (operation === "withdraw_manager_dusdc") {
+    return `predict_manager_withdraw_${mode}`;
+  }
+
   const action = operation === "mint_directional" || operation === "mint_range" ? "mint" : "redeem";
   return `predict_${action}_${mode}`;
 }
@@ -1029,7 +1216,8 @@ async function failedExecutionResponse(
   wallet: InternalTradingWallet,
   executionId: string,
   operation: PredictOperation,
-  transactionKind: string
+  transactionKind: string,
+  auditMetadata: { amountRaw?: string; recipientAddress?: string } = {}
 ): Promise<Response> {
   const message = error instanceof Error ? error.message : "Predict transaction execution failed";
   const failedExecution = await executionStore.updateExecution(executionId, {
@@ -1044,7 +1232,9 @@ async function failedExecutionResponse(
     operation,
     transactionKind,
     status: "failed",
-    errorCode: "PREDICT_TRANSACTION_FAILED"
+    errorCode: "PREDICT_TRANSACTION_FAILED",
+    amountRaw: auditMetadata.amountRaw,
+    recipientAddress: auditMetadata.recipientAddress
   });
 
   return errorResponseWithDetails(
@@ -1236,7 +1426,9 @@ function buildPlanFromRequest(
     lowerStrikeRaw: optionalRawString(body, "lowerStrikeRaw"),
     higherStrikeRaw: optionalRawString(body, "higherStrikeRaw"),
     expiryMs: optionalRawString(body, "expiryMs"),
-    quantityRaw: optionalRawString(body, "quantityRaw"),
+    quantityRaw: operation === "withdraw_manager_dusdc"
+      ? optionalRawString(body, "amountRaw")
+      : optionalRawString(body, "quantityRaw"),
     resolvedQuantityRaw: optionalRawString(body, "resolvedQuantityRaw"),
     maxCostRaw: optionalRawString(body, "maxCostRaw"),
     minProceedsRaw: optionalRawString(body, "minProceedsRaw"),
@@ -1246,7 +1438,8 @@ function buildPlanFromRequest(
     marketId: optionalString(body, "marketId"),
     positionId: optionalString(body, "positionId"),
     quoteCoinObjectId: optionalString(body, "quoteCoinObjectId"),
-    clockObjectId: optionalString(body, "clockObjectId")
+    clockObjectId: optionalString(body, "clockObjectId"),
+    recipientAddress: optionalString(body, "recipientAddress")
   } satisfies BuildPredictOperationPlanInput);
 }
 
@@ -1342,6 +1535,7 @@ function requiredOperation(body: Record<string, unknown>): PredictOperation {
     operation === "redeem_range" ||
     operation === "close_range" ||
     operation === "deposit_dusdc" ||
+    operation === "withdraw_manager_dusdc" ||
     operation === "create_manager"
   ) {
     return operation;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   buildDirectionalRedeemExecuteBody,
+  buildManagerWithdrawExecuteBody,
   buildRangeRedeemExecuteBody,
   redactSmokeOutput
 } from "./internal-predict-execution-smoke";
@@ -78,6 +79,23 @@ describe("internal Predict smoke helpers", () => {
       expiryMs: "1780000000000",
       lowerStrikeRaw: "64000000000000",
       higherStrikeRaw: "66000000000000",
+      dryRunOnly: true
+    });
+  });
+
+  it("builds manager DUSDC withdrawal with amountRaw and optional recipient", () => {
+    expect(buildManagerWithdrawExecuteBody({
+      walletId: "wallet_internal_001",
+      managerId: "0xmanager",
+      amountRaw: "1000",
+      recipientAddress: "0xrecipient",
+      dryRunOnly: true
+    })).toEqual({
+      walletId: "wallet_internal_001",
+      operation: "withdraw_manager_dusdc",
+      managerId: "0xmanager",
+      amountRaw: "1000",
+      recipientAddress: "0xrecipient",
       dryRunOnly: true
     });
   });

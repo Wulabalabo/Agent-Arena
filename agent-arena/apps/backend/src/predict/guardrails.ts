@@ -10,6 +10,7 @@ export type PredictGuardrailOperation =
   | "open_directional"
   | "open_range"
   | "deposit_dusdc"
+  | "withdraw_manager_dusdc"
   | "create_manager";
 
 export type PolicyDriftClassification =

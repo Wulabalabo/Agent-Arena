@@ -1461,6 +1461,251 @@ describe("createInternalPredictFetchHandler", () => {
     await expect(executionStore.listExecutions({ walletId: created.wallet.id })).resolves.toEqual([]);
   });
 
+  it("rejects manager DUSDC withdrawal without an explicit amountRaw", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "withdraw_manager_dusdc",
+        managerId: "0xmanager",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "INVALID_RAW_AMOUNT"
+      }
+    });
+    await expect(executionStore.listExecutions({ walletId: created.wallet.id })).resolves.toEqual([]);
+  });
+
+  it("rejects manager DUSDC withdrawal when the manager balance is insufficient", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const dryRuns: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async resolveManagerBalance(input) {
+          return {
+            ...input,
+            balanceRaw: "999"
+          };
+        },
+        async dryRunWithdrawManagerDusdc(input) {
+          dryRuns.push(input);
+          return {
+            operation: "withdraw_manager_dusdc",
+            mode: "dry_run",
+            status: "dry_run_ok",
+            txDigest: "withdraw-dry-run-digest",
+            managerId: input.managerId,
+            amountRaw: input.amountRaw,
+            recipientAddress: input.recipientAddress
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "withdraw_manager_dusdc",
+        managerId: "0xmanager",
+        amountRaw: "1000",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "INSUFFICIENT_MANAGER_BALANCE"
+      },
+      execution: {
+        id: "exec_internal_001",
+        operation: "withdraw_manager_dusdc",
+        status: "failed",
+        errorCode: "INSUFFICIENT_MANAGER_BALANCE",
+        quantityRaw: "1000"
+      }
+    });
+    expect(dryRuns).toHaveLength(0);
+  });
+
+  it("dry-runs manager DUSDC withdrawal and records amount and recipient in the signing audit", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const withdrawals: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async resolveManagerBalance(input) {
+          return {
+            ...input,
+            balanceRaw: "2000"
+          };
+        },
+        async dryRunWithdrawManagerDusdc(input) {
+          withdrawals.push(input);
+          return {
+            operation: "withdraw_manager_dusdc",
+            mode: "dry_run",
+            status: "dry_run_ok",
+            txDigest: "withdraw-dry-run-digest",
+            managerId: input.managerId,
+            amountRaw: input.amountRaw,
+            recipientAddress: input.recipientAddress
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "withdraw_manager_dusdc",
+        managerId: "0xmanager",
+        amountRaw: "1000",
+        recipientAddress: "0xrecipient",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution: {
+        id: "exec_internal_001",
+        operation: "withdraw_manager_dusdc",
+        status: "dry_run_ok",
+        quantityRaw: "1000"
+      },
+      transaction: {
+        operation: "withdraw_manager_dusdc",
+        mode: "dry_run",
+        status: "dry_run_ok",
+        txDigest: "withdraw-dry-run-digest",
+        amountRaw: "1000",
+        recipientAddress: "0xrecipient"
+      }
+    });
+    expect(withdrawals).toMatchObject([
+      {
+        managerId: "0xmanager",
+        amountRaw: "1000",
+        recipientAddress: "0xrecipient"
+      }
+    ]);
+    await expect(executionStore.listSigningAudits({
+      executionId: "exec_internal_001"
+    })).resolves.toMatchObject([
+      {
+        transactionKind: "predict_manager_withdraw_dry_run",
+        status: "confirmed",
+        txDigest: "withdraw-dry-run-digest",
+        amountRaw: "1000",
+        recipientAddress: "0xrecipient"
+      }
+    ]);
+  });
+
+  it("rejects manager DUSDC withdrawal submit when Predict submit is not explicitly enabled", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const submissions: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async resolveManagerBalance(input) {
+          return {
+            ...input,
+            balanceRaw: "2000"
+          };
+        },
+        async submitWithdrawManagerDusdc(input) {
+          submissions.push(input);
+          return {
+            operation: "withdraw_manager_dusdc",
+            mode: "submit",
+            status: "submitted",
+            txDigest: "withdraw-submit-digest",
+            managerId: input.managerId,
+            amountRaw: input.amountRaw
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "withdraw_manager_dusdc",
+        managerId: "0xmanager",
+        amountRaw: "1000",
+        dryRunOnly: false
+      })
+    }));
+
+    expect(response.status).toBe(501);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "PREDICT_SUBMIT_DISABLED"
+      },
+      execution: {
+        id: "exec_internal_001",
+        operation: "withdraw_manager_dusdc",
+        status: "failed",
+        errorCode: "PREDICT_SUBMIT_DISABLED"
+      }
+    });
+    expect(submissions).toHaveLength(0);
+    await expect(executionStore.listSigningAudits({
+      executionId: "exec_internal_001"
+    })).resolves.toMatchObject([
+      {
+        transactionKind: "predict_manager_withdraw_submit",
+        status: "failed",
+        errorCode: "PREDICT_SUBMIT_DISABLED",
+        amountRaw: "1000"
+      }
+    ]);
+  });
+
   it("rejects numeric guardrail estimates instead of skipping or stringifying them", async () => {
     const executionStore = createMemoryExecutionStore({
       now: () => "2026-06-17T00:00:00.000Z"
@@ -1633,5 +1878,43 @@ describe("createInternalPredictFetchHandler", () => {
     const body = await response.json();
     expect(JSON.stringify(body)).not.toContain("x-agent-arena-internal-token");
     expect(JSON.stringify(body)).not.toContain("/api/arena/internal");
+  });
+
+  it("does not let an Agent runtime token proxy manager withdrawals through public intent routes", async () => {
+    const { createAgentArenaFetchHandler } = await import("../server");
+    const fetch = createAgentArenaFetchHandler({ internalToken });
+    const draft = await (await fetch(new Request("http://localhost/api/arena/agent/init", {
+      method: "POST",
+      body: JSON.stringify({ displayName: "Withdrawal Proxy Probe" })
+    }))).json();
+    const claimed = await (await fetch(new Request("http://localhost/api/arena/owner/agents/claim", {
+      method: "POST",
+      body: JSON.stringify({
+        registrationCode: draft.registrationCode,
+        ownerAddress: "0xowner",
+        signature: "0xsignedClaimMessage"
+      })
+    }))).json();
+
+    const response = await fetch(new Request("http://localhost/api/arena/intents", {
+      method: "POST",
+      headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token },
+      body: JSON.stringify({
+        competitionId: "btc-15m-001",
+        agentId: claimed.agent.id,
+        idempotencyKey: "withdraw-proxy-attempt",
+        action: "withdraw_manager_dusdc",
+        managerId: "0xmanager",
+        amountRaw: "1000",
+        createdAt: "2026-06-15T10:04:12.000Z"
+      })
+    }));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "INVALID_INPUT"
+      }
+    });
   });
 });

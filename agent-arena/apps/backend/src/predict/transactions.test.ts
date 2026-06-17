@@ -237,6 +237,23 @@ describe("buildPredictOperationPlan", () => {
     ).toThrow("ARBITRARY_MOVE_TARGET_NOT_ALLOWED");
   });
 
+  it("builds an internal DUSDC withdrawal plan with an optional recipient", () => {
+    expect(buildPredictOperationPlan({
+      operation: "withdraw_manager_dusdc",
+      quantityRaw: "5000000",
+      managerId,
+      recipientAddress: "0x00000000000000000000000000000000000000000000000000000000000000ef"
+    } as never)).toMatchObject({
+      operation: "withdraw_manager_dusdc",
+      moveTargets: ["predict_manager::withdraw"],
+      quantityRaw: "5000000",
+      objectIds: {
+        managerId,
+        recipientAddress: "0x00000000000000000000000000000000000000000000000000000000000000ef"
+      }
+    });
+  });
+
   it("rejects all caller-provided arbitrary target aliases", () => {
     for (const targetAlias of ["moveTarget", "moveTargets", "target", "targets", "functionTarget"]) {
       expect(() =>
@@ -300,6 +317,38 @@ describe("buildPredictOperationPlan", () => {
       function: "deposit",
       typeArguments: [quoteAssetType]
     });
+  });
+
+  it("builds a DUSDC withdrawal PTB and transfers to a requested recipient", () => {
+    const recipientAddress = "0x00000000000000000000000000000000000000000000000000000000000000ef";
+    const plan = buildPredictOperationPlan({
+      operation: "withdraw_manager_dusdc",
+      quantityRaw: "5000000",
+      managerId,
+      recipientAddress
+    } as never);
+    const tx = buildPredictTransactionFromPlan(plan, {
+      predictPackageId,
+      predictObjectId,
+      quoteAssetType,
+      clockObjectId
+    });
+    const data = tx.getData() as {
+      commands: Array<Record<string, any>>;
+      inputs: Array<Record<string, any>>;
+    };
+
+    expect(data.commands).toHaveLength(2);
+    expect(data.commands[0]!.MoveCall).toMatchObject({
+      package: predictPackageId,
+      module: "predict_manager",
+      function: "withdraw",
+      typeArguments: [quoteAssetType]
+    });
+    expect(data.commands[1]!.$kind).toBe("TransferObjects");
+    expect(JSON.stringify(data.commands[1])).toContain("\"Result\":0");
+    expect(JSON.stringify(data.commands[1])).toContain("\"Input\":2");
+    expect(data.inputs).toHaveLength(3);
   });
 
   it("builds a directional mint PTB from market key creation into predict mint", () => {

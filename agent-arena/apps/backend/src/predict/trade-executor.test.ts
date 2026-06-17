@@ -156,6 +156,70 @@ describe("range position resolution", () => {
   });
 });
 
+describe("manager balance resolution", () => {
+  it("reads manager DUSDC balance through predict_manager::balance", async () => {
+    const inspectedCommands: unknown[] = [];
+    const executor = createPredictTradeExecutor({
+      config: {
+        network: "testnet",
+        suiRpcUrl: "https://fullnode.testnet.sui.io:443",
+        predictServerUrl: "https://predict-server.testnet.mystenlabs.com",
+        predictPackageId,
+        predictObjectId: "0xpredict",
+        suiClockObjectId: "0x6",
+        quoteAssetType: "0xquote::dusdc::DUSDC",
+        quoteDecimals: 6,
+        priceDecimals: 9,
+        internalToken: "secret",
+        walletSecret: "wallet-secret",
+        enablePredictSubmit: false
+      },
+      walletStore: createMemoryWalletStore({
+        walletSecret: "wallet-secret",
+        quoteAssetType: "0xquote::dusdc::DUSDC"
+      }),
+      client: {
+        async devInspectTransactionBlock({ transactionBlock }: { transactionBlock: { getData: () => { commands: unknown[] } } }) {
+          inspectedCommands.push(...transactionBlock.getData().commands);
+          return {
+            effects: {
+              status: {
+                status: "success"
+              }
+            },
+            results: [
+              {
+                returnValues: [
+                  [[64, 66, 15, 0, 0, 0, 0, 0], "u64"]
+                ]
+              }
+            ]
+          };
+        }
+      } as never
+    });
+
+    const resolution = await executor.resolveManagerBalance!({
+      wallet: {
+        id: "wallet_1",
+        agentId: "agent_1",
+        bindingMode: "internal_probe",
+        address: walletAddress,
+        publicKey: "0xpublic",
+        keyScheme: "ed25519",
+        status: "active",
+        testnetOnly: true,
+        createdAt: "2026-06-17T00:00:00.000Z"
+      },
+      managerId
+    });
+
+    expect(resolution.balanceRaw).toBe("1000000");
+    expect(JSON.stringify(inspectedCommands)).toContain("balance");
+    expect(JSON.stringify(inspectedCommands)).toContain("0xquote::dusdc::DUSDC");
+  });
+});
+
 describe("extractFirstU64ReturnValue", () => {
   it("reads the first little-endian u64 return value from devInspect results", () => {
     expect(extractFirstU64ReturnValue({

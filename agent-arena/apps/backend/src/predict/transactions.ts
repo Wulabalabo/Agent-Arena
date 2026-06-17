@@ -11,6 +11,7 @@ export type PredictOperation =
   | "redeem_range"
   | "close_range"
   | "deposit_dusdc"
+  | "withdraw_manager_dusdc"
   | "create_manager";
 
 export type DirectionalMarketSide = "up" | "down";
@@ -33,6 +34,7 @@ export interface BuildPredictOperationPlanInput {
   positionId?: string;
   quoteCoinObjectId?: string;
   clockObjectId?: string;
+  recipientAddress?: string;
 }
 
 export interface PredictOperationPlan {
@@ -69,6 +71,7 @@ const predictOperations = new Set<string>([
   "redeem_range",
   "close_range",
   "deposit_dusdc",
+  "withdraw_manager_dusdc",
   "create_manager"
 ]);
 
@@ -87,7 +90,8 @@ const objectIdInputKeys = [
   "marketId",
   "positionId",
   "quoteCoinObjectId",
-  "clockObjectId"
+  "clockObjectId",
+  "recipientAddress"
 ] as const;
 
 export function buildPredictOperationPlan(input: BuildPredictOperationPlanInput): PredictOperationPlan {
@@ -130,6 +134,14 @@ export function buildPredictOperationPlan(input: BuildPredictOperationPlanInput)
       return {
         operation: input.operation,
         moveTargets: ["predict_manager::deposit"],
+        keyInputs: {},
+        objectIds: collectObjectIds(input),
+        quantityRaw: assertRawIntegerString(input.quantityRaw, "quantityRaw")
+      };
+    case "withdraw_manager_dusdc":
+      return {
+        operation: input.operation,
+        moveTargets: ["predict_manager::withdraw"],
         keyInputs: {},
         objectIds: collectObjectIds(input),
         quantityRaw: assertRawIntegerString(input.quantityRaw, "quantityRaw")
@@ -177,6 +189,26 @@ export function buildPredictTransactionFromPlan(
           depositCoin
         ]
       });
+      return tx;
+    }
+
+    case "withdraw_manager_dusdc": {
+      const managerId = requiredObjectId(plan, "managerId");
+      const amountRaw = assertRawIntegerString(plan.quantityRaw, "quantityRaw");
+      const withdrawCoin = tx.moveCall({
+        target: `${options.predictPackageId}::predict_manager::withdraw`,
+        typeArguments: [options.quoteAssetType],
+        arguments: [
+          tx.object(managerId),
+          tx.pure.u64(amountRaw)
+        ]
+      });
+      const recipientAddress = plan.objectIds.recipientAddress;
+
+      if (recipientAddress) {
+        tx.transferObjects([withdrawCoin], tx.pure.address(recipientAddress));
+      }
+
       return tx;
     }
 

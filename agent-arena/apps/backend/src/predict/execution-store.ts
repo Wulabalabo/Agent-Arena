@@ -19,6 +19,8 @@ export interface InternalPredictExecution {
   marketKey?: string;
   rangeKey?: string;
   quantityRaw?: string;
+  amountRaw?: string;
+  recipientAddress?: string;
   previewCostRaw?: string;
   previewPayoutRaw?: string;
   maxCostRaw?: string;
@@ -44,6 +46,8 @@ export interface InternalSigningAudit {
   operation: PredictOperation;
   transactionKind: string;
   txDigest?: string;
+  amountRaw?: string;
+  recipientAddress?: string;
   status: InternalSigningAuditStatus;
   createdAt: string;
   errorCode?: string;

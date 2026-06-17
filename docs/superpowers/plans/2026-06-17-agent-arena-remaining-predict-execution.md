@@ -413,11 +413,11 @@ Run with `--submit` only after dry-run passes and submit env is enabled.
 - Modify `agent-arena/apps/backend/src/predict/transactions.ts`
 - Modify `agent-arena/apps/backend/src/predict/transactions.test.ts`
 
-- [ ] **Step 1: Add `withdraw_manager_dusdc` operation**
+- [x] **Step 1: Add `withdraw_manager_dusdc` operation**
 
 Add the operation to `PredictOperation`, `predictOperations`, and tests.
 
-- [ ] **Step 2: Write failing PTB test**
+- [x] **Step 2: Write failing PTB test**
 
 Expected PTB:
 - `predict_manager::withdraw<DUSDC>(&mut PredictManager, amount, &mut TxContext) -> Coin<DUSDC>`
@@ -431,11 +431,11 @@ bun test agent-arena/apps/backend/src/predict/transactions.test.ts
 ```
 Expected: FAIL because withdrawal builder is missing.
 
-- [ ] **Step 3: Implement withdrawal builder**
+- [x] **Step 3: Implement withdrawal builder**
 
 Add `recipientAddress?: string` to plan inputs, include it in validated plan metadata, and build the transfer when provided.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run:
 ```powershell
@@ -450,7 +450,7 @@ Expected: all tests pass.
 - Modify `agent-arena/apps/backend/src/predict/internal-api.ts`
 - Modify `agent-arena/apps/backend/src/predict/internal-api.test.ts`
 
-- [ ] **Step 1: Write failing API tests**
+- [x] **Step 1: Write failing API tests**
 
 Add tests proving:
 - `withdraw_manager_dusdc` requires an explicit `amountRaw`.
@@ -465,15 +465,15 @@ bun test agent-arena/apps/backend/src/predict/internal-api.test.ts
 ```
 Expected: FAIL because withdrawal execution does not exist.
 
-- [ ] **Step 2: Implement manager balance read**
+- [x] **Step 2: Implement manager balance read**
 
 Use `devInspectTransactionBlock` with the verified `predict_manager::balance` signature from `protocol-abi.ts` and parse the u64 return value. Do not add a quote-asset type argument unless the ABI evidence proves the Testnet package requires one.
 
-- [ ] **Step 3: Implement dry-run and submit**
+- [x] **Step 3: Implement dry-run and submit**
 
 Use the same dry-run then sign-and-execute pattern as setup/trade execution.
 
-- [ ] **Step 4: Add audit fields**
+- [x] **Step 4: Add audit fields**
 
 Record:
 - `transactionKind: "predict_manager_withdraw_dry_run"` or `"predict_manager_withdraw_submit"`
@@ -481,7 +481,7 @@ Record:
 - `recipientAddress`
 - no private key material.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run:
 ```powershell
@@ -496,7 +496,7 @@ Expected: all tests pass.
 - Modify `agent-arena/apps/backend/src/internal-predict-execution-smoke.test.ts`
 - Modify `agent-arena/README.md`
 
-- [ ] **Step 1: Add smoke flags**
+- [x] **Step 1: Add smoke flags**
 
 Add:
 - `--withdraw-manager-dusdc`
