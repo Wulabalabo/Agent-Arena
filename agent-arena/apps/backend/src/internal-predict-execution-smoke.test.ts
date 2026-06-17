@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
-  buildUnresolvedCloseLastResponse,
+  buildDirectionalRedeemExecuteBody,
   redactSmokeOutput
 } from "./internal-predict-execution-smoke";
 
@@ -31,24 +31,28 @@ describe("internal Predict smoke helpers", () => {
     expect(serialized).not.toContain("x-agent-arena-internal-token");
   });
 
-  it("reports close-last as disabled when backend position quantity is not resolved", () => {
-    expect(buildUnresolvedCloseLastResponse({
+  it("builds close-last without caller quantity so the backend resolves the full position", () => {
+    expect(buildDirectionalRedeemExecuteBody({
+      operation: "close_directional",
       walletId: "wallet_internal_001",
-      minProceedsRaw: "1"
-    })).toEqual({
-      safetyStatus: "PREDICT_SUBMIT_DISABLED",
-      submitAttempted: false,
-      walletId: "wallet_internal_001",
+      managerId: "0xmanager",
+      oracleId: "0xoracle",
+      direction: "up",
+      expiryMs: "1780000000000",
+      strikeRaw: "65000000000000",
       minProceedsRaw: "1",
-      positionResolution: {
-        status: "not_wired",
-        code: "POSITION_RESOLUTION_NOT_WIRED",
-        message: "Live close-last needs backend-resolved position quantity before a transaction can be built."
-      },
-      error: {
-        code: "POSITION_RESOLUTION_NOT_WIRED",
-        message: "Live close-last needs backend-resolved position quantity before a transaction can be built."
-      }
+      dryRunOnly: true
+    })).toEqual({
+      walletId: "wallet_internal_001",
+      operation: "close_directional",
+      managerId: "0xmanager",
+      oracleId: "0xoracle",
+      direction: "up",
+      minProceedsRaw: "1",
+      estimatedProceedsRaw: "1",
+      expiryMs: "1780000000000",
+      strikeRaw: "65000000000000",
+      dryRunOnly: true
     });
   });
 });

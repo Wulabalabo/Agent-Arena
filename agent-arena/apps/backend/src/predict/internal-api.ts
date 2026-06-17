@@ -444,7 +444,7 @@ async function handleExecute(
   const body = await parseJsonBody(request);
   const wallet = await loadWallet(walletStore, requiredString(body, "walletId"));
   const operation = requiredOperation(body);
-  const operationPlan = buildPlanFromRequest(body, operation);
+  const operationPlan = await buildExecutionPlanFromRequest(body, operation, wallet, tradeExecutor);
   const execution = await executionStore.createExecution({
     walletId: wallet.id,
     agentId: wallet.agentId,
@@ -490,97 +490,30 @@ async function handleExecute(
     throw error;
   }
 
-  if (operation === "mint_directional" && body.dryRunOnly === true) {
-    if (!tradeExecutor?.dryRunMintDirectional) {
-      throw new InternalApiError(
-        503,
-        "PREDICT_TRADE_EXECUTOR_REQUIRED",
-        "Predict trade executor is required before dry-running mint_directional"
-      );
-    }
-
-    try {
-      const transaction = await tradeExecutor.dryRunMintDirectional(
-        mintDirectionalExecutorInput(wallet, operationPlan)
-      );
-      const updatedExecution = await executionStore.updateExecution(execution.id, {
-        status: "dry_run_ok",
-        dryRunDigest: transaction.txDigest,
-        actualCostRaw: transaction.actualCostRaw,
-        policyDrift: classifyPolicyDrift({
-          operation,
-          actualCostRaw: transaction.actualCostRaw,
-          maxCostRaw: operationPlan.maxCostRaw
-        })
-      });
-      await recordMintSigningAudit(executionStore, wallet, execution.id, operation, transaction);
-
-      return jsonResponse({
-        execution: updatedExecution,
-        transaction
-      });
-    } catch (error) {
-      return await failedExecutionResponse(error, executionStore, wallet, execution.id, operation, "predict_mint_dry_run");
-    }
+  if (isDirectionalTradeOperation(operation) && body.dryRunOnly === true) {
+    return await executeDirectionalTrade({
+      mode: "dry_run",
+      wallet,
+      operation,
+      operationPlan,
+      executionId: execution.id,
+      executionStore,
+      tradeExecutor,
+      enablePredictSubmit
+    });
   }
 
-  if (operation === "mint_directional" && body.dryRunOnly === false) {
-    if (!enablePredictSubmit) {
-      const disabledExecution = await executionStore.updateExecution(execution.id, {
-        status: "failed",
-        errorCode: "PREDICT_SUBMIT_DISABLED",
-        errorMessage: "Real Predict submit is disabled. Set AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true and pass dryRunOnly=false."
-      });
-      await executionStore.recordSigningAudit({
-        walletId: wallet.id,
-        agentId: wallet.agentId,
-        executionId: execution.id,
-        operation,
-        transactionKind: "predict_mint_submit",
-        status: "failed",
-        errorCode: "PREDICT_SUBMIT_DISABLED"
-      });
-
-      return errorResponseWithDetails(
-        501,
-        "PREDICT_SUBMIT_DISABLED",
-        "Real Predict submit is disabled. Set AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true and pass dryRunOnly=false.",
-        { execution: disabledExecution }
-      );
-    }
-
-    if (!tradeExecutor?.submitMintDirectional) {
-      throw new InternalApiError(
-        503,
-        "PREDICT_TRADE_EXECUTOR_REQUIRED",
-        "Predict trade executor is required before submitting mint_directional"
-      );
-    }
-
-    try {
-      const transaction = await tradeExecutor.submitMintDirectional(
-        mintDirectionalExecutorInput(wallet, operationPlan)
-      );
-      const updatedExecution = await executionStore.updateExecution(execution.id, {
-        status: "submitted",
-        submittedAt: new Date().toISOString(),
-        txDigest: transaction.txDigest,
-        actualCostRaw: transaction.actualCostRaw,
-        policyDrift: classifyPolicyDrift({
-          operation,
-          actualCostRaw: transaction.actualCostRaw,
-          maxCostRaw: operationPlan.maxCostRaw
-        })
-      });
-      await recordMintSigningAudit(executionStore, wallet, execution.id, operation, transaction);
-
-      return jsonResponse({
-        execution: updatedExecution,
-        transaction
-      });
-    } catch (error) {
-      return await failedExecutionResponse(error, executionStore, wallet, execution.id, operation, "predict_mint_submit");
-    }
+  if (isDirectionalTradeOperation(operation) && body.dryRunOnly === false) {
+    return await executeDirectionalTrade({
+      mode: "submit",
+      wallet,
+      operation,
+      operationPlan,
+      executionId: execution.id,
+      executionStore,
+      tradeExecutor,
+      enablePredictSubmit
+    });
   }
 
   const disabledExecution = await executionStore.updateExecution(execution.id, {
@@ -606,6 +539,181 @@ async function handleExecute(
   );
 }
 
+async function buildExecutionPlanFromRequest(
+  body: Record<string, unknown>,
+  operation: PredictOperation,
+  wallet: InternalTradingWallet,
+  tradeExecutor: PredictTradeExecutor | undefined
+): Promise<PredictOperationPlan> {
+  if (operation !== "close_directional" || optionalRawString(body, "resolvedQuantityRaw") !== undefined) {
+    return buildPlanFromRequest(body, operation);
+  }
+
+  if (Object.hasOwn(body, "quantityRaw")) {
+    return buildPlanFromRequest(body, operation);
+  }
+
+  if (!tradeExecutor?.resolveDirectionalPosition) {
+    throw new InternalApiError(
+      503,
+      "PREDICT_POSITION_RESOLVER_REQUIRED",
+      "Predict position resolver is required before close_directional"
+    );
+  }
+
+  const resolution = await tradeExecutor.resolveDirectionalPosition(
+    directionalPositionInputFromRequest(wallet, body)
+  );
+  if (BigInt(assertRawIntegerString(resolution.quantityRaw, "resolvedQuantityRaw")) <= 0n) {
+    throw new InternalApiError(
+      404,
+      "POSITION_NOT_FOUND",
+      "No open directional position was found for close_directional"
+    );
+  }
+
+  return buildPredictOperationPlan({
+    operation,
+    direction: directionFromRequest(body),
+    strikeRaw: optionalRawString(body, "strikeRaw"),
+    expiryMs: optionalRawString(body, "expiryMs"),
+    resolvedQuantityRaw: resolution.quantityRaw,
+    minProceedsRaw: optionalRawString(body, "minProceedsRaw"),
+    managerId: optionalString(body, "managerId"),
+    oracleId: optionalString(body, "oracleId")
+  });
+}
+
+async function executeDirectionalTrade(input: {
+  mode: "dry_run" | "submit";
+  wallet: InternalTradingWallet;
+  operation: PredictOperation;
+  operationPlan: PredictOperationPlan;
+  executionId: string;
+  executionStore: MemoryExecutionStore;
+  tradeExecutor: PredictTradeExecutor | undefined;
+  enablePredictSubmit: boolean;
+}): Promise<Response> {
+  const {
+    mode,
+    wallet,
+    operation,
+    operationPlan,
+    executionId,
+    executionStore,
+    tradeExecutor,
+    enablePredictSubmit
+  } = input;
+
+  if (mode === "submit" && !enablePredictSubmit) {
+    const disabledExecution = await executionStore.updateExecution(executionId, {
+      status: "failed",
+      errorCode: "PREDICT_SUBMIT_DISABLED",
+      errorMessage: "Real Predict submit is disabled. Set AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true and pass dryRunOnly=false."
+    });
+    await executionStore.recordSigningAudit({
+      walletId: wallet.id,
+      agentId: wallet.agentId,
+      executionId,
+      operation,
+      transactionKind: tradeTransactionKind(operation, mode),
+      status: "failed",
+      errorCode: "PREDICT_SUBMIT_DISABLED"
+    });
+
+    return errorResponseWithDetails(
+      501,
+      "PREDICT_SUBMIT_DISABLED",
+      "Real Predict submit is disabled. Set AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true and pass dryRunOnly=false.",
+      { execution: disabledExecution }
+    );
+  }
+
+  try {
+    const transaction = mode === "dry_run"
+      ? await dryRunDirectionalTrade(tradeExecutor, wallet, operation, operationPlan)
+      : await submitDirectionalTrade(tradeExecutor, wallet, operation, operationPlan);
+    const updatedExecution = await executionStore.updateExecution(executionId, {
+      status: mode === "dry_run" ? "dry_run_ok" : "submitted",
+      dryRunDigest: mode === "dry_run" ? transaction.txDigest : undefined,
+      submittedAt: mode === "submit" ? new Date().toISOString() : undefined,
+      txDigest: mode === "submit" ? transaction.txDigest : undefined,
+      actualCostRaw: transaction.actualCostRaw,
+      actualProceedsRaw: transaction.actualProceedsRaw,
+      policyDrift: classifyPolicyDrift({
+        operation,
+        actualCostRaw: transaction.actualCostRaw,
+        maxCostRaw: operationPlan.maxCostRaw,
+        actualProceedsRaw: transaction.actualProceedsRaw,
+        minProceedsRaw: operationPlan.minProceedsRaw
+      })
+    });
+    await recordTradeSigningAudit(executionStore, wallet, executionId, operation, transaction);
+
+    return jsonResponse({
+      execution: updatedExecution,
+      transaction
+    });
+  } catch (error) {
+    return await failedExecutionResponse(
+      error,
+      executionStore,
+      wallet,
+      executionId,
+      operation,
+      tradeTransactionKind(operation, mode)
+    );
+  }
+}
+
+async function dryRunDirectionalTrade(
+  tradeExecutor: PredictTradeExecutor | undefined,
+  wallet: InternalTradingWallet,
+  operation: PredictOperation,
+  operationPlan: PredictOperationPlan
+): Promise<PredictTradeTransactionSummary> {
+  if (operation === "mint_directional") {
+    if (!tradeExecutor?.dryRunMintDirectional) {
+      throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict trade executor is required");
+    }
+    return await tradeExecutor.dryRunMintDirectional(mintDirectionalExecutorInput(wallet, operationPlan));
+  }
+
+  if (operation === "redeem_directional" || operation === "close_directional") {
+    if (!tradeExecutor?.dryRunRedeemDirectional) {
+      throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict trade executor is required");
+    }
+    const redeemInput = await redeemDirectionalExecutorInput(tradeExecutor, wallet, operation, operationPlan);
+    return await tradeExecutor.dryRunRedeemDirectional(redeemInput);
+  }
+
+  throw new InternalApiError(400, "PREDICT_OPERATION_UNSUPPORTED", `${operation} is not supported for directional trade execution`);
+}
+
+async function submitDirectionalTrade(
+  tradeExecutor: PredictTradeExecutor | undefined,
+  wallet: InternalTradingWallet,
+  operation: PredictOperation,
+  operationPlan: PredictOperationPlan
+): Promise<PredictTradeTransactionSummary> {
+  if (operation === "mint_directional") {
+    if (!tradeExecutor?.submitMintDirectional) {
+      throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict trade executor is required");
+    }
+    return await tradeExecutor.submitMintDirectional(mintDirectionalExecutorInput(wallet, operationPlan));
+  }
+
+  if (operation === "redeem_directional" || operation === "close_directional") {
+    if (!tradeExecutor?.submitRedeemDirectional) {
+      throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict trade executor is required");
+    }
+    const redeemInput = await redeemDirectionalExecutorInput(tradeExecutor, wallet, operation, operationPlan);
+    return await tradeExecutor.submitRedeemDirectional(redeemInput);
+  }
+
+  throw new InternalApiError(400, "PREDICT_OPERATION_UNSUPPORTED", `${operation} is not supported for directional trade execution`);
+}
+
 function mintDirectionalExecutorInput(
   wallet: InternalTradingWallet,
   operationPlan: PredictOperationPlan
@@ -622,7 +730,76 @@ function mintDirectionalExecutorInput(
   };
 }
 
-async function recordMintSigningAudit(
+async function redeemDirectionalExecutorInput(
+  tradeExecutor: PredictTradeExecutor,
+  wallet: InternalTradingWallet,
+  operation: PredictOperation,
+  operationPlan: PredictOperationPlan
+): Promise<Parameters<NonNullable<PredictTradeExecutor["dryRunRedeemDirectional"]>>[0]> {
+  const baseInput = directionalPositionInputFromPlan(wallet, operationPlan);
+  const quantityRaw = requiredPlanValue(operationPlan.quantityRaw, "quantityRaw");
+  const minProceedsRaw = requiredPlanValue(operationPlan.minProceedsRaw, "minProceedsRaw");
+
+  if (operation === "redeem_directional") {
+    if (!tradeExecutor.resolveDirectionalPosition) {
+      throw new InternalApiError(
+        503,
+        "PREDICT_POSITION_RESOLVER_REQUIRED",
+        "Predict position resolver is required before redeem_directional"
+      );
+    }
+
+    const resolution = await tradeExecutor.resolveDirectionalPosition(baseInput);
+    if (compareRawStrings(resolution.quantityRaw, quantityRaw) < 0) {
+      throw new InternalApiError(
+        409,
+        "INSUFFICIENT_POSITION",
+        "Requested redeem quantity exceeds the backend-confirmed open position"
+      );
+    }
+  }
+
+  if (operation !== "redeem_directional" && operation !== "close_directional") {
+    throw new InternalApiError(400, "PREDICT_OPERATION_UNSUPPORTED", `${operation} cannot use directional redeem`);
+  }
+
+  return {
+    ...baseInput,
+    operation,
+    quantityRaw,
+    minProceedsRaw
+  };
+}
+
+function directionalPositionInputFromRequest(
+  wallet: InternalTradingWallet,
+  body: Record<string, unknown>
+): Parameters<NonNullable<PredictTradeExecutor["resolveDirectionalPosition"]>>[0] {
+  return {
+    wallet,
+    managerId: requiredString(body, "managerId"),
+    oracleId: requiredString(body, "oracleId"),
+    expiryMs: requiredRequestRawString(body, "expiryMs"),
+    strikeRaw: requiredRequestRawString(body, "strikeRaw"),
+    direction: requiredRequestDirection(body)
+  };
+}
+
+function directionalPositionInputFromPlan(
+  wallet: InternalTradingWallet,
+  operationPlan: PredictOperationPlan
+): Parameters<NonNullable<PredictTradeExecutor["resolveDirectionalPosition"]>>[0] {
+  return {
+    wallet,
+    managerId: requiredPlanObjectId(operationPlan, "managerId"),
+    oracleId: requiredPlanObjectId(operationPlan, "oracleId"),
+    expiryMs: requiredPlanKeyInput(operationPlan, "expiryMs"),
+    strikeRaw: requiredPlanKeyInput(operationPlan, "strikeRaw"),
+    direction: requiredPlanKeyInput(operationPlan, "direction") as DirectionalMarketSide
+  };
+}
+
+async function recordTradeSigningAudit(
   executionStore: MemoryExecutionStore,
   wallet: InternalTradingWallet,
   executionId: string,
@@ -634,11 +811,50 @@ async function recordMintSigningAudit(
     agentId: wallet.agentId,
     executionId,
     operation,
-    transactionKind: transaction.mode === "dry_run" ? "predict_mint_dry_run" : "predict_mint_submit",
+    transactionKind: tradeTransactionKind(operation, transaction.mode),
     txDigest: transaction.txDigest,
     status: transaction.mode === "dry_run" ? "confirmed" : "submitted",
     errorCode: transaction.errorCode
   });
+}
+
+function tradeTransactionKind(operation: PredictOperation, mode: "dry_run" | "submit"): string {
+  const action = operation === "mint_directional" ? "mint" : "redeem";
+  return `predict_${action}_${mode}`;
+}
+
+function isDirectionalTradeOperation(operation: PredictOperation): boolean {
+  return operation === "mint_directional" ||
+    operation === "redeem_directional" ||
+    operation === "close_directional";
+}
+
+function compareRawStrings(left: string, right: string): -1 | 0 | 1 {
+  const leftValue = BigInt(assertRawIntegerString(left, "left"));
+  const rightValue = BigInt(assertRawIntegerString(right, "right"));
+  if (leftValue > rightValue) {
+    return 1;
+  }
+  if (leftValue < rightValue) {
+    return -1;
+  }
+  return 0;
+}
+
+function requiredRequestRawString(body: Record<string, unknown>, fieldName: string): string {
+  const value = optionalRawString(body, fieldName);
+  if (value === undefined) {
+    throw new InternalApiError(400, "INVALID_INPUT", `Missing ${fieldName}`);
+  }
+  return assertRawIntegerString(value, fieldName);
+}
+
+function requiredRequestDirection(body: Record<string, unknown>): DirectionalMarketSide {
+  const direction = directionFromRequest(body);
+  if (!direction) {
+    throw new InternalApiError(400, "INVALID_MARKET_DIRECTION", "Missing or invalid direction");
+  }
+  return direction;
 }
 
 async function failedExecutionResponse(

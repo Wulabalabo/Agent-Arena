@@ -46,26 +46,30 @@ export function createJsonRpcBalanceReader(config: PredictConfig): CoinBalanceRe
   };
 }
 
-export function buildUnresolvedCloseLastResponse(input: {
+export function buildDirectionalRedeemExecuteBody(input: {
+  operation: "redeem_directional" | "close_directional";
   walletId: string;
+  managerId: string;
+  oracleId: string;
+  direction: "up" | "down";
+  expiryMs: string;
+  strikeRaw: string;
+  quantityRaw?: string;
   minProceedsRaw: string;
+  dryRunOnly: boolean;
 }): Record<string, unknown> {
-  const message = "Live close-last needs backend-resolved position quantity before a transaction can be built.";
-
   return {
-    safetyStatus: "PREDICT_SUBMIT_DISABLED",
-    submitAttempted: false,
     walletId: input.walletId,
+    operation: input.operation,
+    managerId: input.managerId,
+    oracleId: input.oracleId,
+    direction: input.direction,
+    ...(input.quantityRaw ? { quantityRaw: input.quantityRaw } : {}),
     minProceedsRaw: input.minProceedsRaw,
-    positionResolution: {
-      status: "not_wired",
-      code: "POSITION_RESOLUTION_NOT_WIRED",
-      message
-    },
-    error: {
-      code: "POSITION_RESOLUTION_NOT_WIRED",
-      message
-    }
+    estimatedProceedsRaw: input.minProceedsRaw,
+    expiryMs: input.expiryMs,
+    strikeRaw: input.strikeRaw,
+    dryRunOnly: input.dryRunOnly
   };
 }
 
@@ -172,7 +176,7 @@ async function executeMode(
         operation: "mint_directional",
         managerId: requiredArgOrEnv(parsed, "manager-id", "AGENT_ARENA_SMOKE_MANAGER_ID"),
         oracleId: requiredArgOrEnv(parsed, "oracle-id", "AGENT_ARENA_SMOKE_ORACLE_ID"),
-        direction: valueOrDefault(parsed, "direction", "up"),
+        direction: directionArgOrDefault(parsed),
         quantityRaw: requiredArg(parsed, "quantity-raw"),
         maxCostRaw,
         estimatedCostRaw: maxCostRaw,
@@ -184,38 +188,35 @@ async function executeMode(
 
     case "redeem-last": {
       const minProceedsRaw = requiredArg(parsed, "min-proceeds-raw");
-      return await disabledExecute(fetchInternal, config.internalToken, {
+      const submit = hasFlag(parsed, "submit");
+      return await executePredict(fetchInternal, config.internalToken, submit, buildDirectionalRedeemExecuteBody({
         walletId: requiredArg(parsed, "wallet-id"),
         operation: "redeem_directional",
-        direction: "up",
+        managerId: requiredArgOrEnv(parsed, "manager-id", "AGENT_ARENA_SMOKE_MANAGER_ID"),
+        oracleId: requiredArgOrEnv(parsed, "oracle-id", "AGENT_ARENA_SMOKE_ORACLE_ID"),
+        direction: directionArgOrDefault(parsed),
         quantityRaw: requiredArg(parsed, "quantity-raw"),
         minProceedsRaw,
-        estimatedProceedsRaw: minProceedsRaw,
         expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
-        strikeRaw: requiredArgOrEnv(parsed, "strike-raw", "AGENT_ARENA_SMOKE_STRIKE_RAW")
-      });
+        strikeRaw: requiredArgOrEnv(parsed, "strike-raw", "AGENT_ARENA_SMOKE_STRIKE_RAW"),
+        dryRunOnly: !submit
+      }));
     }
 
     case "close-last": {
       const minProceedsRaw = requiredArg(parsed, "min-proceeds-raw");
-      const resolvedQuantityRaw = optionalArg(parsed, "resolved-quantity-raw");
-      if (!resolvedQuantityRaw) {
-        return buildUnresolvedCloseLastResponse({
-          walletId: requiredArg(parsed, "wallet-id"),
-          minProceedsRaw
-        });
-      }
-
-      return await disabledExecute(fetchInternal, config.internalToken, {
+      const submit = hasFlag(parsed, "submit");
+      return await executePredict(fetchInternal, config.internalToken, submit, buildDirectionalRedeemExecuteBody({
         walletId: requiredArg(parsed, "wallet-id"),
         operation: "close_directional",
-        direction: "up",
-        resolvedQuantityRaw,
+        managerId: requiredArgOrEnv(parsed, "manager-id", "AGENT_ARENA_SMOKE_MANAGER_ID"),
+        oracleId: requiredArgOrEnv(parsed, "oracle-id", "AGENT_ARENA_SMOKE_ORACLE_ID"),
+        direction: directionArgOrDefault(parsed),
         minProceedsRaw,
-        estimatedProceedsRaw: minProceedsRaw,
         expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
-        strikeRaw: requiredArgOrEnv(parsed, "strike-raw", "AGENT_ARENA_SMOKE_STRIKE_RAW")
-      });
+        strikeRaw: requiredArgOrEnv(parsed, "strike-raw", "AGENT_ARENA_SMOKE_STRIKE_RAW"),
+        dryRunOnly: !submit
+      }));
     }
 
     case "mint-range": {
@@ -387,6 +388,14 @@ function optionalArg(parsed: ParsedArgs, key: string): string | undefined {
 
 function hasFlag(parsed: ParsedArgs, key: string): boolean {
   return parsed.values.get(key) === true;
+}
+
+function directionArgOrDefault(parsed: ParsedArgs): "up" | "down" {
+  const direction = valueOrDefault(parsed, "direction", "up");
+  if (direction !== "up" && direction !== "down") {
+    throw new Error("INVALID_DIRECTION");
+  }
+  return direction;
 }
 
 function requiredArgOrEnv(parsed: ParsedArgs, key: string, envKey: string): string {

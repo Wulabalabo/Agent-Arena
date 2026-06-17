@@ -143,9 +143,11 @@ bun run smoke:predict -- --check-balances --wallet-id <wallet-id>
 bun run smoke:predict -- --setup --wallet-id <wallet-id> --deposit-dusdc-raw 5000000
 bun run smoke:predict -- --preview-up --wallet-id <wallet-id> --quantity-raw 100000
 bun run smoke:predict -- --mint-up --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --quantity-raw 100000 --max-cost-raw 1000000
+bun run smoke:predict -- --redeem-last --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --quantity-raw 50000 --min-proceeds-raw 1
+bun run smoke:predict -- --close-last --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --min-proceeds-raw 1
 ```
 
-Setup supports dry-run by default and real Testnet submit only when both conditions are true: the command passes `--submit`, and `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` is set in the backend environment. Directional mint uses the same two-gate pattern and defaults to dry-run. `redeem`, `close`, `mint_range`, and `redeem_range` remain disabled until position resolution and their PTB builders are wired and reviewed.
+Setup supports dry-run by default and real Testnet submit only when both conditions are true: the command passes `--submit`, and `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` is set in the backend environment. Directional mint, partial redeem, and close use the same two-gate pattern and default to dry-run. `mint_range` and `redeem_range` remain disabled until range position resolution and PTB builders are wired and reviewed.
 
 Public boundary:
 

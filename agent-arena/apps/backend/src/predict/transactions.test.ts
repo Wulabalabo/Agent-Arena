@@ -316,4 +316,49 @@ describe("buildPredictOperationPlan", () => {
     expect(inputJson).toContain("0x00000000000000000000000000000000000000000000000000000000000000dd");
     expect(inputJson).toContain("0x0000000000000000000000000000000000000000000000000000000000000006");
   });
+
+  it("builds a directional redeem PTB from market key creation into predict redeem", () => {
+    const oracleId = "0x00000000000000000000000000000000000000000000000000000000000000dd";
+    const plan = buildPredictOperationPlan({
+      operation: "redeem_directional",
+      direction: "down",
+      strikeRaw: "65000000000000",
+      expiryMs: "1780000000000",
+      quantityRaw: "50000",
+      minProceedsRaw: "1",
+      managerId,
+      oracleId
+    });
+
+    const tx = buildPredictTransactionFromPlan(plan, {
+      predictPackageId,
+      predictObjectId,
+      quoteAssetType,
+      clockObjectId
+    });
+    const data = tx.getData() as {
+      commands: Array<Record<string, any>>;
+      inputs: Array<Record<string, any>>;
+    };
+
+    expect(data.commands).toHaveLength(2);
+    expect(data.commands[0]!.MoveCall).toMatchObject({
+      package: predictPackageId,
+      module: "market_key",
+      function: "new",
+      typeArguments: []
+    });
+    expect(data.commands[1]!.MoveCall).toMatchObject({
+      package: predictPackageId,
+      module: "predict",
+      function: "redeem",
+      typeArguments: [quoteAssetType]
+    });
+    expect(JSON.stringify(data.commands[1])).toContain("\"Result\":0");
+    const inputJson = JSON.stringify(data.inputs);
+    expect(inputJson).toContain(predictObjectId);
+    expect(inputJson).toContain(managerId);
+    expect(inputJson).toContain(oracleId);
+    expect(inputJson).toContain("0x0000000000000000000000000000000000000000000000000000000000000006");
+  });
 });

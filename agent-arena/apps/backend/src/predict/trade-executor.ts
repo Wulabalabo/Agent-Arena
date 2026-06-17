@@ -1,5 +1,6 @@
 import type { SuiTransactionBlockResponse } from "@mysten/sui/jsonRpc";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+import { Transaction } from "@mysten/sui/transactions";
 import {
   buildPredictOperationPlan,
   buildPredictTransactionFromPlan,
@@ -10,19 +11,34 @@ import {
 import type { InternalTradingWallet, PredictConfig } from "./types";
 import type { MemoryWalletStore } from "./wallet-store";
 
-interface MintDirectionalExecutorInput {
+type DirectionalTradeOperation = "mint_directional" | "redeem_directional" | "close_directional";
+
+interface DirectionalPositionInput {
   wallet: InternalTradingWallet;
   managerId: string;
   oracleId: string;
   expiryMs: string;
   strikeRaw: string;
   direction: DirectionalMarketSide;
+}
+
+interface MintDirectionalExecutorInput extends DirectionalPositionInput {
   quantityRaw: string;
   maxCostRaw: string;
 }
 
+interface RedeemDirectionalExecutorInput extends DirectionalPositionInput {
+  operation: "redeem_directional" | "close_directional";
+  quantityRaw: string;
+  minProceedsRaw: string;
+}
+
+export interface DirectionalPositionResolution extends DirectionalPositionInput {
+  quantityRaw: string;
+}
+
 export interface PredictTradeTransactionSummary {
-  operation: "mint_directional";
+  operation: DirectionalTradeOperation;
   mode: "dry_run" | "submit";
   status: "dry_run_ok" | "submitted" | "failed";
   txDigest?: string;
@@ -32,15 +48,20 @@ export interface PredictTradeTransactionSummary {
   strikeRaw: string;
   direction: DirectionalMarketSide;
   quantityRaw: string;
-  maxCostRaw: string;
+  maxCostRaw?: string;
+  minProceedsRaw?: string;
   actualCostRaw?: string;
+  actualProceedsRaw?: string;
   errorCode?: string;
   errorMessage?: string;
 }
 
 export interface PredictTradeExecutor {
+  resolveDirectionalPosition?: (input: DirectionalPositionInput) => Promise<DirectionalPositionResolution>;
   dryRunMintDirectional?: (input: MintDirectionalExecutorInput) => Promise<PredictTradeTransactionSummary>;
   submitMintDirectional?: (input: MintDirectionalExecutorInput) => Promise<PredictTradeTransactionSummary>;
+  dryRunRedeemDirectional?: (input: RedeemDirectionalExecutorInput) => Promise<PredictTradeTransactionSummary>;
+  submitRedeemDirectional?: (input: RedeemDirectionalExecutorInput) => Promise<PredictTradeTransactionSummary>;
 }
 
 interface CreatePredictTradeExecutorOptions {
@@ -65,6 +86,14 @@ export function createPredictTradeExecutor({
   };
 
   return {
+    async resolveDirectionalPosition(input) {
+      return await resolveDirectionalPosition({
+        client,
+        transactionOptions,
+        ...input
+      });
+    },
+
     async dryRunMintDirectional(input) {
       const plan = buildMintDirectionalPlan(input);
       return await dryRunTradeTransaction({
@@ -84,7 +113,59 @@ export function createPredictTradeExecutor({
         transactionOptions,
         ...input
       });
+    },
+
+    async dryRunRedeemDirectional(input) {
+      const plan = buildRedeemDirectionalPlan(input);
+      return await dryRunTradeTransaction({
+        client,
+        plan,
+        transactionOptions,
+        ...input
+      });
+    },
+
+    async submitRedeemDirectional(input) {
+      const plan = buildRedeemDirectionalPlan(input);
+      return await submitTradeTransaction({
+        client,
+        walletStore,
+        plan,
+        transactionOptions,
+        ...input
+      });
     }
+  };
+}
+
+async function resolveDirectionalPosition(input: {
+  client: SuiJsonRpcClient;
+  transactionOptions: BuildPredictTransactionOptions;
+} & DirectionalPositionInput): Promise<DirectionalPositionResolution> {
+  const tx = buildDirectionalPositionReadTransaction(input);
+  tx.setSenderIfNotSet(input.wallet.address);
+  const response = await input.client.devInspectTransactionBlock({
+    sender: input.wallet.address,
+    transactionBlock: tx
+  });
+  const status = transactionStatus(response);
+  if (!status.ok) {
+    throw new Error(`PREDICT_POSITION_RESOLUTION_FAILED: ${status.error ?? "unknown error"}`);
+  }
+
+  const quantityRaw = extractFirstU64ReturnValue(response);
+  if (quantityRaw === undefined) {
+    throw new Error("PREDICT_POSITION_RESOLUTION_FAILED: missing u64 return value");
+  }
+
+  return {
+    wallet: input.wallet,
+    managerId: input.managerId,
+    oracleId: input.oracleId,
+    expiryMs: input.expiryMs,
+    strikeRaw: input.strikeRaw,
+    direction: input.direction,
+    quantityRaw
   };
 }
 
@@ -92,7 +173,7 @@ async function dryRunTradeTransaction(input: {
   client: SuiJsonRpcClient;
   plan: PredictOperationPlan;
   transactionOptions: BuildPredictTransactionOptions;
-} & MintDirectionalExecutorInput): Promise<PredictTradeTransactionSummary> {
+} & (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput)): Promise<PredictTradeTransactionSummary> {
   const tx = buildPredictTransactionFromPlan(input.plan, input.transactionOptions);
   tx.setSenderIfNotSet(input.wallet.address);
   const transactionBlock = await tx.build({ client: input.client });
@@ -110,7 +191,7 @@ async function submitTradeTransaction(input: {
   walletStore: MemoryWalletStore;
   plan: PredictOperationPlan;
   transactionOptions: BuildPredictTransactionOptions;
-} & MintDirectionalExecutorInput): Promise<PredictTradeTransactionSummary> {
+} & (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput)): Promise<PredictTradeTransactionSummary> {
   await dryRunTradeTransaction(input);
 
   const signer = await input.walletStore.getSigner(input.wallet.id);
@@ -147,13 +228,53 @@ function buildMintDirectionalPlan(input: MintDirectionalExecutorInput): PredictO
   });
 }
 
+function buildRedeemDirectionalPlan(input: RedeemDirectionalExecutorInput): PredictOperationPlan {
+  return buildPredictOperationPlan({
+    operation: input.operation,
+    managerId: input.managerId,
+    oracleId: input.oracleId,
+    expiryMs: input.expiryMs,
+    strikeRaw: input.strikeRaw,
+    direction: input.direction,
+    quantityRaw: input.operation === "redeem_directional" ? input.quantityRaw : undefined,
+    resolvedQuantityRaw: input.operation === "close_directional" ? input.quantityRaw : undefined,
+    minProceedsRaw: input.minProceedsRaw
+  });
+}
+
+function buildDirectionalPositionReadTransaction(input: {
+  transactionOptions: BuildPredictTransactionOptions;
+} & DirectionalPositionInput) {
+  const tx = new Transaction();
+  const marketKey = tx.moveCall({
+    target: `${input.transactionOptions.predictPackageId}::market_key::new`,
+    arguments: [
+      tx.pure.id(input.oracleId),
+      tx.pure.u64(input.expiryMs),
+      tx.pure.u64(input.strikeRaw),
+      tx.pure.bool(input.direction === "up")
+    ]
+  });
+
+  tx.moveCall({
+    target: `${input.transactionOptions.predictPackageId}::predict_manager::position`,
+    arguments: [
+      tx.object(input.managerId),
+      marketKey
+    ]
+  });
+
+  return tx;
+}
+
 function summarizeDryRun(
   response: unknown,
-  input: MintDirectionalExecutorInput
+  input: MintDirectionalExecutorInput | RedeemDirectionalExecutorInput
 ): PredictTradeTransactionSummary {
   const status = transactionStatus(response);
+  const operation = "operation" in input ? input.operation : "mint_directional";
   return {
-    operation: "mint_directional",
+    operation,
     mode: "dry_run",
     status: status.ok ? "dry_run_ok" : "failed",
     txDigest: digestFromResponse(response),
@@ -163,8 +284,10 @@ function summarizeDryRun(
     strikeRaw: input.strikeRaw,
     direction: input.direction,
     quantityRaw: input.quantityRaw,
-    maxCostRaw: input.maxCostRaw,
-    actualCostRaw: extractMintActualCostRaw(response, ""),
+    maxCostRaw: "maxCostRaw" in input ? input.maxCostRaw : undefined,
+    minProceedsRaw: "minProceedsRaw" in input ? input.minProceedsRaw : undefined,
+    actualCostRaw: operation === "mint_directional" ? extractMintActualCostRaw(response, "") : undefined,
+    actualProceedsRaw: operation === "mint_directional" ? undefined : extractRedeemActualProceedsRaw(response, ""),
     errorCode: status.ok ? undefined : "PREDICT_DRY_RUN_FAILED",
     errorMessage: status.error
   };
@@ -172,11 +295,12 @@ function summarizeDryRun(
 
 function summarizeSubmit(
   response: SuiTransactionBlockResponse,
-  input: MintDirectionalExecutorInput & { transactionOptions: BuildPredictTransactionOptions }
+  input: (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput) & { transactionOptions: BuildPredictTransactionOptions }
 ): PredictTradeTransactionSummary {
   const status = transactionStatus(response);
+  const operation = "operation" in input ? input.operation : "mint_directional";
   return {
-    operation: "mint_directional",
+    operation,
     mode: "submit",
     status: status.ok ? "submitted" : "failed",
     txDigest: response.digest,
@@ -186,8 +310,14 @@ function summarizeSubmit(
     strikeRaw: input.strikeRaw,
     direction: input.direction,
     quantityRaw: input.quantityRaw,
-    maxCostRaw: input.maxCostRaw,
-    actualCostRaw: extractMintActualCostRaw(response, input.transactionOptions.predictPackageId),
+    maxCostRaw: "maxCostRaw" in input ? input.maxCostRaw : undefined,
+    minProceedsRaw: "minProceedsRaw" in input ? input.minProceedsRaw : undefined,
+    actualCostRaw: operation === "mint_directional"
+      ? extractMintActualCostRaw(response, input.transactionOptions.predictPackageId)
+      : undefined,
+    actualProceedsRaw: operation === "mint_directional"
+      ? undefined
+      : extractRedeemActualProceedsRaw(response, input.transactionOptions.predictPackageId),
     errorCode: status.ok ? undefined : "PREDICT_SUBMIT_FAILED",
     errorMessage: status.error
   };
@@ -210,6 +340,56 @@ export function extractMintActualCostRaw(
     const cost = rawIntegerValue(parsedJson?.cost);
     if (cost !== undefined) {
       return cost;
+    }
+  }
+
+  return undefined;
+}
+
+export function extractRedeemActualProceedsRaw(
+  response: Pick<SuiTransactionBlockResponse, "events">,
+  predictPackageId: string
+): string | undefined {
+  const expectedType = predictPackageId ? `${predictPackageId}::predict::PositionRedeemed` : undefined;
+  for (const event of response.events ?? []) {
+    if (typeof event.type !== "string") {
+      continue;
+    }
+    if (expectedType ? event.type !== expectedType : !event.type.endsWith("::predict::PositionRedeemed")) {
+      continue;
+    }
+
+    const parsedJson = event.parsedJson as Record<string, unknown> | undefined;
+    const payout = rawIntegerValue(parsedJson?.payout);
+    if (payout !== undefined) {
+      return payout;
+    }
+  }
+
+  return undefined;
+}
+
+export function extractFirstU64ReturnValue(response: unknown): string | undefined {
+  if (!isRecord(response) || !Array.isArray(response.results)) {
+    return undefined;
+  }
+
+  for (const result of response.results) {
+    const returnValues = isRecord(result) && Array.isArray(result.returnValues)
+      ? result.returnValues
+      : [];
+    for (const returnValue of returnValues) {
+      if (!Array.isArray(returnValue)) {
+        continue;
+      }
+
+      const bytes = Array.isArray(returnValue[0]) ? returnValue[0] : undefined;
+      const typeTag = typeof returnValue[1] === "string" ? returnValue[1] : "";
+      if (!bytes || (typeTag !== "u64" && !typeTag.endsWith("::u64") && bytes.length !== 8)) {
+        continue;
+      }
+
+      return u64BytesToString(bytes);
     }
   }
 
@@ -250,6 +430,18 @@ function rawIntegerValue(value: unknown): string | undefined {
     return String(value);
   }
   return undefined;
+}
+
+function u64BytesToString(bytes: unknown[]): string | undefined {
+  if (bytes.length !== 8 || !bytes.every((byte) => Number.isInteger(byte) && Number(byte) >= 0 && Number(byte) <= 255)) {
+    return undefined;
+  }
+
+  let value = 0n;
+  for (let index = 0; index < bytes.length; index += 1) {
+    value += BigInt(Number(bytes[index])) << (8n * BigInt(index));
+  }
+  return value.toString();
 }
 
 function firstString(...values: unknown[]): string | undefined {

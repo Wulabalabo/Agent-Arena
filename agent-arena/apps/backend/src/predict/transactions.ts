@@ -207,6 +207,39 @@ export function buildPredictTransactionFromPlan(
       return tx;
     }
 
+    case "redeem_directional":
+    case "close_directional": {
+      const direction = requiredKeyInput(plan, "direction");
+      const strikeRaw = assertRawIntegerString(requiredKeyInput(plan, "strikeRaw"), "strikeRaw");
+      const expiryMs = assertRawIntegerString(requiredKeyInput(plan, "expiryMs"), "expiryMs");
+      const quantityRaw = assertRawIntegerString(plan.quantityRaw, "quantityRaw");
+      const managerId = requiredObjectId(plan, "managerId");
+      const oracleId = requiredObjectId(plan, "oracleId");
+      const marketKey = tx.moveCall({
+        target: `${options.predictPackageId}::market_key::new`,
+        arguments: [
+          tx.pure.id(oracleId),
+          tx.pure.u64(expiryMs),
+          tx.pure.u64(strikeRaw),
+          tx.pure.bool(direction === "up")
+        ]
+      });
+
+      tx.moveCall({
+        target: `${options.predictPackageId}::predict::redeem`,
+        typeArguments: [options.quoteAssetType],
+        arguments: [
+          tx.object(options.predictObjectId),
+          tx.object(managerId),
+          tx.object(oracleId),
+          marketKey,
+          tx.pure.u64(quantityRaw),
+          tx.object(options.clockObjectId)
+        ]
+      });
+      return tx;
+    }
+
     default:
       throw new Error("PREDICT_PTB_UNSUPPORTED_OPERATION");
   }

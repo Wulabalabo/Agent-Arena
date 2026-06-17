@@ -872,6 +872,165 @@ describe("createInternalPredictFetchHandler", () => {
     ]);
   });
 
+  it("dry-runs a partial directional redeem after verifying manager position", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const resolutions: unknown[] = [];
+    const redemptions: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async resolveDirectionalPosition(input) {
+          resolutions.push(input);
+          return {
+            ...input,
+            quantityRaw: "100000"
+          };
+        },
+        async dryRunRedeemDirectional(input) {
+          redemptions.push(input);
+          return {
+            operation: "redeem_directional",
+            mode: "dry_run",
+            status: "dry_run_ok",
+            txDigest: "redeem-dry-run-digest",
+            managerId: input.managerId,
+            oracleId: input.oracleId,
+            expiryMs: input.expiryMs,
+            strikeRaw: input.strikeRaw,
+            direction: input.direction,
+            quantityRaw: input.quantityRaw,
+            minProceedsRaw: input.minProceedsRaw,
+            actualProceedsRaw: "44000"
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "redeem_directional",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        strikeRaw: "65000000000000",
+        direction: "up",
+        quantityRaw: "50000",
+        minProceedsRaw: "1",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution: {
+        id: "exec_internal_001",
+        status: "dry_run_ok",
+        dryRunDigest: "redeem-dry-run-digest",
+        quantityRaw: "50000",
+        actualProceedsRaw: "44000",
+        policyDrift: "none"
+      },
+      transaction: {
+        operation: "redeem_directional",
+        mode: "dry_run",
+        status: "dry_run_ok",
+        actualProceedsRaw: "44000"
+      }
+    });
+    expect(resolutions).toHaveLength(1);
+    expect(redemptions).toHaveLength(1);
+    await expect(executionStore.listSigningAudits({
+      executionId: "exec_internal_001"
+    })).resolves.toMatchObject([
+      {
+        transactionKind: "predict_redeem_dry_run",
+        status: "confirmed",
+        txDigest: "redeem-dry-run-digest"
+      }
+    ]);
+  });
+
+  it("dry-runs close_directional by resolving the full backend-confirmed position quantity", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const redemptions: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async resolveDirectionalPosition(input) {
+          return {
+            ...input,
+            quantityRaw: "100000"
+          };
+        },
+        async dryRunRedeemDirectional(input) {
+          redemptions.push(input);
+          return {
+            operation: "close_directional",
+            mode: "dry_run",
+            status: "dry_run_ok",
+            txDigest: "close-dry-run-digest",
+            managerId: input.managerId,
+            oracleId: input.oracleId,
+            expiryMs: input.expiryMs,
+            strikeRaw: input.strikeRaw,
+            direction: input.direction,
+            quantityRaw: input.quantityRaw,
+            minProceedsRaw: input.minProceedsRaw,
+            actualProceedsRaw: "88000"
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "close_directional",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        strikeRaw: "65000000000000",
+        direction: "up",
+        minProceedsRaw: "1",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution: {
+        id: "exec_internal_001",
+        operation: "close_directional",
+        status: "dry_run_ok",
+        quantityRaw: "100000",
+        actualProceedsRaw: "88000"
+      }
+    });
+    expect(redemptions).toMatchObject([
+      {
+        operation: "close_directional",
+        quantityRaw: "100000"
+      }
+    ]);
+  });
+
   it("rejects close_directional execute with caller quantity before creating an execution", async () => {
     const executionStore = createMemoryExecutionStore({
       now: () => "2026-06-17T00:00:00.000Z"

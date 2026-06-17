@@ -607,7 +607,8 @@ Current implementation status:
 - `predict::create_manager`: dry-run and submit wired.
 - `predict_manager::deposit<DUSDC>`: dry-run and submit wired after a manager id exists.
 - `market_key::up/down` plus `predict::mint<DUSDC>`: dry-run wired, submit guarded by `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` and explicit `dryRunOnly=false`.
-- `predict::redeem`, `predict::mint_range`, and `predict::redeem_range`: planned mapping only; execution must remain disabled until position resolution, PTB builders, dry-run evidence, and tests are added.
+- `market_key::new` plus `predict::redeem<DUSDC>`: dry-run and submit wired for partial directional redeem and full directional close. Partial redeem validates the backend-confirmed position quantity before signing. Close resolves the full position quantity in the backend and rejects caller-provided close quantity.
+- `predict::mint_range` and `predict::redeem_range`: planned mapping only; execution must remain disabled until range position resolution, PTB builders, dry-run evidence, and tests are added.
 
 ### Create Manager
 
@@ -740,6 +741,8 @@ arguments:
 ```
 
 For settled binary positions, `predict::redeem_permissionless` may be used when the operation specifically needs permissionless settled redemption semantics.
+
+The current backend records `PositionRedeemed.payout` as `actualProceedsRaw` when the event is present. Partial redeem must validate that `predict_manager::position(manager, MarketKey)` is greater than or equal to the requested `quantityRaw`. Close must first resolve `predict_manager::position(manager, MarketKey)` and use that full backend-confirmed quantity as `resolvedQuantityRaw`.
 
 ### Mint Range
 
@@ -881,8 +884,8 @@ The first live test flow is:
 9. Backend creates the manager first, confirms the manager id from events or object changes, and only then deposits DUSDC.
 10. Operator runs one small directional mint with `dryRunOnly=true`.
 11. Operator explicitly enables Testnet submit and runs the same small directional mint with `dryRunOnly=false`.
-12. Operator runs one partial redeem after position resolution is implemented.
-13. Operator runs one full close or settled claim when available.
+12. Operator runs one partial redeem with `dryRunOnly=true`, then with explicit submit when desired.
+13. Operator runs one full close with `dryRunOnly=true`, then with explicit submit when desired.
 14. Operator runs one range mint and one range redeem after range PTBs are implemented.
 
 The API should return a clear address and funding instruction. It should never ask the operator to paste private key material into chat or frontend.
@@ -905,15 +908,17 @@ Suggested modes:
 --setup --wallet-id <id> --manager-id <manager-id> --deposit-dusdc-raw 5000000 --submit
 --mint-up --wallet-id <id> --manager-id <manager-id> --oracle-id <oracle-id> --quantity-raw 100000 --max-cost-raw 1000000
 --mint-up --wallet-id <id> --manager-id <manager-id> --oracle-id <oracle-id> --quantity-raw 100000 --max-cost-raw 1000000 --submit
---redeem-last --wallet-id <id> --quantity-raw 50000 --min-proceeds-raw 1
---close-last --wallet-id <id> --min-proceeds-raw 1
+--redeem-last --wallet-id <id> --manager-id <manager-id> --oracle-id <oracle-id> --quantity-raw 50000 --min-proceeds-raw 1
+--redeem-last --wallet-id <id> --manager-id <manager-id> --oracle-id <oracle-id> --quantity-raw 50000 --min-proceeds-raw 1 --submit
+--close-last --wallet-id <id> --manager-id <manager-id> --oracle-id <oracle-id> --min-proceeds-raw 1
+--close-last --wallet-id <id> --manager-id <manager-id> --oracle-id <oracle-id> --min-proceeds-raw 1 --submit
 --mint-range --wallet-id <id> --quantity-raw 100000 --max-cost-raw 1000000
 --redeem-range-last --wallet-id <id> --quantity-raw 50000 --min-proceeds-raw 1
 ```
 
 The script may call the internal HTTP API or import backend modules directly. It must redact private keys in output.
 
-Real submit must remain opt-in. `--submit` is not enough by itself; the local environment must also set `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true`. Without both gates, setup and directional mint return `PREDICT_SUBMIT_DISABLED`.
+Real submit must remain opt-in. `--submit` is not enough by itself; the local environment must also set `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true`. Without both gates, setup, directional mint, partial directional redeem, and close return `PREDICT_SUBMIT_DISABLED`.
 
 ## Error Codes
 
@@ -980,8 +985,8 @@ The spec is implemented when:
 - After funding, setup can create or reuse a `PredictManager`.
 - After setup, setup can deposit DUSDC into the manager.
 - A small directional mint can be dry-run and then submitted.
-- A partial directional redeem can be dry-run and then submitted after position resolution is implemented.
-- A full close can redeem the backend-confirmed remaining quantity after position resolution is implemented.
+- A partial directional redeem can be dry-run and then submitted after backend position validation.
+- A full close can redeem the backend-confirmed remaining quantity without accepting caller quantity.
 - A small range mint can be dry-run and then submitted after range PTBs are implemented.
 - A range redeem can be dry-run and then submitted after range position resolution is implemented.
 - Every submitted transaction has a digest, execution record, and signing audit.
@@ -998,15 +1003,14 @@ The spec is implemented when:
 6. Add PredictManager discovery through local binding, Predict server, or event index, with onchain owner verification.
 7. Add two-phase setup: create manager first, then deposit after the manager object exists.
 8. Add preview builders for `get_trade_amounts` and `get_range_trade_amounts`.
-9. Add operation builders for market keys and directional mint.
-10. Add dry-run wrapper and ABI fail-closed gate for directional mint.
-11. Add signed submit wrapper with pre-submit guardrails and post-submit policy drift audit for directional mint.
+9. Add operation builders for market keys, directional mint, and directional redeem.
+10. Add dry-run wrapper and ABI fail-closed gate for directional mint/redeem.
+11. Add signed submit wrapper with pre-submit guardrails and post-submit policy drift audit for directional mint/redeem.
 12. Add execution and signing audit persistence.
 13. Add smoke script.
 14. Run create-wallet and funding handoff.
-15. After funding, run setup and directional mint.
-16. Add position resolution and directional redeem/close.
-17. Add range key, range mint, and range redeem PTBs.
+15. After funding, run setup, directional mint, partial redeem, and close.
+16. Add range key, range mint, and range redeem PTBs.
 
 ## Open Questions
 
