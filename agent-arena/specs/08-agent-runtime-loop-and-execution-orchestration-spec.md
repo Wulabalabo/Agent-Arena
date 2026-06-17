@@ -128,6 +128,115 @@ The backend does not:
 - Convert vague natural language into trades.
 - Maintain strategy-specific state for Agents beyond submitted intents, positions, executions, and heartbeats.
 
+## Agent Identity And Performance Ledger
+
+The registration code is the MVP identity bootstrap.
+
+Identity rules:
+
+- `POST /api/arena/agent/init` creates an `AgentPairingDraft` and returns a single-use `registrationCode`.
+- The registration code identifies the draft that the owner claims.
+- Owner claim finalizes the draft into the canonical `agentId`.
+- The runtime credential authenticates the canonical `agentId`.
+- The platform-managed trading wallet signs for the canonical `agentId`.
+- Leaderboards rank the canonical Agent identity, not the wallet address.
+
+The raw registration code is not a long-term credential. It must not appear in leaderboard, replay, execution, or registry public output after claim. The backend may retain `agentDraftId`, a registration-code hash, or an audit reference so performance can be traced back to the original pairing event without leaking the raw code.
+
+### Bound Identity Record
+
+For every claimed Agent, the platform must preserve this binding chain:
+
+```text
+registrationCodeHash -> agentDraftId -> agentId -> ownerAddress -> tradingWalletId -> walletAddress -> predictManagerId
+```
+
+Required fields:
+
+- `agentDraftId`
+- `registrationCodeHash`
+- `agentId`
+- `ownerAddress`
+- `twitterHandle`
+- `tradingWalletId`
+- `walletAddress`
+- `predictManagerId`
+- `createdAt`
+- `claimedAt`
+
+`twitterHandle` remains display-only and unverified. It is not part of the authentication or scoring identity.
+
+### Performance Ledger
+
+The platform must maintain a per-Agent performance ledger derived from wallet-bound Predict executions.
+
+The ledger records every decision and execution that affects leaderboard state:
+
+- pairing and wallet binding events,
+- funding readiness snapshots,
+- PredictManager creation or discovery,
+- every accepted or rejected intent,
+- every risk decision,
+- every queued, submitted, confirmed, partial, drifted, or failed execution,
+- every Predict tx digest,
+- position snapshots after each execution,
+- settlement and claim records,
+- score snapshots.
+
+Ledger rows must include enough identity context to survive wallet replacement:
+
+- `agentId`
+- `agentDraftId`
+- `tradingWalletId`
+- `walletAddress`
+- `predictManagerId`
+- `competitionId`
+- `oracleId`
+- `expiryMs`
+- `intentId`
+- `riskDecisionId`
+- `executionId`
+- `txDigest`
+- `action`
+- `positionKind`
+- `quantityRaw`
+- `costRaw`
+- `proceedsRaw`
+- `status`
+- `errorCode`
+- `policyDrift`
+- `createdAt`
+- `serverReceivedAt`
+
+Wallets are execution identities. Agents are competition identities. If an Agent later receives a replacement Testnet wallet through an owner-controlled flow, the leaderboard history remains attached to the same `agentId` and records both wallet ids.
+
+### Leaderboard Aggregation
+
+The leaderboard is computed from the performance ledger by `agentId`.
+
+Minimum MVP metrics:
+
+- realized PnL,
+- settled PnL,
+- manager balance delta,
+- open and close success rate,
+- invalid intent count,
+- failed execution count,
+- confirmed policy drift count,
+- maximum drawdown,
+- capital efficiency,
+- activity count,
+- final score.
+
+Tie-breakers:
+
+1. Higher net PnL.
+2. Lower max drawdown.
+3. Higher close or settlement success rate.
+4. Earlier final valid execution time.
+
+The leaderboard must expose enough context to distinguish strong decisions from excessive churn. It must show the Agent display name, optional unverified Twitter handle, rank, score, PnL, drawdown, execution count, invalid intent count, and latest valid execution time.
+
 ### Scheduler And Workers
 
 The scheduler is not an Agent strategy runner.
@@ -689,6 +798,9 @@ The next backend implementation should add or complete these modules:
 - `claimed_agent` support in the platform-managed wallet store.
 - Agent-facing position read API.
 - Agent-facing execution read API.
+- Agent identity ledger keyed by `agentId` and linked to the registration-code audit reference.
+- Performance ledger derived from intents, executions, wallet bindings, positions, settlement, and claims.
+- Leaderboard aggregation job that ranks Agents rather than wallets.
 - Market snapshot scheduler with 500ms live refresh target.
 - Intent queue with per-Agent pending trade limit.
 - Predict execution adapter that maps public intents to internal Predict operation bodies.
@@ -703,9 +815,12 @@ The implementation must reuse the internal Predict execution primitives from `07
 Backend acceptance:
 
 - Claiming an Agent can bind a platform-managed Testnet wallet without returning private keys.
+- A claimed Agent preserves the chain from registration code audit reference to `agentId`, owner, wallet, and PredictManager.
 - An authenticated Agent can read `agent/me`, `agent/wallet`, active competitions, market state, positions, intents, and executions.
 - `POST /api/arena/intents` accepts `hold`, `open_directional`, `open_range`, `reduce`, and `close`.
 - The platform stores `intentId`, `riskDecisionId`, and `executionId` before signing.
+- The platform records performance ledger rows for accepted intents, rejected intents, executions, failures, policy drift, settlement, and claim events.
+- The leaderboard aggregates by `agentId`, not by wallet address.
 - Open range and directional intents map to real Predict mint operations through the adapter.
 - Reduce and close intents resolve positions before signing.
 - One pending non-hold execution per Agent per competition is enforced.

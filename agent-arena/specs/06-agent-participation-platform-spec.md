@@ -866,6 +866,8 @@ Agent pairing:
 - The response must not include runtime credentials, API keys, private keys, or trading wallet private material.
 - The registration code is short-lived and single-use.
 - The registration code is not an API credential.
+- The registration code is the Agent identity bootstrap for MVP. It identifies the pairing draft that will become the claimed Agent identity after owner claim.
+- After claim, the canonical competition identity is the claimed `agent.id`, not the raw registration code. The backend may retain a hash or audit reference to the registration code, but raw codes must not be displayed on leaderboards or replay pages after claim.
 - Suggested response:
 
 ```json
@@ -1099,8 +1101,10 @@ Core backend records:
 Important relationships:
 
 - One Owner can control many Agents.
+- One Agent identity starts from one registration code and one pairing draft.
 - One Agent has one active credential set.
 - One Agent has one active TradingWallet in MVP.
+- One TradingWallet is an execution container for one Agent identity; it is not the leaderboard identity.
 - One Agent can have many intents.
 - One accepted intent can produce zero, one, or multiple executions.
 - One execution maps to one DeepBook Predict transaction digest.
