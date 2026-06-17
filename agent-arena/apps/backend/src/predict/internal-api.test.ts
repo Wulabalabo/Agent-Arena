@@ -1055,6 +1055,97 @@ describe("createInternalPredictFetchHandler", () => {
     ]);
   });
 
+  it("submits claim_settled_directional by resolving the full backend-confirmed position quantity", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const confirmations: unknown[] = [];
+    const submissions: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      enablePredictSubmit: true,
+      confirmOracleForExecution: async (request) => {
+        confirmations.push(request);
+      },
+      tradeExecutor: {
+        async resolveDirectionalPosition(input) {
+          return {
+            ...input,
+            quantityRaw: "100000"
+          };
+        },
+        async submitRedeemDirectional(input) {
+          submissions.push(input);
+          return {
+            operation: "claim_settled_directional",
+            mode: "submit",
+            status: "submitted",
+            txDigest: "claim-directional-submit-digest",
+            managerId: input.managerId,
+            oracleId: input.oracleId,
+            expiryMs: input.expiryMs,
+            strikeRaw: input.strikeRaw,
+            direction: input.direction,
+            quantityRaw: input.quantityRaw,
+            minProceedsRaw: input.minProceedsRaw,
+            actualProceedsRaw: "88000"
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "claim_settled_directional",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        strikeRaw: "65000000000000",
+        direction: "up",
+        minProceedsRaw: "1",
+        dryRunOnly: false
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution: {
+        id: "exec_internal_001",
+        operation: "claim_settled_directional",
+        status: "submitted",
+        txDigest: "claim-directional-submit-digest",
+        quantityRaw: "100000",
+        actualProceedsRaw: "88000"
+      },
+      transaction: {
+        operation: "claim_settled_directional",
+        mode: "submit",
+        status: "submitted"
+      }
+    });
+    expect(submissions).toMatchObject([
+      {
+        operation: "claim_settled_directional",
+        quantityRaw: "100000"
+      }
+    ]);
+    expect(confirmations).toMatchObject([
+      {
+        operation: "claim_settled_directional",
+        oracleId: "0xoracle",
+        expiryMs: 1780000000000,
+        strikeRaw: "65000000000000"
+      }
+    ]);
+  });
+
   it("rejects close_directional execute with caller quantity before creating an execution", async () => {
     const executionStore = createMemoryExecutionStore({
       now: () => "2026-06-17T00:00:00.000Z"
@@ -1442,6 +1533,219 @@ describe("createInternalPredictFetchHandler", () => {
       body: JSON.stringify({
         walletId: created.wallet.id,
         operation: "close_range",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        lowerStrikeRaw: "64000000000000",
+        higherStrikeRaw: "66000000000000",
+        minProceedsRaw: "1",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "RANGE_POSITION_NOT_FOUND"
+      }
+    });
+    await expect(executionStore.listExecutions({ walletId: created.wallet.id })).resolves.toEqual([]);
+  });
+
+  it("dry-runs claim_settled_range by resolving the full backend-confirmed range quantity", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const confirmedOracles: unknown[] = [];
+    const rangeRedemptions: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      confirmOracleForExecution: async (request) => {
+        confirmedOracles.push(request);
+      },
+      tradeExecutor: {
+        async resolveRangePosition(input) {
+          return {
+            ...input,
+            quantityRaw: "100000"
+          };
+        },
+        async dryRunRedeemRange(input) {
+          rangeRedemptions.push(input);
+          return {
+            operation: "claim_settled_range",
+            mode: "dry_run",
+            status: "dry_run_ok",
+            txDigest: "claim-range-dry-run-digest",
+            managerId: input.managerId,
+            oracleId: input.oracleId,
+            expiryMs: input.expiryMs,
+            lowerStrikeRaw: input.lowerStrikeRaw,
+            higherStrikeRaw: input.higherStrikeRaw,
+            quantityRaw: input.quantityRaw,
+            minProceedsRaw: input.minProceedsRaw,
+            actualProceedsRaw: "88000"
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "claim_settled_range",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        lowerStrikeRaw: "64000000000000",
+        higherStrikeRaw: "66000000000000",
+        minProceedsRaw: "1",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution: {
+        id: "exec_internal_001",
+        operation: "claim_settled_range",
+        status: "dry_run_ok",
+        quantityRaw: "100000",
+        actualProceedsRaw: "88000"
+      },
+      transaction: {
+        operation: "claim_settled_range",
+        mode: "dry_run",
+        status: "dry_run_ok"
+      }
+    });
+    expect(rangeRedemptions).toMatchObject([
+      {
+        operation: "claim_settled_range",
+        quantityRaw: "100000"
+      }
+    ]);
+    expect(confirmedOracles).toMatchObject([
+      {
+        operation: "claim_settled_range",
+        oracleId: "0xoracle",
+        expiryMs: 1780000000000
+      }
+    ]);
+  });
+
+  it("submits claim_settled_range by resolving the full backend-confirmed range quantity", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const rangeSubmissions: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      enablePredictSubmit: true,
+      confirmOracleForExecution: async () => {},
+      tradeExecutor: {
+        async resolveRangePosition(input) {
+          return {
+            ...input,
+            quantityRaw: "100000"
+          };
+        },
+        async submitRedeemRange(input) {
+          rangeSubmissions.push(input);
+          return {
+            operation: "claim_settled_range",
+            mode: "submit",
+            status: "submitted",
+            txDigest: "claim-range-submit-digest",
+            managerId: input.managerId,
+            oracleId: input.oracleId,
+            expiryMs: input.expiryMs,
+            lowerStrikeRaw: input.lowerStrikeRaw,
+            higherStrikeRaw: input.higherStrikeRaw,
+            quantityRaw: input.quantityRaw,
+            minProceedsRaw: input.minProceedsRaw,
+            actualProceedsRaw: "88000"
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "claim_settled_range",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        lowerStrikeRaw: "64000000000000",
+        higherStrikeRaw: "66000000000000",
+        minProceedsRaw: "1",
+        dryRunOnly: false
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution: {
+        id: "exec_internal_001",
+        operation: "claim_settled_range",
+        status: "submitted",
+        txDigest: "claim-range-submit-digest",
+        quantityRaw: "100000",
+        actualProceedsRaw: "88000"
+      },
+      transaction: {
+        operation: "claim_settled_range",
+        mode: "submit",
+        status: "submitted"
+      }
+    });
+    expect(rangeSubmissions).toMatchObject([
+      {
+        operation: "claim_settled_range",
+        quantityRaw: "100000"
+      }
+    ]);
+  });
+
+  it("rejects claim_settled_range when the backend-confirmed range quantity is zero", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async resolveRangePosition(input) {
+          return {
+            ...input,
+            quantityRaw: "0"
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "claim_settled_range",
         managerId: "0xmanager",
         oracleId: "0xoracle",
         expiryMs: "1780000000000",

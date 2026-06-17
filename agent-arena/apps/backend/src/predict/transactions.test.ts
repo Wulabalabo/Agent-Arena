@@ -145,6 +145,31 @@ describe("buildPredictOperationPlan", () => {
     expect(closePlan.quantityRaw).toBe("1000000");
   });
 
+  it("uses backend-resolved quantity for settled directional claims", () => {
+    const claimPlan = buildPredictOperationPlan({
+      operation: "claim_settled_directional",
+      direction: "up",
+      strikeRaw: "65000000000000",
+      expiryMs: "1780000000000",
+      resolvedQuantityRaw: "1000000",
+      minProceedsRaw: "1"
+    } as never);
+
+    expect(claimPlan.moveTargets).toEqual(["market_key::new", "predict::redeem_permissionless"]);
+    expect(claimPlan.quantityRaw).toBe("1000000");
+
+    expect(() =>
+      buildPredictOperationPlan({
+        operation: "claim_settled_directional",
+        direction: "up",
+        strikeRaw: "65000000000000",
+        expiryMs: "1780000000000",
+        quantityRaw: "1000000",
+        minProceedsRaw: "1"
+      } as never)
+    ).toThrow("CLOSE_QUANTITY_MUST_BE_BACKEND_RESOLVED");
+  });
+
   it("rejects caller quantityRaw for close_directional", () => {
     expect(() =>
       buildPredictOperationPlan({
@@ -201,6 +226,31 @@ describe("buildPredictOperationPlan", () => {
         expiryMs: "1780000000000",
         quantityRaw: "1000000",
         minProceedsRaw: "900000"
+      } as never)
+    ).toThrow("CLOSE_QUANTITY_MUST_BE_BACKEND_RESOLVED");
+  });
+
+  it("uses backend-resolved quantity for settled range claims", () => {
+    const claimPlan = buildPredictOperationPlan({
+      operation: "claim_settled_range",
+      lowerStrikeRaw: "64000000000000",
+      higherStrikeRaw: "66000000000000",
+      expiryMs: "1780000000000",
+      resolvedQuantityRaw: "1000000",
+      minProceedsRaw: "1"
+    } as never);
+
+    expect(claimPlan.moveTargets).toEqual(["range_key::new", "predict::redeem_range"]);
+    expect(claimPlan.quantityRaw).toBe("1000000");
+
+    expect(() =>
+      buildPredictOperationPlan({
+        operation: "claim_settled_range",
+        lowerStrikeRaw: "64000000000000",
+        higherStrikeRaw: "66000000000000",
+        expiryMs: "1780000000000",
+        quantityRaw: "1000000",
+        minProceedsRaw: "1"
       } as never)
     ).toThrow("CLOSE_QUANTITY_MUST_BE_BACKEND_RESOLVED");
   });
@@ -436,6 +486,51 @@ describe("buildPredictOperationPlan", () => {
     expect(inputJson).toContain("0x0000000000000000000000000000000000000000000000000000000000000006");
   });
 
+  it("builds a settled directional claim PTB through redeem_permissionless", () => {
+    const oracleId = "0x00000000000000000000000000000000000000000000000000000000000000dd";
+    const plan = buildPredictOperationPlan({
+      operation: "claim_settled_directional",
+      direction: "down",
+      strikeRaw: "65000000000000",
+      expiryMs: "1780000000000",
+      resolvedQuantityRaw: "50000",
+      minProceedsRaw: "1",
+      managerId,
+      oracleId
+    } as never);
+
+    const tx = buildPredictTransactionFromPlan(plan, {
+      predictPackageId,
+      predictObjectId,
+      quoteAssetType,
+      clockObjectId
+    });
+    const data = tx.getData() as {
+      commands: Array<Record<string, any>>;
+      inputs: Array<Record<string, any>>;
+    };
+
+    expect(data.commands).toHaveLength(2);
+    expect(data.commands[0]!.MoveCall).toMatchObject({
+      package: predictPackageId,
+      module: "market_key",
+      function: "new",
+      typeArguments: []
+    });
+    expect(data.commands[1]!.MoveCall).toMatchObject({
+      package: predictPackageId,
+      module: "predict",
+      function: "redeem_permissionless",
+      typeArguments: [quoteAssetType]
+    });
+    expect(JSON.stringify(data.commands[1])).toContain("\"Result\":0");
+    const inputJson = JSON.stringify(data.inputs);
+    expect(inputJson).toContain(predictObjectId);
+    expect(inputJson).toContain(managerId);
+    expect(inputJson).toContain(oracleId);
+    expect(inputJson).toContain("0x0000000000000000000000000000000000000000000000000000000000000006");
+  });
+
   it("builds a range mint PTB from range key creation into predict mint_range", () => {
     const oracleId = "0x00000000000000000000000000000000000000000000000000000000000000dd";
     const plan = buildPredictOperationPlan({
@@ -493,6 +588,51 @@ describe("buildPredictOperationPlan", () => {
       managerId,
       oracleId
     });
+
+    const tx = buildPredictTransactionFromPlan(plan, {
+      predictPackageId,
+      predictObjectId,
+      quoteAssetType,
+      clockObjectId
+    });
+    const data = tx.getData() as {
+      commands: Array<Record<string, any>>;
+      inputs: Array<Record<string, any>>;
+    };
+
+    expect(data.commands).toHaveLength(2);
+    expect(data.commands[0]!.MoveCall).toMatchObject({
+      package: predictPackageId,
+      module: "range_key",
+      function: "new",
+      typeArguments: []
+    });
+    expect(data.commands[1]!.MoveCall).toMatchObject({
+      package: predictPackageId,
+      module: "predict",
+      function: "redeem_range",
+      typeArguments: [quoteAssetType]
+    });
+    expect(JSON.stringify(data.commands[1])).toContain("\"Result\":0");
+    const inputJson = JSON.stringify(data.inputs);
+    expect(inputJson).toContain(predictObjectId);
+    expect(inputJson).toContain(managerId);
+    expect(inputJson).toContain(oracleId);
+    expect(inputJson).toContain("0x0000000000000000000000000000000000000000000000000000000000000006");
+  });
+
+  it("builds a settled range claim PTB through redeem_range", () => {
+    const oracleId = "0x00000000000000000000000000000000000000000000000000000000000000dd";
+    const plan = buildPredictOperationPlan({
+      operation: "claim_settled_range",
+      lowerStrikeRaw: "64000000000000",
+      higherStrikeRaw: "66000000000000",
+      expiryMs: "1780000000000",
+      resolvedQuantityRaw: "50000",
+      minProceedsRaw: "1",
+      managerId,
+      oracleId
+    } as never);
 
     const tx = buildPredictTransactionFromPlan(plan, {
       predictPackageId,

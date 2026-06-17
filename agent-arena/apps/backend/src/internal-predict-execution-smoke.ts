@@ -15,9 +15,11 @@ type CliMode =
   | "mint-up"
   | "redeem-last"
   | "close-last"
+  | "claim-settled-directional"
   | "mint-range"
   | "redeem-range-last"
   | "close-range-last"
+  | "claim-settled-range"
   | "withdraw-manager-dusdc";
 
 interface ParsedArgs {
@@ -49,7 +51,7 @@ export function createJsonRpcBalanceReader(config: PredictConfig): CoinBalanceRe
 }
 
 export function buildDirectionalRedeemExecuteBody(input: {
-  operation: "redeem_directional" | "close_directional";
+  operation: "redeem_directional" | "close_directional" | "claim_settled_directional";
   walletId: string;
   managerId: string;
   oracleId: string;
@@ -76,7 +78,7 @@ export function buildDirectionalRedeemExecuteBody(input: {
 }
 
 export function buildRangeRedeemExecuteBody(input: {
-  operation: "redeem_range" | "close_range";
+  operation: "redeem_range" | "close_range" | "claim_settled_range";
   walletId: string;
   managerId: string;
   oracleId: string;
@@ -265,6 +267,22 @@ async function executeMode(
       }));
     }
 
+    case "claim-settled-directional": {
+      const minProceedsRaw = requiredArg(parsed, "min-proceeds-raw");
+      const submit = hasFlag(parsed, "submit");
+      return await executePredict(fetchInternal, config.internalToken, submit, buildDirectionalRedeemExecuteBody({
+        walletId: requiredArg(parsed, "wallet-id"),
+        operation: "claim_settled_directional",
+        managerId: requiredArgOrEnv(parsed, "manager-id", "AGENT_ARENA_SMOKE_MANAGER_ID"),
+        oracleId: requiredArgOrEnv(parsed, "oracle-id", "AGENT_ARENA_SMOKE_ORACLE_ID"),
+        direction: directionArgOrDefault(parsed),
+        minProceedsRaw,
+        expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
+        strikeRaw: requiredArgOrEnv(parsed, "strike-raw", "AGENT_ARENA_SMOKE_STRIKE_RAW"),
+        dryRunOnly: !submit
+      }));
+    }
+
     case "mint-range": {
       const maxCostRaw = requiredArg(parsed, "max-cost-raw");
       const submit = hasFlag(parsed, "submit");
@@ -306,6 +324,22 @@ async function executeMode(
       return await executePredict(fetchInternal, config.internalToken, submit, buildRangeRedeemExecuteBody({
         walletId: requiredArg(parsed, "wallet-id"),
         operation: "close_range",
+        managerId: requiredArgOrEnv(parsed, "manager-id", "AGENT_ARENA_SMOKE_MANAGER_ID"),
+        oracleId: requiredArgOrEnv(parsed, "oracle-id", "AGENT_ARENA_SMOKE_ORACLE_ID"),
+        minProceedsRaw,
+        expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
+        lowerStrikeRaw: requiredArgOrEnv(parsed, "lower-strike-raw", "AGENT_ARENA_SMOKE_LOWER_STRIKE_RAW"),
+        higherStrikeRaw: requiredArgOrEnv(parsed, "higher-strike-raw", "AGENT_ARENA_SMOKE_HIGHER_STRIKE_RAW"),
+        dryRunOnly: !submit
+      }));
+    }
+
+    case "claim-settled-range": {
+      const minProceedsRaw = requiredArg(parsed, "min-proceeds-raw");
+      const submit = hasFlag(parsed, "submit");
+      return await executePredict(fetchInternal, config.internalToken, submit, buildRangeRedeemExecuteBody({
+        walletId: requiredArg(parsed, "wallet-id"),
+        operation: "claim_settled_range",
         managerId: requiredArgOrEnv(parsed, "manager-id", "AGENT_ARENA_SMOKE_MANAGER_ID"),
         oracleId: requiredArgOrEnv(parsed, "oracle-id", "AGENT_ARENA_SMOKE_ORACLE_ID"),
         minProceedsRaw,
@@ -420,9 +454,11 @@ function isMode(value: string): value is CliMode {
     value === "mint-up" ||
     value === "redeem-last" ||
     value === "close-last" ||
+    value === "claim-settled-directional" ||
     value === "mint-range" ||
     value === "redeem-range-last" ||
     value === "close-range-last" ||
+    value === "claim-settled-range" ||
     value === "withdraw-manager-dusdc";
 }
 

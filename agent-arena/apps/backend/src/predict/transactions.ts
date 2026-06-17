@@ -7,9 +7,11 @@ export type PredictOperation =
   | "mint_directional"
   | "redeem_directional"
   | "close_directional"
+  | "claim_settled_directional"
   | "mint_range"
   | "redeem_range"
   | "close_range"
+  | "claim_settled_range"
   | "deposit_dusdc"
   | "withdraw_manager_dusdc"
   | "create_manager";
@@ -67,9 +69,11 @@ const predictOperations = new Set<string>([
   "mint_directional",
   "redeem_directional",
   "close_directional",
+  "claim_settled_directional",
   "mint_range",
   "redeem_range",
   "close_range",
+  "claim_settled_range",
   "deposit_dusdc",
   "withdraw_manager_dusdc",
   "create_manager"
@@ -118,6 +122,8 @@ export function buildPredictOperationPlan(input: BuildPredictOperationPlanInput)
       ], { requiredMinProceeds: true });
     case "close_directional":
       return buildCloseDirectionalPlan(input);
+    case "claim_settled_directional":
+      return buildClaimSettledDirectionalPlan(input);
     case "mint_range":
       return buildRangePlan(input, [
         "range_key::new",
@@ -129,6 +135,8 @@ export function buildPredictOperationPlan(input: BuildPredictOperationPlanInput)
         "predict::redeem_range"
       ], { requiredMinProceeds: true });
     case "close_range":
+      return buildCloseRangePlan(input);
+    case "claim_settled_range":
       return buildCloseRangePlan(input);
     case "deposit_dusdc":
       return {
@@ -276,6 +284,38 @@ export function buildPredictTransactionFromPlan(
       return tx;
     }
 
+    case "claim_settled_directional": {
+      const direction = requiredKeyInput(plan, "direction");
+      const strikeRaw = assertRawIntegerString(requiredKeyInput(plan, "strikeRaw"), "strikeRaw");
+      const expiryMs = assertRawIntegerString(requiredKeyInput(plan, "expiryMs"), "expiryMs");
+      const quantityRaw = assertRawIntegerString(plan.quantityRaw, "quantityRaw");
+      const managerId = requiredObjectId(plan, "managerId");
+      const oracleId = requiredObjectId(plan, "oracleId");
+      const marketKey = tx.moveCall({
+        target: `${options.predictPackageId}::market_key::new`,
+        arguments: [
+          tx.pure.id(oracleId),
+          tx.pure.u64(expiryMs),
+          tx.pure.u64(strikeRaw),
+          tx.pure.bool(direction === "up")
+        ]
+      });
+
+      tx.moveCall({
+        target: `${options.predictPackageId}::predict::redeem_permissionless`,
+        typeArguments: [options.quoteAssetType],
+        arguments: [
+          tx.object(options.predictObjectId),
+          tx.object(managerId),
+          tx.object(oracleId),
+          marketKey,
+          tx.pure.u64(quantityRaw),
+          tx.object(options.clockObjectId)
+        ]
+      });
+      return tx;
+    }
+
     case "mint_range": {
       const lowerStrikeRaw = assertRawIntegerString(requiredKeyInput(plan, "lowerStrikeRaw"), "lowerStrikeRaw");
       const higherStrikeRaw = assertRawIntegerString(requiredKeyInput(plan, "higherStrikeRaw"), "higherStrikeRaw");
@@ -309,7 +349,8 @@ export function buildPredictTransactionFromPlan(
     }
 
     case "redeem_range":
-    case "close_range": {
+    case "close_range":
+    case "claim_settled_range": {
       const lowerStrikeRaw = assertRawIntegerString(requiredKeyInput(plan, "lowerStrikeRaw"), "lowerStrikeRaw");
       const higherStrikeRaw = assertRawIntegerString(requiredKeyInput(plan, "higherStrikeRaw"), "higherStrikeRaw");
       const expiryMs = assertRawIntegerString(requiredKeyInput(plan, "expiryMs"), "expiryMs");
@@ -378,6 +419,29 @@ function buildCloseDirectionalPlan(input: BuildPredictOperationPlanInput): Predi
   const plan: PredictOperationPlan = {
     operation: input.operation,
     moveTargets: ["market_key::new", "predict::redeem"],
+    keyInputs: {
+      direction: assertDirection(input.direction),
+      strikeRaw: assertRawIntegerString(input.strikeRaw, "strikeRaw"),
+      expiryMs
+    },
+    objectIds: collectObjectIds(input),
+    expiryMs,
+    quantityRaw: assertRawIntegerString(input.resolvedQuantityRaw, "resolvedQuantityRaw")
+  };
+
+  addGuardValues(plan, input, { requiredMinProceeds: true });
+  return plan;
+}
+
+function buildClaimSettledDirectionalPlan(input: BuildPredictOperationPlanInput): PredictOperationPlan {
+  if (input.quantityRaw !== undefined) {
+    throw new Error("CLOSE_QUANTITY_MUST_BE_BACKEND_RESOLVED");
+  }
+
+  const expiryMs = assertRawIntegerString(input.expiryMs, "expiryMs");
+  const plan: PredictOperationPlan = {
+    operation: input.operation,
+    moveTargets: ["market_key::new", "predict::redeem_permissionless"],
     keyInputs: {
       direction: assertDirection(input.direction),
       strikeRaw: assertRawIntegerString(input.strikeRaw, "strikeRaw"),

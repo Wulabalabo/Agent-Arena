@@ -579,7 +579,7 @@ async function buildExecutionPlanFromRequest(
   wallet: InternalTradingWallet,
   tradeExecutor: PredictTradeExecutor | undefined
 ): Promise<PredictOperationPlan> {
-  if (operation !== "close_directional" && operation !== "close_range") {
+  if (!requiresBackendResolvedPosition(operation)) {
     return buildPlanFromRequest(body, operation);
   }
 
@@ -591,12 +591,12 @@ async function buildExecutionPlanFromRequest(
     return buildPlanFromRequest(body, operation);
   }
 
-  if (operation === "close_range") {
+  if (operation === "close_range" || operation === "claim_settled_range") {
     if (!tradeExecutor?.resolveRangePosition) {
       throw new InternalApiError(
         503,
         "PREDICT_RANGE_POSITION_RESOLVER_REQUIRED",
-        "Predict range position resolver is required before close_range"
+        `Predict range position resolver is required before ${operation}`
       );
     }
 
@@ -607,7 +607,7 @@ async function buildExecutionPlanFromRequest(
       throw new InternalApiError(
         404,
         "RANGE_POSITION_NOT_FOUND",
-        "No open range position was found for close_range"
+        `No open range position was found for ${operation}`
       );
     }
 
@@ -869,7 +869,11 @@ async function dryRunPredictTrade(
     return await tradeExecutor.dryRunMintDirectional(mintDirectionalExecutorInput(wallet, operationPlan));
   }
 
-  if (operation === "redeem_directional" || operation === "close_directional") {
+  if (
+    operation === "redeem_directional" ||
+    operation === "close_directional" ||
+    operation === "claim_settled_directional"
+  ) {
     if (!tradeExecutor?.dryRunRedeemDirectional) {
       throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict trade executor is required");
     }
@@ -884,7 +888,11 @@ async function dryRunPredictTrade(
     return await tradeExecutor.dryRunMintRange(mintRangeExecutorInput(wallet, operationPlan));
   }
 
-  if (operation === "redeem_range" || operation === "close_range") {
+  if (
+    operation === "redeem_range" ||
+    operation === "close_range" ||
+    operation === "claim_settled_range"
+  ) {
     if (!tradeExecutor?.dryRunRedeemRange) {
       throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict range trade executor is required");
     }
@@ -908,7 +916,11 @@ async function submitPredictTrade(
     return await tradeExecutor.submitMintDirectional(mintDirectionalExecutorInput(wallet, operationPlan));
   }
 
-  if (operation === "redeem_directional" || operation === "close_directional") {
+  if (
+    operation === "redeem_directional" ||
+    operation === "close_directional" ||
+    operation === "claim_settled_directional"
+  ) {
     if (!tradeExecutor?.submitRedeemDirectional) {
       throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict trade executor is required");
     }
@@ -923,7 +935,11 @@ async function submitPredictTrade(
     return await tradeExecutor.submitMintRange(mintRangeExecutorInput(wallet, operationPlan));
   }
 
-  if (operation === "redeem_range" || operation === "close_range") {
+  if (
+    operation === "redeem_range" ||
+    operation === "close_range" ||
+    operation === "claim_settled_range"
+  ) {
     if (!tradeExecutor?.submitRedeemRange) {
       throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict range trade executor is required");
     }
@@ -1001,7 +1017,11 @@ async function redeemDirectionalExecutorInput(
     }
   }
 
-  if (operation !== "redeem_directional" && operation !== "close_directional") {
+  if (
+    operation !== "redeem_directional" &&
+    operation !== "close_directional" &&
+    operation !== "claim_settled_directional"
+  ) {
     throw new InternalApiError(400, "PREDICT_OPERATION_UNSUPPORTED", `${operation} cannot use directional redeem`);
   }
 
@@ -1059,7 +1079,11 @@ async function redeemRangeExecutorInput(
     }
   }
 
-  if (operation !== "redeem_range" && operation !== "close_range") {
+  if (
+    operation !== "redeem_range" &&
+    operation !== "close_range" &&
+    operation !== "claim_settled_range"
+  ) {
     throw new InternalApiError(400, "PREDICT_OPERATION_UNSUPPORTED", `${operation} cannot use range redeem`);
   }
 
@@ -1173,13 +1197,22 @@ function tradeTransactionKind(operation: PredictOperation, mode: "dry_run" | "su
 function isDirectionalTradeOperation(operation: PredictOperation): boolean {
   return operation === "mint_directional" ||
     operation === "redeem_directional" ||
-    operation === "close_directional";
+    operation === "close_directional" ||
+    operation === "claim_settled_directional";
 }
 
 function isRangeTradeOperation(operation: PredictOperation): boolean {
   return operation === "mint_range" ||
     operation === "redeem_range" ||
-    operation === "close_range";
+    operation === "close_range" ||
+    operation === "claim_settled_range";
+}
+
+function requiresBackendResolvedPosition(operation: PredictOperation): boolean {
+  return operation === "close_directional" ||
+    operation === "close_range" ||
+    operation === "claim_settled_directional" ||
+    operation === "claim_settled_range";
 }
 
 function compareRawStrings(left: string, right: string): -1 | 0 | 1 {
@@ -1531,9 +1564,11 @@ function requiredOperation(body: Record<string, unknown>): PredictOperation {
     operation === "mint_directional" ||
     operation === "redeem_directional" ||
     operation === "close_directional" ||
+    operation === "claim_settled_directional" ||
     operation === "mint_range" ||
     operation === "redeem_range" ||
     operation === "close_range" ||
+    operation === "claim_settled_range" ||
     operation === "deposit_dusdc" ||
     operation === "withdraw_manager_dusdc" ||
     operation === "create_manager"

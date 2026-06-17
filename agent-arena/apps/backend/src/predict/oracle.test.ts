@@ -360,6 +360,23 @@ describe("confirmOracleForExecution", () => {
     }
   });
 
+  it("rejects settled directional claim unless the oracle is settled", async () => {
+    await expect(confirmOracleForExecution({
+      request: {
+        operation: "claim_settled_directional",
+        oracleId: "0xbtc-nearest",
+        expiryMs: 1781622900000,
+        predictObjectId: "0xpredict",
+        strikeRaw: "65600000000000",
+        serverTimeMs: 1781622000000,
+        minObjectVersion: "42"
+      },
+      readOracle: async () => validSuiRpcOracle
+    })).rejects.toMatchObject<PredictOracleError>({
+      code: "ORACLE_NOT_TRADEABLE"
+    });
+  });
+
   it("rejects non-settled close or redeem with settled expired oracle", async () => {
     await expect(confirmOracleForExecution({
       request: {

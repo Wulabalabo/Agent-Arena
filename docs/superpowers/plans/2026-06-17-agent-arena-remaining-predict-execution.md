@@ -573,7 +573,7 @@ Expected: all tests pass.
 - Modify `agent-arena/apps/backend/src/predict/oracle.ts`
 - Modify `agent-arena/apps/backend/src/predict/oracle.test.ts`
 
-- [ ] **Step 1: Add `claim_settled_directional` operation**
+- [x] **Step 1: Add `claim_settled_directional` operation**
 
 Plan shape:
 - same key fields as directional redeem.
@@ -581,7 +581,7 @@ Plan shape:
 - uses backend `resolvedQuantityRaw`.
 - Move target is `predict::redeem_permissionless`.
 
-- [ ] **Step 2: Write failing PTB test**
+- [x] **Step 2: Write failing PTB test**
 
 Expected calls:
 - `market_key::new`
@@ -593,17 +593,17 @@ bun test agent-arena/apps/backend/src/predict/transactions.test.ts
 ```
 Expected: FAIL because operation is missing.
 
-- [ ] **Step 3: Implement PTB builder**
+- [x] **Step 3: Implement PTB builder**
 
 Add a `claim_settled_directional` case that uses the verified `redeem_permissionless` signature from Plan 0. The claim still writes proceeds into the PredictManager; tests should assert this through the Move target and event parser, not through a hand-rolled balance assumption.
 
-- [ ] **Step 4: Add oracle validation tests**
+- [x] **Step 4: Add oracle validation tests**
 
 Prove:
 - `claim_settled_directional` requires `oracle.status === "settled"`.
 - live `redeem_directional` still rejects settled oracle state unless the claim operation is used.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run:
 ```powershell
@@ -618,7 +618,7 @@ Expected: all tests pass.
 - Modify `agent-arena/apps/backend/src/predict/internal-api.ts`
 - Modify `agent-arena/apps/backend/src/predict/internal-api.test.ts`
 
-- [ ] **Step 1: Add `claim_settled_range` operation**
+- [x] **Step 1: Add `claim_settled_range` operation**
 
 Plan shape:
 - same key fields as range redeem.
@@ -626,15 +626,15 @@ Plan shape:
 - uses backend `resolvedQuantityRaw`.
 - Move target is `predict::redeem_range<DUSDC>`.
 
-- [ ] **Step 2: Write failing API tests**
+- [x] **Step 2: Write failing API tests**
 
 Prove the backend resolves range position and rejects zero quantity.
 
-- [ ] **Step 3: Implement through existing range executor**
+- [x] **Step 3: Implement through existing range executor**
 
 Route `claim_settled_range` to the same PTB path as `close_range`, but require settled oracle confirmation.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run:
 ```powershell
@@ -649,7 +649,7 @@ Expected: all tests pass.
 - Modify `agent-arena/apps/backend/src/internal-predict-execution-smoke.test.ts`
 - Modify `agent-arena/README.md`
 
-- [ ] **Step 1: Add smoke flags**
+- [x] **Step 1: Add smoke flags**
 
 Add:
 - `--claim-settled-directional`

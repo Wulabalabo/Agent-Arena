@@ -11,8 +11,8 @@ import {
 import type { InternalTradingWallet, PredictConfig } from "./types";
 import type { MemoryWalletStore } from "./wallet-store";
 
-type DirectionalTradeOperation = "mint_directional" | "redeem_directional" | "close_directional";
-type RangeTradeOperation = "mint_range" | "redeem_range" | "close_range";
+type DirectionalTradeOperation = "mint_directional" | "redeem_directional" | "close_directional" | "claim_settled_directional";
+type RangeTradeOperation = "mint_range" | "redeem_range" | "close_range" | "claim_settled_range";
 type ManagerWithdrawalOperation = "withdraw_manager_dusdc";
 type PredictTradeOperation = DirectionalTradeOperation | RangeTradeOperation | ManagerWithdrawalOperation;
 
@@ -36,7 +36,7 @@ interface MintDirectionalExecutorInput extends DirectionalPositionInput {
 }
 
 interface RedeemDirectionalExecutorInput extends DirectionalPositionInput {
-  operation: "redeem_directional" | "close_directional";
+  operation: "redeem_directional" | "close_directional" | "claim_settled_directional";
   quantityRaw: string;
   minProceedsRaw: string;
 }
@@ -57,7 +57,7 @@ interface MintRangeExecutorInput extends RangePositionInput {
 }
 
 interface RedeemRangeExecutorInput extends RangePositionInput {
-  operation: "redeem_range" | "close_range";
+  operation: "redeem_range" | "close_range" | "claim_settled_range";
   quantityRaw: string;
   minProceedsRaw: string;
 }
@@ -429,7 +429,7 @@ function buildRedeemDirectionalPlan(input: RedeemDirectionalExecutorInput): Pred
     strikeRaw: input.strikeRaw,
     direction: input.direction,
     quantityRaw: input.operation === "redeem_directional" ? input.quantityRaw : undefined,
-    resolvedQuantityRaw: input.operation === "close_directional" ? input.quantityRaw : undefined,
+    resolvedQuantityRaw: input.operation === "redeem_directional" ? undefined : input.quantityRaw,
     minProceedsRaw: input.minProceedsRaw
   });
 }
@@ -456,7 +456,7 @@ function buildRedeemRangePlan(input: RedeemRangeExecutorInput): PredictOperation
     lowerStrikeRaw: input.lowerStrikeRaw,
     higherStrikeRaw: input.higherStrikeRaw,
     quantityRaw: input.operation === "redeem_range" ? input.quantityRaw : undefined,
-    resolvedQuantityRaw: input.operation === "close_range" ? input.quantityRaw : undefined,
+    resolvedQuantityRaw: input.operation === "redeem_range" ? undefined : input.quantityRaw,
     minProceedsRaw: input.minProceedsRaw
   });
 }
@@ -616,11 +616,19 @@ function extractActualProceedsRawForOperation(
   operation: PredictTradeOperation,
   predictPackageId: string
 ): string | undefined {
-  if (operation === "redeem_directional" || operation === "close_directional") {
+  if (
+    operation === "redeem_directional" ||
+    operation === "close_directional" ||
+    operation === "claim_settled_directional"
+  ) {
     return extractRedeemActualProceedsRaw(response, predictPackageId);
   }
 
-  if (operation === "redeem_range" || operation === "close_range") {
+  if (
+    operation === "redeem_range" ||
+    operation === "close_range" ||
+    operation === "claim_settled_range"
+  ) {
     return extractRangeRedeemActualProceedsRaw(response, predictPackageId);
   }
 

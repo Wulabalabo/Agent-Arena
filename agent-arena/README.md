@@ -145,13 +145,15 @@ bun run smoke:predict -- --preview-up --wallet-id <wallet-id> --quantity-raw 100
 bun run smoke:predict -- --mint-up --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --quantity-raw 100000 --max-cost-raw 1000000
 bun run smoke:predict -- --redeem-last --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --quantity-raw 50000 --min-proceeds-raw 1
 bun run smoke:predict -- --close-last --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --min-proceeds-raw 1
+bun run smoke:predict -- --claim-settled-directional --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <settled-oracle-id> --min-proceeds-raw 1
 bun run smoke:predict -- --mint-range --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --lower-strike-raw <lower> --higher-strike-raw <higher> --quantity-raw 100000 --max-cost-raw 1000000
 bun run smoke:predict -- --redeem-range-last --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --lower-strike-raw <lower> --higher-strike-raw <higher> --quantity-raw 50000 --min-proceeds-raw 1
 bun run smoke:predict -- --close-range-last --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --lower-strike-raw <lower> --higher-strike-raw <higher> --min-proceeds-raw 1
+bun run smoke:predict -- --claim-settled-range --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <settled-oracle-id> --lower-strike-raw <lower> --higher-strike-raw <higher> --min-proceeds-raw 1
 bun run smoke:predict -- --withdraw-manager-dusdc --wallet-id <wallet-id> --manager-id <manager-id> --amount-raw 1
 ```
 
-Setup supports dry-run by default and real Testnet submit only when both conditions are true: the command passes `--submit`, and `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` is set in the backend environment. Directional and range mint, partial redeem, close, and manager DUSDC withdrawal use the same two-gate pattern and default to dry-run. `close-last` and `close-range-last` intentionally omit `quantityRaw`; the backend resolves the full open position before signing. `withdraw-manager-dusdc` reads the manager DUSDC balance before dry-run or submit and accepts optional `--recipient-address`.
+Setup supports dry-run by default and real Testnet submit only when both conditions are true: the command passes `--submit`, and `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` is set in the backend environment. Directional and range mint, partial redeem, close, settled claim, and manager DUSDC withdrawal use the same two-gate pattern and default to dry-run. `close-last`, `close-range-last`, `claim-settled-directional`, and `claim-settled-range` intentionally omit `quantityRaw`; the backend resolves the full open position before signing. Settled claim commands require a Predict oracle that is already settled; if Predict settlement compaction is not ready yet, retry later rather than treating it as an Agent Arena settlement action. `withdraw-manager-dusdc` reads the manager DUSDC balance before dry-run or submit and accepts optional `--recipient-address`.
 
 Public boundary:
 
