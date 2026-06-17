@@ -741,6 +741,25 @@ describe("Agent Arena platform API", () => {
     });
   });
 
+  it("serves a current rolling BTC 15m market window for Agent runtime data", async () => {
+    const beforeMs = Date.now();
+    const fetch = createPlatformFetchHandler();
+    const response = await fetch(new Request("http://localhost/api/arena/competition/btc-15m-001/market-state"));
+    const afterMs = Date.now();
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const serverTimeMs = Number.parseInt(body.marketState.serverTimeMs, 10);
+    const expiryMs = Number.parseInt(body.marketState.expiryMs, 10);
+    const timeToExpiryMs = Number.parseInt(body.marketState.timeToExpiryMs, 10);
+
+    expect(serverTimeMs).toBeGreaterThanOrEqual(beforeMs);
+    expect(serverTimeMs).toBeLessThanOrEqual(afterMs);
+    expect(expiryMs).toBeGreaterThan(afterMs);
+    expect(timeToExpiryMs).toBeGreaterThan(0);
+    expect(timeToExpiryMs).toBeLessThanOrEqual(900_000);
+  });
+
   it("serves leaderboard entries aggregated from the performance ledger by Agent identity", async () => {
     const store = new (await import("./mock-store")).PlatformMockStore();
     const fetch = createPlatformFetchHandler(store);

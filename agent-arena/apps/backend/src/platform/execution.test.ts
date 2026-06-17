@@ -669,6 +669,35 @@ describe("mock intent execution", () => {
     expect(store.listExecutions()).toHaveLength(0);
   });
 
+  it("accepts skill-sized raw DUSDC amounts under the MVP exposure cap", () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store, "Skill Example Agent");
+    store.bindTradingWallet(agent.id, "0xagentwallet");
+    store.seedCompetition();
+
+    const result = submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-skill-sized-raw",
+      action: "open_directional",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "1781701200000",
+        strike: "65000000000000",
+        isUp: true
+      },
+      quantity: "200000",
+      maxCost: "20000000",
+      confidence: 0.71,
+      reason: "Matches the public skill example sizing.",
+      createdAt: "2026-06-15T10:06:30.000Z"
+    });
+
+    expect(result.status).toBe("executed");
+    expect(store.listExecutions()).toHaveLength(1);
+  });
+
   it("returns the existing result for identical idempotency replays", () => {
     const store = new PlatformMockStore();
     const agent = createClaimedTestAgent(store, "Retry Agent");

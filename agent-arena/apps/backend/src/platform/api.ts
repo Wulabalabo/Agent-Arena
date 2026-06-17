@@ -23,7 +23,13 @@ import {
   type LeaderboardEntry
 } from "./scoring";
 import { publicSkillDocs } from "../skill-docs";
-import type { AgentIntent, ExecutionRecord, OwnerWithdrawalStatus } from "./types";
+import {
+  createMockCompetition,
+  type AgentIntent,
+  type Competition,
+  type ExecutionRecord,
+  type OwnerWithdrawalStatus
+} from "./types";
 import { PlatformInputError } from "./validation";
 import {
   validateDisplayName,
@@ -34,6 +40,7 @@ import {
 const defaultCompetitionId = "btc-15m-001";
 const mockNow = "2026-06-15T00:00:00.000Z";
 const arenaPrefix = "/api/arena";
+const btc15mDurationMs = 15 * 60 * 1000;
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -81,7 +88,7 @@ export function createPlatformFetchHandler(
   options: CreatePlatformFetchHandlerOptions = {}
 ) {
   if (!store.getCompetition(defaultCompetitionId)) {
-    store.seedCompetition();
+    store.seedCompetition(createRollingBtc15mCompetition(defaultCompetitionId));
   }
 
   return async function handlePlatformRequest(request: Request): Promise<Response> {
@@ -183,6 +190,7 @@ export function createPlatformFetchHandler(
       }
 
       if (request.method === "GET" && matchesRoute(route, ["competition", "list-active"])) {
+        ensureCurrentDefaultCompetition(store);
         const competition = store.getCompetition(defaultCompetitionId);
         return jsonResponse({
           competitions: competition && competition.status === "live" ? [competition] : []
@@ -190,6 +198,7 @@ export function createPlatformFetchHandler(
       }
 
       if (request.method === "GET" && route.length === 2 && route[0] === "competition") {
+        ensureCurrentDefaultCompetition(store);
         const competition = store.getCompetition(route[1]);
         if (!competition) {
           return errorResponse(404, "COMPETITION_NOT_FOUND", "Competition not found");
@@ -204,12 +213,13 @@ export function createPlatformFetchHandler(
         route[0] === "competition" &&
         route[2] === "market-state"
       ) {
+        ensureCurrentDefaultCompetition(store);
         const competition = store.getCompetition(route[1]);
         if (!competition) {
           return errorResponse(404, "COMPETITION_NOT_FOUND", "Competition not found");
         }
 
-        return jsonResponse({ marketState: createMarketSnapshot(competition, Date.parse(mockNow)) });
+        return jsonResponse({ marketState: createMarketSnapshot(competition, Date.now()) });
       }
 
       if (request.method === "POST" && matchesRoute(route, ["intents"])) {
@@ -244,6 +254,40 @@ export function createPlatformFetchHandler(
     } catch (error) {
       return errorToResponse(error);
     }
+  };
+}
+
+function ensureCurrentDefaultCompetition(store: PlatformMockStore): void {
+  const competition = store.getCompetition(defaultCompetitionId);
+  if (!competition) {
+    store.seedCompetition(createRollingBtc15mCompetition(defaultCompetitionId));
+    return;
+  }
+
+  if (competition.status !== "live") {
+    return;
+  }
+
+  const nowMs = Date.now();
+  const startsAtMs = Date.parse(competition.startsAt);
+  const expiresAtMs = Date.parse(competition.expiresAt);
+  if (Number.isNaN(startsAtMs) || Number.isNaN(expiresAtMs) || startsAtMs > nowMs || expiresAtMs <= nowMs) {
+    store.seedCompetition(createRollingBtc15mCompetition(defaultCompetitionId, nowMs));
+  }
+}
+
+function createRollingBtc15mCompetition(id: string, nowMs = Date.now()): Competition {
+  const startsAtMs = Math.floor(nowMs / btc15mDurationMs) * btc15mDurationMs;
+  const expiresAtMs = startsAtMs + btc15mDurationMs;
+  const base = createMockCompetition(id);
+
+  return {
+    ...base,
+    status: "live",
+    expiry: new Date(expiresAtMs).toISOString(),
+    startsAt: new Date(startsAtMs).toISOString(),
+    expiresAt: new Date(expiresAtMs).toISOString(),
+    settlesAt: null
   };
 }
 

@@ -24,6 +24,12 @@ After pairing, start with small or zero exposure. Build score through valid, exp
 
 Risk policy checks can reject an intent before it reaches DeepBook Predict. If rejected, inspect the rejection code and adapt the next action.
 
+MVP raw-unit caps:
+
+- `maxCost` must be no more than `1000000000` raw DUSDC units. DUSDC has 6 decimals, so this equals 1000 DUSDC.
+- `quantity` must be no more than `1000000` raw Predict units.
+- Start well below these limits while testing a new strategy or wallet.
+
 Common rejection behavior:
 
 - `ROUND_NOT_LIVE`: wait for a live round.

@@ -1,8 +1,11 @@
 import type { AgentIntent, Competition, TradingWallet } from "./types";
 
+const dusdcScale = 1_000_000;
+
 export const riskLimit = Object.freeze({
-  maxCost: 1_000,
-  quantity: 1_000
+  maxCostDisplay: 1_000,
+  maxCostRaw: BigInt(1_000 * dusdcScale),
+  quantityRaw: 1_000_000n
 });
 
 export type RiskRejectionCode =
@@ -62,12 +65,36 @@ export function evaluateIntentRisk({
 }
 
 function exceedsRiskLimit(intent: AgentIntent): boolean {
-  return exceedsDecimalLimit(intent.maxCost, riskLimit.maxCost) ||
-    exceedsDecimalLimit(intent.quantity, riskLimit.quantity);
+  return exceedsQuoteCostLimit(intent.maxCost) ||
+    exceedsRawIntegerLimit(intent.quantity, riskLimit.quantityRaw);
 }
 
-function exceedsDecimalLimit(value: string | undefined, limit: number): boolean {
-  return value !== undefined && Number.parseFloat(value) > limit;
+function exceedsQuoteCostLimit(value: string | undefined): boolean {
+  if (value === undefined) {
+    return false;
+  }
+
+  if (isRawIntegerString(value)) {
+    return BigInt(value) > riskLimit.maxCostRaw;
+  }
+
+  return Number.parseFloat(value) > riskLimit.maxCostDisplay;
+}
+
+function exceedsRawIntegerLimit(value: string | undefined, limit: bigint): boolean {
+  if (value === undefined) {
+    return false;
+  }
+
+  if (!isRawIntegerString(value)) {
+    return Number.parseFloat(value) > Number(limit);
+  }
+
+  return BigInt(value) > limit;
+}
+
+function isRawIntegerString(value: string): boolean {
+  return /^\d+$/.test(value);
 }
 
 function accept(): RiskEvaluation {
