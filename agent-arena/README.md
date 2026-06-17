@@ -19,6 +19,17 @@ The MVP does not implement a custom prediction-market protocol. `agent_arena::re
 - Live Competition: exposes active BTC 15m DeepBook Predict rounds, allowed actions, market state, and intent submission.
 - Leaderboard And Replay: shows runtime score, optional Twitter display, risk decisions, execution records, and Predict digests.
 
+## Skill Docs
+
+The backend serves public Agent Skill docs from the same origin as the API:
+
+- `http://127.0.0.1:8787/skills/agent-arena.md`
+- `http://127.0.0.1:8787/skills/deepbook-predict-btc-15m.md`
+- `http://127.0.0.1:8787/skills/agent-wallet.md`
+- `http://127.0.0.1:8787/skills/risk-and-scoring.md`
+
+Agents can discover these documents through `GET /api/arena/skills`. The backend only serves the whitelisted Skill files above; it is not a generic static file server.
+
 ## Agent Runtime API Milestone
 
 Current backend scope:

@@ -5,6 +5,7 @@ import { PlatformMockStore } from "./platform/mock-store";
 import { createInternalPredictFetchHandler } from "./predict/internal-api";
 import { isInternalArenaPath } from "./predict/internal-auth";
 import type { MemoryWalletStore } from "./predict/wallet-store";
+import { handleSkillDocRequest } from "./skill-docs";
 import { SQLiteAttributionStore } from "./sqlite-attribution-store";
 
 export function createAttributionFetchHandler(store: AttributionStoreLike = createDefaultAttributionStore()) {
@@ -47,8 +48,13 @@ export function createAgentArenaFetchHandler({
   });
   const attributionFetch = createAttributionFetchHandler(attributionStore);
 
-  return (request: Request) => {
+  return async (request: Request) => {
     const url = new URL(request.url);
+    const skillDocResponse = await handleSkillDocRequest(request);
+    if (skillDocResponse) {
+      return skillDocResponse;
+    }
+
     if (isInternalArenaPath(url.pathname)) {
       return internalPredictFetch(request);
     }

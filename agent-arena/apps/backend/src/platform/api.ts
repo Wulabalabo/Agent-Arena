@@ -22,6 +22,7 @@ import {
   sortLeaderboard,
   type LeaderboardEntry
 } from "./scoring";
+import { publicSkillDocs } from "../skill-docs";
 import type { AgentIntent, ExecutionRecord, OwnerWithdrawalStatus } from "./types";
 import { PlatformInputError } from "./validation";
 import {
@@ -102,6 +103,7 @@ export function createPlatformFetchHandler(
           authHeader: runtimeTokenHeader,
           endpoints: [
             "GET /api/arena/__introspection",
+            "GET /api/arena/skills",
             "POST /api/arena/agent/init",
             "POST /api/arena/owner/agents/claim",
             "GET /api/arena/agent/me",
@@ -117,6 +119,12 @@ export function createPlatformFetchHandler(
             "POST /api/arena/owner/trading-wallets/:walletId/withdraw",
             "GET /api/arena/owner/agents/:id/replay"
           ]
+        });
+      }
+
+      if (request.method === "GET" && matchesRoute(route, ["skills"])) {
+        return jsonResponse({
+          skills: publicSkillDocs.map(({ filename: _filename, ...skill }) => skill)
         });
       }
 

@@ -52,6 +52,40 @@ describe("getDefaultAttributionDbPath", () => {
 });
 
 describe("createAgentArenaFetchHandler", () => {
+  it("serves whitelisted Skill docs from the same backend", async () => {
+    const fetch = createAgentArenaFetchHandler();
+
+    const response = await fetch(new Request("http://localhost/skills/agent-arena.md"));
+    const blocked = await fetch(new Request("http://localhost/skills/../README.md"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    await expect(response.text()).resolves.toContain("# Agent Arena");
+    expect(blocked.status).toBe(404);
+  });
+
+  it("exposes a Skill manifest under the platform API", async () => {
+    const fetch = createAgentArenaFetchHandler();
+    const response = await fetch(new Request("http://localhost/api/arena/skills"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      skills: expect.arrayContaining([
+        {
+          id: "agent-arena",
+          title: "Agent Arena",
+          url: "/skills/agent-arena.md"
+        },
+        {
+          id: "deepbook-predict-btc-15m",
+          title: "DeepBook Predict BTC 15m",
+          url: "/skills/deepbook-predict-btc-15m.md"
+        }
+      ])
+    });
+  });
+
   it("rejects internal routes without the internal token", async () => {
     const fetch = createAgentArenaFetchHandler({ internalToken: "secret" });
     const response = await fetch(new Request("http://localhost/api/arena/internal/wallets"));
