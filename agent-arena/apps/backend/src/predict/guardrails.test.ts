@@ -38,6 +38,14 @@ describe("predict pre-submit guardrails", () => {
         minProceedsRaw: "100"
       })
     ).toThrow("MIN_PROCEEDS_NOT_MET");
+
+    expect(() =>
+      evaluatePreSubmitGuardrails({
+        operation: "close_range",
+        estimatedProceedsRaw: "99",
+        minProceedsRaw: "100"
+      })
+    ).toThrow("MIN_PROCEEDS_NOT_MET");
   });
 
   it("fails closed when pre-submit guard values are missing", () => {
@@ -65,6 +73,12 @@ describe("predict pre-submit guardrails", () => {
 
     expect(classifyPolicyDrift({
       operation: "close_directional",
+      actualProceedsRaw: "99",
+      minProceedsRaw: "100"
+    })).toBe("proceeds_below_pre_submit_guard");
+
+    expect(classifyPolicyDrift({
+      operation: "close_range",
       actualProceedsRaw: "99",
       minProceedsRaw: "100"
     })).toBe("proceeds_below_pre_submit_guard");

@@ -6,6 +6,7 @@ export type PredictGuardrailOperation =
   | "close_directional"
   | "mint_range"
   | "redeem_range"
+  | "close_range"
   | "open_directional"
   | "open_range"
   | "deposit_dusdc"
@@ -40,7 +41,8 @@ const costGuardedOperations = new Set<PredictGuardrailOperation>([
 const proceedsGuardedOperations = new Set<PredictGuardrailOperation>([
   "redeem_directional",
   "redeem_range",
-  "close_directional"
+  "close_directional",
+  "close_range"
 ]);
 
 export function assertRawIntegerString(value: unknown, fieldName: string): string {

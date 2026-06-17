@@ -9,6 +9,7 @@ export type PredictOperation =
   | "close_directional"
   | "mint_range"
   | "redeem_range"
+  | "close_range"
   | "deposit_dusdc"
   | "create_manager";
 
@@ -66,6 +67,7 @@ const predictOperations = new Set<string>([
   "close_directional",
   "mint_range",
   "redeem_range",
+  "close_range",
   "deposit_dusdc",
   "create_manager"
 ]);
@@ -122,6 +124,8 @@ export function buildPredictOperationPlan(input: BuildPredictOperationPlanInput)
         "range_key::new",
         "predict::redeem_range"
       ], { requiredMinProceeds: true });
+    case "close_range":
+      return buildCloseRangePlan(input);
     case "deposit_dusdc":
       return {
         operation: input.operation,
@@ -240,6 +244,71 @@ export function buildPredictTransactionFromPlan(
       return tx;
     }
 
+    case "mint_range": {
+      const lowerStrikeRaw = assertRawIntegerString(requiredKeyInput(plan, "lowerStrikeRaw"), "lowerStrikeRaw");
+      const higherStrikeRaw = assertRawIntegerString(requiredKeyInput(plan, "higherStrikeRaw"), "higherStrikeRaw");
+      const expiryMs = assertRawIntegerString(requiredKeyInput(plan, "expiryMs"), "expiryMs");
+      const quantityRaw = assertRawIntegerString(plan.quantityRaw, "quantityRaw");
+      const managerId = requiredObjectId(plan, "managerId");
+      const oracleId = requiredObjectId(plan, "oracleId");
+      const rangeKey = tx.moveCall({
+        target: `${options.predictPackageId}::range_key::new`,
+        arguments: [
+          tx.pure.id(oracleId),
+          tx.pure.u64(expiryMs),
+          tx.pure.u64(lowerStrikeRaw),
+          tx.pure.u64(higherStrikeRaw)
+        ]
+      });
+
+      tx.moveCall({
+        target: `${options.predictPackageId}::predict::mint_range`,
+        typeArguments: [options.quoteAssetType],
+        arguments: [
+          tx.object(options.predictObjectId),
+          tx.object(managerId),
+          tx.object(oracleId),
+          rangeKey,
+          tx.pure.u64(quantityRaw),
+          tx.object(options.clockObjectId)
+        ]
+      });
+      return tx;
+    }
+
+    case "redeem_range":
+    case "close_range": {
+      const lowerStrikeRaw = assertRawIntegerString(requiredKeyInput(plan, "lowerStrikeRaw"), "lowerStrikeRaw");
+      const higherStrikeRaw = assertRawIntegerString(requiredKeyInput(plan, "higherStrikeRaw"), "higherStrikeRaw");
+      const expiryMs = assertRawIntegerString(requiredKeyInput(plan, "expiryMs"), "expiryMs");
+      const quantityRaw = assertRawIntegerString(plan.quantityRaw, "quantityRaw");
+      const managerId = requiredObjectId(plan, "managerId");
+      const oracleId = requiredObjectId(plan, "oracleId");
+      const rangeKey = tx.moveCall({
+        target: `${options.predictPackageId}::range_key::new`,
+        arguments: [
+          tx.pure.id(oracleId),
+          tx.pure.u64(expiryMs),
+          tx.pure.u64(lowerStrikeRaw),
+          tx.pure.u64(higherStrikeRaw)
+        ]
+      });
+
+      tx.moveCall({
+        target: `${options.predictPackageId}::predict::redeem_range`,
+        typeArguments: [options.quoteAssetType],
+        arguments: [
+          tx.object(options.predictObjectId),
+          tx.object(managerId),
+          tx.object(oracleId),
+          rangeKey,
+          tx.pure.u64(quantityRaw),
+          tx.object(options.clockObjectId)
+        ]
+      });
+      return tx;
+    }
+
     default:
       throw new Error("PREDICT_PTB_UNSUPPORTED_OPERATION");
   }
@@ -289,6 +358,20 @@ function buildCloseDirectionalPlan(input: BuildPredictOperationPlanInput): Predi
 
   addGuardValues(plan, input, { requiredMinProceeds: true });
   return plan;
+}
+
+function buildCloseRangePlan(input: BuildPredictOperationPlanInput): PredictOperationPlan {
+  if (input.quantityRaw !== undefined) {
+    throw new Error("CLOSE_QUANTITY_MUST_BE_BACKEND_RESOLVED");
+  }
+
+  return buildRangePlan({
+    ...input,
+    quantityRaw: input.resolvedQuantityRaw
+  }, [
+    "range_key::new",
+    "predict::redeem_range"
+  ], { requiredMinProceeds: true });
 }
 
 function buildRangePlan(

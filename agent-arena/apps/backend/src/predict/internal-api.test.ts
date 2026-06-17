@@ -1092,6 +1092,375 @@ describe("createInternalPredictFetchHandler", () => {
     await expect(executionStore.listExecutions({ walletId: created.wallet.id })).resolves.toEqual([]);
   });
 
+  it("dry-runs a range mint execution", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const rangeMints: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async dryRunMintRange(input) {
+          rangeMints.push(input);
+          return {
+            operation: "mint_range",
+            mode: "dry_run",
+            status: "dry_run_ok",
+            txDigest: "range-mint-dry-run-digest",
+            managerId: input.managerId,
+            oracleId: input.oracleId,
+            expiryMs: input.expiryMs,
+            lowerStrikeRaw: input.lowerStrikeRaw,
+            higherStrikeRaw: input.higherStrikeRaw,
+            quantityRaw: input.quantityRaw,
+            maxCostRaw: input.maxCostRaw,
+            actualCostRaw: "12000"
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "mint_range",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        lowerStrikeRaw: "64000000000000",
+        higherStrikeRaw: "66000000000000",
+        quantityRaw: "100000",
+        maxCostRaw: "1000000",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution: {
+        id: "exec_internal_001",
+        operation: "mint_range",
+        status: "dry_run_ok",
+        actualCostRaw: "12000",
+        policyDrift: "none"
+      },
+      transaction: {
+        operation: "mint_range",
+        mode: "dry_run",
+        status: "dry_run_ok"
+      }
+    });
+    expect(rangeMints).toMatchObject([
+      {
+        lowerStrikeRaw: "64000000000000",
+        higherStrikeRaw: "66000000000000",
+        quantityRaw: "100000"
+      }
+    ]);
+  });
+
+  it("rejects range mint submit when Predict submit is not explicitly enabled", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const submissions: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async submitMintRange(input) {
+          submissions.push(input);
+          return {
+            operation: "mint_range",
+            mode: "submit",
+            status: "submitted",
+            txDigest: "range-submit-digest",
+            managerId: input.managerId,
+            oracleId: input.oracleId,
+            expiryMs: input.expiryMs,
+            lowerStrikeRaw: input.lowerStrikeRaw,
+            higherStrikeRaw: input.higherStrikeRaw,
+            quantityRaw: input.quantityRaw,
+            maxCostRaw: input.maxCostRaw
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "mint_range",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        lowerStrikeRaw: "64000000000000",
+        higherStrikeRaw: "66000000000000",
+        quantityRaw: "100000",
+        maxCostRaw: "1000000",
+        dryRunOnly: false
+      })
+    }));
+
+    expect(response.status).toBe(501);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "PREDICT_SUBMIT_DISABLED"
+      },
+      execution: {
+        id: "exec_internal_001",
+        operation: "mint_range",
+        status: "failed",
+        errorCode: "PREDICT_SUBMIT_DISABLED"
+      }
+    });
+    expect(submissions).toHaveLength(0);
+  });
+
+  it("dry-runs a partial range redeem after verifying manager position", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const resolutions: unknown[] = [];
+    const rangeRedemptions: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async resolveRangePosition(input) {
+          resolutions.push(input);
+          return {
+            ...input,
+            quantityRaw: "100000"
+          };
+        },
+        async dryRunRedeemRange(input) {
+          rangeRedemptions.push(input);
+          return {
+            operation: "redeem_range",
+            mode: "dry_run",
+            status: "dry_run_ok",
+            txDigest: "range-redeem-dry-run-digest",
+            managerId: input.managerId,
+            oracleId: input.oracleId,
+            expiryMs: input.expiryMs,
+            lowerStrikeRaw: input.lowerStrikeRaw,
+            higherStrikeRaw: input.higherStrikeRaw,
+            quantityRaw: input.quantityRaw,
+            minProceedsRaw: input.minProceedsRaw,
+            actualProceedsRaw: "44000"
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "redeem_range",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        lowerStrikeRaw: "64000000000000",
+        higherStrikeRaw: "66000000000000",
+        quantityRaw: "50000",
+        minProceedsRaw: "1",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution: {
+        id: "exec_internal_001",
+        operation: "redeem_range",
+        status: "dry_run_ok",
+        dryRunDigest: "range-redeem-dry-run-digest",
+        quantityRaw: "50000",
+        actualProceedsRaw: "44000",
+        policyDrift: "none"
+      },
+      transaction: {
+        operation: "redeem_range",
+        mode: "dry_run",
+        status: "dry_run_ok",
+        actualProceedsRaw: "44000"
+      }
+    });
+    expect(resolutions).toHaveLength(1);
+    expect(rangeRedemptions).toHaveLength(1);
+  });
+
+  it("dry-runs close_range by resolving the full backend-confirmed range quantity", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const rangeRedemptions: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async resolveRangePosition(input) {
+          return {
+            ...input,
+            quantityRaw: "100000"
+          };
+        },
+        async dryRunRedeemRange(input) {
+          rangeRedemptions.push(input);
+          return {
+            operation: "close_range",
+            mode: "dry_run",
+            status: "dry_run_ok",
+            txDigest: "close-range-dry-run-digest",
+            managerId: input.managerId,
+            oracleId: input.oracleId,
+            expiryMs: input.expiryMs,
+            lowerStrikeRaw: input.lowerStrikeRaw,
+            higherStrikeRaw: input.higherStrikeRaw,
+            quantityRaw: input.quantityRaw,
+            minProceedsRaw: input.minProceedsRaw,
+            actualProceedsRaw: "88000"
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "close_range",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        lowerStrikeRaw: "64000000000000",
+        higherStrikeRaw: "66000000000000",
+        minProceedsRaw: "1",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution: {
+        id: "exec_internal_001",
+        operation: "close_range",
+        status: "dry_run_ok",
+        quantityRaw: "100000",
+        actualProceedsRaw: "88000"
+      }
+    });
+    expect(rangeRedemptions).toMatchObject([
+      {
+        operation: "close_range",
+        quantityRaw: "100000"
+      }
+    ]);
+  });
+
+  it("rejects close_range execute with caller quantity before creating an execution", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "close_range",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        lowerStrikeRaw: "64000000000000",
+        higherStrikeRaw: "66000000000000",
+        quantityRaw: "100000",
+        minProceedsRaw: "1"
+      })
+    }));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "CLOSE_QUANTITY_MUST_BE_BACKEND_RESOLVED"
+      }
+    });
+    await expect(executionStore.listExecutions({ walletId: created.wallet.id })).resolves.toEqual([]);
+  });
+
+  it("rejects close_range when the backend-confirmed range quantity is zero", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async resolveRangePosition(input) {
+          return {
+            ...input,
+            quantityRaw: "0"
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "close_range",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        lowerStrikeRaw: "64000000000000",
+        higherStrikeRaw: "66000000000000",
+        minProceedsRaw: "1",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "RANGE_POSITION_NOT_FOUND"
+      }
+    });
+    await expect(executionStore.listExecutions({ walletId: created.wallet.id })).resolves.toEqual([]);
+  });
+
   it("rejects numeric guardrail estimates instead of skipping or stringifying them", async () => {
     const executionStore = createMemoryExecutionStore({
       now: () => "2026-06-17T00:00:00.000Z"

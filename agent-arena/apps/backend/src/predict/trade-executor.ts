@@ -12,6 +12,8 @@ import type { InternalTradingWallet, PredictConfig } from "./types";
 import type { MemoryWalletStore } from "./wallet-store";
 
 type DirectionalTradeOperation = "mint_directional" | "redeem_directional" | "close_directional";
+type RangeTradeOperation = "mint_range" | "redeem_range" | "close_range";
+type PredictTradeOperation = DirectionalTradeOperation | RangeTradeOperation;
 
 interface DirectionalPositionInput {
   wallet: InternalTradingWallet;
@@ -33,20 +35,47 @@ interface RedeemDirectionalExecutorInput extends DirectionalPositionInput {
   minProceedsRaw: string;
 }
 
+interface RangePositionInput {
+  wallet: InternalTradingWallet;
+  managerId: string;
+  oracleId: string;
+  expiryMs: string;
+  lowerStrikeRaw: string;
+  higherStrikeRaw: string;
+}
+
+interface MintRangeExecutorInput extends RangePositionInput {
+  operation: "mint_range";
+  quantityRaw: string;
+  maxCostRaw: string;
+}
+
+interface RedeemRangeExecutorInput extends RangePositionInput {
+  operation: "redeem_range" | "close_range";
+  quantityRaw: string;
+  minProceedsRaw: string;
+}
+
 export interface DirectionalPositionResolution extends DirectionalPositionInput {
   quantityRaw: string;
 }
 
+export interface RangePositionResolution extends RangePositionInput {
+  quantityRaw: string;
+}
+
 export interface PredictTradeTransactionSummary {
-  operation: DirectionalTradeOperation;
+  operation: PredictTradeOperation;
   mode: "dry_run" | "submit";
   status: "dry_run_ok" | "submitted" | "failed";
   txDigest?: string;
   managerId: string;
   oracleId: string;
   expiryMs: string;
-  strikeRaw: string;
-  direction: DirectionalMarketSide;
+  strikeRaw?: string;
+  direction?: DirectionalMarketSide;
+  lowerStrikeRaw?: string;
+  higherStrikeRaw?: string;
   quantityRaw: string;
   maxCostRaw?: string;
   minProceedsRaw?: string;
@@ -58,10 +87,15 @@ export interface PredictTradeTransactionSummary {
 
 export interface PredictTradeExecutor {
   resolveDirectionalPosition?: (input: DirectionalPositionInput) => Promise<DirectionalPositionResolution>;
+  resolveRangePosition?: (input: RangePositionInput) => Promise<RangePositionResolution>;
   dryRunMintDirectional?: (input: MintDirectionalExecutorInput) => Promise<PredictTradeTransactionSummary>;
   submitMintDirectional?: (input: MintDirectionalExecutorInput) => Promise<PredictTradeTransactionSummary>;
   dryRunRedeemDirectional?: (input: RedeemDirectionalExecutorInput) => Promise<PredictTradeTransactionSummary>;
   submitRedeemDirectional?: (input: RedeemDirectionalExecutorInput) => Promise<PredictTradeTransactionSummary>;
+  dryRunMintRange?: (input: MintRangeExecutorInput) => Promise<PredictTradeTransactionSummary>;
+  submitMintRange?: (input: MintRangeExecutorInput) => Promise<PredictTradeTransactionSummary>;
+  dryRunRedeemRange?: (input: RedeemRangeExecutorInput) => Promise<PredictTradeTransactionSummary>;
+  submitRedeemRange?: (input: RedeemRangeExecutorInput) => Promise<PredictTradeTransactionSummary>;
 }
 
 interface CreatePredictTradeExecutorOptions {
@@ -88,6 +122,14 @@ export function createPredictTradeExecutor({
   return {
     async resolveDirectionalPosition(input) {
       return await resolveDirectionalPosition({
+        client,
+        transactionOptions,
+        ...input
+      });
+    },
+
+    async resolveRangePosition(input) {
+      return await resolveRangePosition({
         client,
         transactionOptions,
         ...input
@@ -134,6 +176,48 @@ export function createPredictTradeExecutor({
         transactionOptions,
         ...input
       });
+    },
+
+    async dryRunMintRange(input) {
+      const plan = buildMintRangePlan(input);
+      return await dryRunTradeTransaction({
+        client,
+        plan,
+        transactionOptions,
+        ...input
+      });
+    },
+
+    async submitMintRange(input) {
+      const plan = buildMintRangePlan(input);
+      return await submitTradeTransaction({
+        client,
+        walletStore,
+        plan,
+        transactionOptions,
+        ...input
+      });
+    },
+
+    async dryRunRedeemRange(input) {
+      const plan = buildRedeemRangePlan(input);
+      return await dryRunTradeTransaction({
+        client,
+        plan,
+        transactionOptions,
+        ...input
+      });
+    },
+
+    async submitRedeemRange(input) {
+      const plan = buildRedeemRangePlan(input);
+      return await submitTradeTransaction({
+        client,
+        walletStore,
+        plan,
+        transactionOptions,
+        ...input
+      });
     }
   };
 }
@@ -169,11 +253,42 @@ async function resolveDirectionalPosition(input: {
   };
 }
 
+async function resolveRangePosition(input: {
+  client: SuiJsonRpcClient;
+  transactionOptions: BuildPredictTransactionOptions;
+} & RangePositionInput): Promise<RangePositionResolution> {
+  const tx = buildRangePositionReadTransaction(input);
+  tx.setSenderIfNotSet(input.wallet.address);
+  const response = await input.client.devInspectTransactionBlock({
+    sender: input.wallet.address,
+    transactionBlock: tx
+  });
+  const status = transactionStatus(response);
+  if (!status.ok) {
+    throw new Error(`PREDICT_RANGE_POSITION_RESOLUTION_FAILED: ${status.error ?? "unknown error"}`);
+  }
+
+  const quantityRaw = extractFirstU64ReturnValue(response);
+  if (quantityRaw === undefined) {
+    throw new Error("PREDICT_RANGE_POSITION_RESOLUTION_FAILED: missing u64 return value");
+  }
+
+  return {
+    wallet: input.wallet,
+    managerId: input.managerId,
+    oracleId: input.oracleId,
+    expiryMs: input.expiryMs,
+    lowerStrikeRaw: input.lowerStrikeRaw,
+    higherStrikeRaw: input.higherStrikeRaw,
+    quantityRaw
+  };
+}
+
 async function dryRunTradeTransaction(input: {
   client: SuiJsonRpcClient;
   plan: PredictOperationPlan;
   transactionOptions: BuildPredictTransactionOptions;
-} & (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput)): Promise<PredictTradeTransactionSummary> {
+} & (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput | MintRangeExecutorInput | RedeemRangeExecutorInput)): Promise<PredictTradeTransactionSummary> {
   const tx = buildPredictTransactionFromPlan(input.plan, input.transactionOptions);
   tx.setSenderIfNotSet(input.wallet.address);
   const transactionBlock = await tx.build({ client: input.client });
@@ -191,7 +306,7 @@ async function submitTradeTransaction(input: {
   walletStore: MemoryWalletStore;
   plan: PredictOperationPlan;
   transactionOptions: BuildPredictTransactionOptions;
-} & (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput)): Promise<PredictTradeTransactionSummary> {
+} & (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput | MintRangeExecutorInput | RedeemRangeExecutorInput)): Promise<PredictTradeTransactionSummary> {
   await dryRunTradeTransaction(input);
 
   const signer = await input.walletStore.getSigner(input.wallet.id);
@@ -242,6 +357,33 @@ function buildRedeemDirectionalPlan(input: RedeemDirectionalExecutorInput): Pred
   });
 }
 
+function buildMintRangePlan(input: MintRangeExecutorInput): PredictOperationPlan {
+  return buildPredictOperationPlan({
+    operation: "mint_range",
+    managerId: input.managerId,
+    oracleId: input.oracleId,
+    expiryMs: input.expiryMs,
+    lowerStrikeRaw: input.lowerStrikeRaw,
+    higherStrikeRaw: input.higherStrikeRaw,
+    quantityRaw: input.quantityRaw,
+    maxCostRaw: input.maxCostRaw
+  });
+}
+
+function buildRedeemRangePlan(input: RedeemRangeExecutorInput): PredictOperationPlan {
+  return buildPredictOperationPlan({
+    operation: input.operation,
+    managerId: input.managerId,
+    oracleId: input.oracleId,
+    expiryMs: input.expiryMs,
+    lowerStrikeRaw: input.lowerStrikeRaw,
+    higherStrikeRaw: input.higherStrikeRaw,
+    quantityRaw: input.operation === "redeem_range" ? input.quantityRaw : undefined,
+    resolvedQuantityRaw: input.operation === "close_range" ? input.quantityRaw : undefined,
+    minProceedsRaw: input.minProceedsRaw
+  });
+}
+
 function buildDirectionalPositionReadTransaction(input: {
   transactionOptions: BuildPredictTransactionOptions;
 } & DirectionalPositionInput) {
@@ -267,9 +409,34 @@ function buildDirectionalPositionReadTransaction(input: {
   return tx;
 }
 
+function buildRangePositionReadTransaction(input: {
+  transactionOptions: BuildPredictTransactionOptions;
+} & RangePositionInput) {
+  const tx = new Transaction();
+  const rangeKey = tx.moveCall({
+    target: `${input.transactionOptions.predictPackageId}::range_key::new`,
+    arguments: [
+      tx.pure.id(input.oracleId),
+      tx.pure.u64(input.expiryMs),
+      tx.pure.u64(input.lowerStrikeRaw),
+      tx.pure.u64(input.higherStrikeRaw)
+    ]
+  });
+
+  tx.moveCall({
+    target: `${input.transactionOptions.predictPackageId}::predict_manager::range_position`,
+    arguments: [
+      tx.object(input.managerId),
+      rangeKey
+    ]
+  });
+
+  return tx;
+}
+
 function summarizeDryRun(
   response: unknown,
-  input: MintDirectionalExecutorInput | RedeemDirectionalExecutorInput
+  input: MintDirectionalExecutorInput | RedeemDirectionalExecutorInput | MintRangeExecutorInput | RedeemRangeExecutorInput
 ): PredictTradeTransactionSummary {
   const status = transactionStatus(response);
   const operation = "operation" in input ? input.operation : "mint_directional";
@@ -281,13 +448,15 @@ function summarizeDryRun(
     managerId: input.managerId,
     oracleId: input.oracleId,
     expiryMs: input.expiryMs,
-    strikeRaw: input.strikeRaw,
-    direction: input.direction,
+    strikeRaw: "strikeRaw" in input ? input.strikeRaw : undefined,
+    direction: "direction" in input ? input.direction : undefined,
+    lowerStrikeRaw: "lowerStrikeRaw" in input ? input.lowerStrikeRaw : undefined,
+    higherStrikeRaw: "higherStrikeRaw" in input ? input.higherStrikeRaw : undefined,
     quantityRaw: input.quantityRaw,
     maxCostRaw: "maxCostRaw" in input ? input.maxCostRaw : undefined,
     minProceedsRaw: "minProceedsRaw" in input ? input.minProceedsRaw : undefined,
-    actualCostRaw: operation === "mint_directional" ? extractMintActualCostRaw(response, "") : undefined,
-    actualProceedsRaw: operation === "mint_directional" ? undefined : extractRedeemActualProceedsRaw(response, ""),
+    actualCostRaw: extractActualCostRawForOperation(response, operation, ""),
+    actualProceedsRaw: extractActualProceedsRawForOperation(response, operation, ""),
     errorCode: status.ok ? undefined : "PREDICT_DRY_RUN_FAILED",
     errorMessage: status.error
   };
@@ -295,7 +464,7 @@ function summarizeDryRun(
 
 function summarizeSubmit(
   response: SuiTransactionBlockResponse,
-  input: (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput) & { transactionOptions: BuildPredictTransactionOptions }
+  input: (MintDirectionalExecutorInput | RedeemDirectionalExecutorInput | MintRangeExecutorInput | RedeemRangeExecutorInput) & { transactionOptions: BuildPredictTransactionOptions }
 ): PredictTradeTransactionSummary {
   const status = transactionStatus(response);
   const operation = "operation" in input ? input.operation : "mint_directional";
@@ -307,20 +476,50 @@ function summarizeSubmit(
     managerId: input.managerId,
     oracleId: input.oracleId,
     expiryMs: input.expiryMs,
-    strikeRaw: input.strikeRaw,
-    direction: input.direction,
+    strikeRaw: "strikeRaw" in input ? input.strikeRaw : undefined,
+    direction: "direction" in input ? input.direction : undefined,
+    lowerStrikeRaw: "lowerStrikeRaw" in input ? input.lowerStrikeRaw : undefined,
+    higherStrikeRaw: "higherStrikeRaw" in input ? input.higherStrikeRaw : undefined,
     quantityRaw: input.quantityRaw,
     maxCostRaw: "maxCostRaw" in input ? input.maxCostRaw : undefined,
     minProceedsRaw: "minProceedsRaw" in input ? input.minProceedsRaw : undefined,
-    actualCostRaw: operation === "mint_directional"
-      ? extractMintActualCostRaw(response, input.transactionOptions.predictPackageId)
-      : undefined,
-    actualProceedsRaw: operation === "mint_directional"
-      ? undefined
-      : extractRedeemActualProceedsRaw(response, input.transactionOptions.predictPackageId),
+    actualCostRaw: extractActualCostRawForOperation(response, operation, input.transactionOptions.predictPackageId),
+    actualProceedsRaw: extractActualProceedsRawForOperation(response, operation, input.transactionOptions.predictPackageId),
     errorCode: status.ok ? undefined : "PREDICT_SUBMIT_FAILED",
     errorMessage: status.error
   };
+}
+
+function extractActualCostRawForOperation(
+  response: Pick<SuiTransactionBlockResponse, "events">,
+  operation: PredictTradeOperation,
+  predictPackageId: string
+): string | undefined {
+  if (operation === "mint_directional") {
+    return extractMintActualCostRaw(response, predictPackageId);
+  }
+
+  if (operation === "mint_range") {
+    return extractRangeMintActualCostRaw(response, predictPackageId);
+  }
+
+  return undefined;
+}
+
+function extractActualProceedsRawForOperation(
+  response: Pick<SuiTransactionBlockResponse, "events">,
+  operation: PredictTradeOperation,
+  predictPackageId: string
+): string | undefined {
+  if (operation === "redeem_directional" || operation === "close_directional") {
+    return extractRedeemActualProceedsRaw(response, predictPackageId);
+  }
+
+  if (operation === "redeem_range" || operation === "close_range") {
+    return extractRangeRedeemActualProceedsRaw(response, predictPackageId);
+  }
+
+  return undefined;
 }
 
 export function extractMintActualCostRaw(
@@ -346,6 +545,29 @@ export function extractMintActualCostRaw(
   return undefined;
 }
 
+export function extractRangeMintActualCostRaw(
+  response: Pick<SuiTransactionBlockResponse, "events">,
+  predictPackageId: string
+): string | undefined {
+  const expectedType = predictPackageId ? `${predictPackageId}::predict::RangeMinted` : undefined;
+  for (const event of response.events ?? []) {
+    if (typeof event.type !== "string") {
+      continue;
+    }
+    if (expectedType ? event.type !== expectedType : !event.type.endsWith("::predict::RangeMinted")) {
+      continue;
+    }
+
+    const parsedJson = event.parsedJson as Record<string, unknown> | undefined;
+    const cost = rawIntegerValue(parsedJson?.cost);
+    if (cost !== undefined) {
+      return cost;
+    }
+  }
+
+  return undefined;
+}
+
 export function extractRedeemActualProceedsRaw(
   response: Pick<SuiTransactionBlockResponse, "events">,
   predictPackageId: string
@@ -356,6 +578,29 @@ export function extractRedeemActualProceedsRaw(
       continue;
     }
     if (expectedType ? event.type !== expectedType : !event.type.endsWith("::predict::PositionRedeemed")) {
+      continue;
+    }
+
+    const parsedJson = event.parsedJson as Record<string, unknown> | undefined;
+    const payout = rawIntegerValue(parsedJson?.payout);
+    if (payout !== undefined) {
+      return payout;
+    }
+  }
+
+  return undefined;
+}
+
+export function extractRangeRedeemActualProceedsRaw(
+  response: Pick<SuiTransactionBlockResponse, "events">,
+  predictPackageId: string
+): string | undefined {
+  const expectedType = predictPackageId ? `${predictPackageId}::predict::RangeRedeemed` : undefined;
+  for (const event of response.events ?? []) {
+    if (typeof event.type !== "string") {
+      continue;
+    }
+    if (expectedType ? event.type !== expectedType : !event.type.endsWith("::predict::RangeRedeemed")) {
       continue;
     }
 

@@ -145,9 +145,12 @@ bun run smoke:predict -- --preview-up --wallet-id <wallet-id> --quantity-raw 100
 bun run smoke:predict -- --mint-up --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --quantity-raw 100000 --max-cost-raw 1000000
 bun run smoke:predict -- --redeem-last --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --quantity-raw 50000 --min-proceeds-raw 1
 bun run smoke:predict -- --close-last --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --min-proceeds-raw 1
+bun run smoke:predict -- --mint-range --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --lower-strike-raw <lower> --higher-strike-raw <higher> --quantity-raw 100000 --max-cost-raw 1000000
+bun run smoke:predict -- --redeem-range-last --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --lower-strike-raw <lower> --higher-strike-raw <higher> --quantity-raw 50000 --min-proceeds-raw 1
+bun run smoke:predict -- --close-range-last --wallet-id <wallet-id> --manager-id <manager-id> --oracle-id <oracle-id> --lower-strike-raw <lower> --higher-strike-raw <higher> --min-proceeds-raw 1
 ```
 
-Setup supports dry-run by default and real Testnet submit only when both conditions are true: the command passes `--submit`, and `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` is set in the backend environment. Directional mint, partial redeem, and close use the same two-gate pattern and default to dry-run. `mint_range` and `redeem_range` remain disabled until range position resolution and PTB builders are wired and reviewed.
+Setup supports dry-run by default and real Testnet submit only when both conditions are true: the command passes `--submit`, and `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` is set in the backend environment. Directional and range mint, partial redeem, and close use the same two-gate pattern and default to dry-run. `close-last` and `close-range-last` intentionally omit `quantityRaw`; the backend resolves the full open position before signing.
 
 Public boundary:
 

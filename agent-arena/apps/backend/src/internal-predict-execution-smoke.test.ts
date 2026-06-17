@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   buildDirectionalRedeemExecuteBody,
+  buildRangeRedeemExecuteBody,
   redactSmokeOutput
 } from "./internal-predict-execution-smoke";
 
@@ -52,6 +53,31 @@ describe("internal Predict smoke helpers", () => {
       estimatedProceedsRaw: "1",
       expiryMs: "1780000000000",
       strikeRaw: "65000000000000",
+      dryRunOnly: true
+    });
+  });
+
+  it("builds close-range-last without caller quantity so the backend resolves the full range position", () => {
+    expect(buildRangeRedeemExecuteBody({
+      operation: "close_range",
+      walletId: "wallet_internal_001",
+      managerId: "0xmanager",
+      oracleId: "0xoracle",
+      expiryMs: "1780000000000",
+      lowerStrikeRaw: "64000000000000",
+      higherStrikeRaw: "66000000000000",
+      minProceedsRaw: "1",
+      dryRunOnly: true
+    })).toEqual({
+      walletId: "wallet_internal_001",
+      operation: "close_range",
+      managerId: "0xmanager",
+      oracleId: "0xoracle",
+      minProceedsRaw: "1",
+      estimatedProceedsRaw: "1",
+      expiryMs: "1780000000000",
+      lowerStrikeRaw: "64000000000000",
+      higherStrikeRaw: "66000000000000",
       dryRunOnly: true
     });
   });

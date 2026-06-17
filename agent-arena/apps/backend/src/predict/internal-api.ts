@@ -498,8 +498,8 @@ async function handleExecute(
     throw error;
   }
 
-  if (isDirectionalTradeOperation(operation) && body.dryRunOnly === true) {
-    return await executeDirectionalTrade({
+  if ((isDirectionalTradeOperation(operation) || isRangeTradeOperation(operation)) && body.dryRunOnly === true) {
+    return await executePredictTrade({
       mode: "dry_run",
       wallet,
       operation,
@@ -511,8 +511,8 @@ async function handleExecute(
     });
   }
 
-  if (isDirectionalTradeOperation(operation) && body.dryRunOnly === false) {
-    return await executeDirectionalTrade({
+  if ((isDirectionalTradeOperation(operation) || isRangeTradeOperation(operation)) && body.dryRunOnly === false) {
+    return await executePredictTrade({
       mode: "submit",
       wallet,
       operation,
@@ -553,12 +553,48 @@ async function buildExecutionPlanFromRequest(
   wallet: InternalTradingWallet,
   tradeExecutor: PredictTradeExecutor | undefined
 ): Promise<PredictOperationPlan> {
-  if (operation !== "close_directional" || optionalRawString(body, "resolvedQuantityRaw") !== undefined) {
+  if (operation !== "close_directional" && operation !== "close_range") {
+    return buildPlanFromRequest(body, operation);
+  }
+
+  if (optionalRawString(body, "resolvedQuantityRaw") !== undefined) {
     return buildPlanFromRequest(body, operation);
   }
 
   if (Object.hasOwn(body, "quantityRaw")) {
     return buildPlanFromRequest(body, operation);
+  }
+
+  if (operation === "close_range") {
+    if (!tradeExecutor?.resolveRangePosition) {
+      throw new InternalApiError(
+        503,
+        "PREDICT_RANGE_POSITION_RESOLVER_REQUIRED",
+        "Predict range position resolver is required before close_range"
+      );
+    }
+
+    const resolution = await tradeExecutor.resolveRangePosition(
+      rangePositionInputFromRequest(wallet, body)
+    );
+    if (BigInt(assertRawIntegerString(resolution.quantityRaw, "resolvedQuantityRaw")) <= 0n) {
+      throw new InternalApiError(
+        404,
+        "RANGE_POSITION_NOT_FOUND",
+        "No open range position was found for close_range"
+      );
+    }
+
+    return buildPredictOperationPlan({
+      operation,
+      lowerStrikeRaw: optionalRawString(body, "lowerStrikeRaw"),
+      higherStrikeRaw: optionalRawString(body, "higherStrikeRaw"),
+      expiryMs: optionalRawString(body, "expiryMs"),
+      resolvedQuantityRaw: resolution.quantityRaw,
+      minProceedsRaw: optionalRawString(body, "minProceedsRaw"),
+      managerId: optionalString(body, "managerId"),
+      oracleId: optionalString(body, "oracleId")
+    });
   }
 
   if (!tradeExecutor?.resolveDirectionalPosition) {
@@ -592,7 +628,7 @@ async function buildExecutionPlanFromRequest(
   });
 }
 
-async function executeDirectionalTrade(input: {
+async function executePredictTrade(input: {
   mode: "dry_run" | "submit";
   wallet: InternalTradingWallet;
   operation: PredictOperation;
@@ -639,8 +675,8 @@ async function executeDirectionalTrade(input: {
 
   try {
     const transaction = mode === "dry_run"
-      ? await dryRunDirectionalTrade(tradeExecutor, wallet, operation, operationPlan)
-      : await submitDirectionalTrade(tradeExecutor, wallet, operation, operationPlan);
+      ? await dryRunPredictTrade(tradeExecutor, wallet, operation, operationPlan)
+      : await submitPredictTrade(tradeExecutor, wallet, operation, operationPlan);
     const updatedExecution = await executionStore.updateExecution(executionId, {
       status: mode === "dry_run" ? "dry_run_ok" : "submitted",
       dryRunDigest: mode === "dry_run" ? transaction.txDigest : undefined,
@@ -674,7 +710,7 @@ async function executeDirectionalTrade(input: {
   }
 }
 
-async function dryRunDirectionalTrade(
+async function dryRunPredictTrade(
   tradeExecutor: PredictTradeExecutor | undefined,
   wallet: InternalTradingWallet,
   operation: PredictOperation,
@@ -695,10 +731,25 @@ async function dryRunDirectionalTrade(
     return await tradeExecutor.dryRunRedeemDirectional(redeemInput);
   }
 
-  throw new InternalApiError(400, "PREDICT_OPERATION_UNSUPPORTED", `${operation} is not supported for directional trade execution`);
+  if (operation === "mint_range") {
+    if (!tradeExecutor?.dryRunMintRange) {
+      throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict range trade executor is required");
+    }
+    return await tradeExecutor.dryRunMintRange(mintRangeExecutorInput(wallet, operationPlan));
+  }
+
+  if (operation === "redeem_range" || operation === "close_range") {
+    if (!tradeExecutor?.dryRunRedeemRange) {
+      throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict range trade executor is required");
+    }
+    const redeemInput = await redeemRangeExecutorInput(tradeExecutor, wallet, operation, operationPlan);
+    return await tradeExecutor.dryRunRedeemRange(redeemInput);
+  }
+
+  throw new InternalApiError(400, "PREDICT_OPERATION_UNSUPPORTED", `${operation} is not supported for Predict trade execution`);
 }
 
-async function submitDirectionalTrade(
+async function submitPredictTrade(
   tradeExecutor: PredictTradeExecutor | undefined,
   wallet: InternalTradingWallet,
   operation: PredictOperation,
@@ -719,7 +770,22 @@ async function submitDirectionalTrade(
     return await tradeExecutor.submitRedeemDirectional(redeemInput);
   }
 
-  throw new InternalApiError(400, "PREDICT_OPERATION_UNSUPPORTED", `${operation} is not supported for directional trade execution`);
+  if (operation === "mint_range") {
+    if (!tradeExecutor?.submitMintRange) {
+      throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict range trade executor is required");
+    }
+    return await tradeExecutor.submitMintRange(mintRangeExecutorInput(wallet, operationPlan));
+  }
+
+  if (operation === "redeem_range" || operation === "close_range") {
+    if (!tradeExecutor?.submitRedeemRange) {
+      throw new InternalApiError(503, "PREDICT_TRADE_EXECUTOR_REQUIRED", "Predict range trade executor is required");
+    }
+    const redeemInput = await redeemRangeExecutorInput(tradeExecutor, wallet, operation, operationPlan);
+    return await tradeExecutor.submitRedeemRange(redeemInput);
+  }
+
+  throw new InternalApiError(400, "PREDICT_OPERATION_UNSUPPORTED", `${operation} is not supported for Predict trade execution`);
 }
 
 function mintDirectionalExecutorInput(
@@ -779,6 +845,64 @@ async function redeemDirectionalExecutorInput(
   };
 }
 
+function mintRangeExecutorInput(
+  wallet: InternalTradingWallet,
+  operationPlan: PredictOperationPlan
+): Parameters<NonNullable<PredictTradeExecutor["dryRunMintRange"]>>[0] {
+  return {
+    wallet,
+    operation: "mint_range",
+    managerId: requiredPlanObjectId(operationPlan, "managerId"),
+    oracleId: requiredPlanObjectId(operationPlan, "oracleId"),
+    expiryMs: requiredPlanKeyInput(operationPlan, "expiryMs"),
+    lowerStrikeRaw: requiredPlanKeyInput(operationPlan, "lowerStrikeRaw"),
+    higherStrikeRaw: requiredPlanKeyInput(operationPlan, "higherStrikeRaw"),
+    quantityRaw: requiredPlanValue(operationPlan.quantityRaw, "quantityRaw"),
+    maxCostRaw: requiredPlanValue(operationPlan.maxCostRaw, "maxCostRaw")
+  };
+}
+
+async function redeemRangeExecutorInput(
+  tradeExecutor: PredictTradeExecutor,
+  wallet: InternalTradingWallet,
+  operation: PredictOperation,
+  operationPlan: PredictOperationPlan
+): Promise<Parameters<NonNullable<PredictTradeExecutor["dryRunRedeemRange"]>>[0]> {
+  const baseInput = rangePositionInputFromPlan(wallet, operationPlan);
+  const quantityRaw = requiredPlanValue(operationPlan.quantityRaw, "quantityRaw");
+  const minProceedsRaw = requiredPlanValue(operationPlan.minProceedsRaw, "minProceedsRaw");
+
+  if (operation === "redeem_range") {
+    if (!tradeExecutor.resolveRangePosition) {
+      throw new InternalApiError(
+        503,
+        "PREDICT_RANGE_POSITION_RESOLVER_REQUIRED",
+        "Predict range position resolver is required before redeem_range"
+      );
+    }
+
+    const resolution = await tradeExecutor.resolveRangePosition(baseInput);
+    if (compareRawStrings(resolution.quantityRaw, quantityRaw) < 0) {
+      throw new InternalApiError(
+        409,
+        "INSUFFICIENT_RANGE_POSITION",
+        "Requested redeem quantity exceeds the backend-confirmed open range position"
+      );
+    }
+  }
+
+  if (operation !== "redeem_range" && operation !== "close_range") {
+    throw new InternalApiError(400, "PREDICT_OPERATION_UNSUPPORTED", `${operation} cannot use range redeem`);
+  }
+
+  return {
+    ...baseInput,
+    operation,
+    quantityRaw,
+    minProceedsRaw
+  };
+}
+
 function directionalPositionInputFromRequest(
   wallet: InternalTradingWallet,
   body: Record<string, unknown>
@@ -793,6 +917,20 @@ function directionalPositionInputFromRequest(
   };
 }
 
+function rangePositionInputFromRequest(
+  wallet: InternalTradingWallet,
+  body: Record<string, unknown>
+): Parameters<NonNullable<PredictTradeExecutor["resolveRangePosition"]>>[0] {
+  return {
+    wallet,
+    managerId: requiredString(body, "managerId"),
+    oracleId: requiredString(body, "oracleId"),
+    expiryMs: requiredRequestRawString(body, "expiryMs"),
+    lowerStrikeRaw: requiredRequestRawString(body, "lowerStrikeRaw"),
+    higherStrikeRaw: requiredRequestRawString(body, "higherStrikeRaw")
+  };
+}
+
 function directionalPositionInputFromPlan(
   wallet: InternalTradingWallet,
   operationPlan: PredictOperationPlan
@@ -804,6 +942,20 @@ function directionalPositionInputFromPlan(
     expiryMs: requiredPlanKeyInput(operationPlan, "expiryMs"),
     strikeRaw: requiredPlanKeyInput(operationPlan, "strikeRaw"),
     direction: requiredPlanKeyInput(operationPlan, "direction") as DirectionalMarketSide
+  };
+}
+
+function rangePositionInputFromPlan(
+  wallet: InternalTradingWallet,
+  operationPlan: PredictOperationPlan
+): Parameters<NonNullable<PredictTradeExecutor["resolveRangePosition"]>>[0] {
+  return {
+    wallet,
+    managerId: requiredPlanObjectId(operationPlan, "managerId"),
+    oracleId: requiredPlanObjectId(operationPlan, "oracleId"),
+    expiryMs: requiredPlanKeyInput(operationPlan, "expiryMs"),
+    lowerStrikeRaw: requiredPlanKeyInput(operationPlan, "lowerStrikeRaw"),
+    higherStrikeRaw: requiredPlanKeyInput(operationPlan, "higherStrikeRaw")
   };
 }
 
@@ -827,7 +979,7 @@ async function recordTradeSigningAudit(
 }
 
 function tradeTransactionKind(operation: PredictOperation, mode: "dry_run" | "submit"): string {
-  const action = operation === "mint_directional" ? "mint" : "redeem";
+  const action = operation === "mint_directional" || operation === "mint_range" ? "mint" : "redeem";
   return `predict_${action}_${mode}`;
 }
 
@@ -835,6 +987,12 @@ function isDirectionalTradeOperation(operation: PredictOperation): boolean {
   return operation === "mint_directional" ||
     operation === "redeem_directional" ||
     operation === "close_directional";
+}
+
+function isRangeTradeOperation(operation: PredictOperation): boolean {
+  return operation === "mint_range" ||
+    operation === "redeem_range" ||
+    operation === "close_range";
 }
 
 function compareRawStrings(left: string, right: string): -1 | 0 | 1 {
@@ -1121,7 +1279,12 @@ async function confirmOracleForPlan(
 }
 
 function previewOperationFor(operation: PredictOperation): PredictOperation {
-  if (operation === "mint_range" || operation === "redeem_range" || operation === "preview_range") {
+  if (
+    operation === "mint_range" ||
+    operation === "redeem_range" ||
+    operation === "close_range" ||
+    operation === "preview_range"
+  ) {
     return "preview_range";
   }
 
@@ -1177,6 +1340,7 @@ function requiredOperation(body: Record<string, unknown>): PredictOperation {
     operation === "close_directional" ||
     operation === "mint_range" ||
     operation === "redeem_range" ||
+    operation === "close_range" ||
     operation === "deposit_dusdc" ||
     operation === "create_manager"
   ) {

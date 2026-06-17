@@ -16,7 +16,8 @@ type CliMode =
   | "redeem-last"
   | "close-last"
   | "mint-range"
-  | "redeem-range-last";
+  | "redeem-range-last"
+  | "close-range-last";
 
 interface ParsedArgs {
   mode: CliMode;
@@ -69,6 +70,33 @@ export function buildDirectionalRedeemExecuteBody(input: {
     estimatedProceedsRaw: input.minProceedsRaw,
     expiryMs: input.expiryMs,
     strikeRaw: input.strikeRaw,
+    dryRunOnly: input.dryRunOnly
+  };
+}
+
+export function buildRangeRedeemExecuteBody(input: {
+  operation: "redeem_range" | "close_range";
+  walletId: string;
+  managerId: string;
+  oracleId: string;
+  expiryMs: string;
+  lowerStrikeRaw: string;
+  higherStrikeRaw: string;
+  quantityRaw?: string;
+  minProceedsRaw: string;
+  dryRunOnly: boolean;
+}): Record<string, unknown> {
+  return {
+    walletId: input.walletId,
+    operation: input.operation,
+    managerId: input.managerId,
+    oracleId: input.oracleId,
+    ...(input.quantityRaw ? { quantityRaw: input.quantityRaw } : {}),
+    minProceedsRaw: input.minProceedsRaw,
+    estimatedProceedsRaw: input.minProceedsRaw,
+    expiryMs: input.expiryMs,
+    lowerStrikeRaw: input.lowerStrikeRaw,
+    higherStrikeRaw: input.higherStrikeRaw,
     dryRunOnly: input.dryRunOnly
   };
 }
@@ -221,52 +249,55 @@ async function executeMode(
 
     case "mint-range": {
       const maxCostRaw = requiredArg(parsed, "max-cost-raw");
-      return await disabledExecute(fetchInternal, config.internalToken, {
+      const submit = hasFlag(parsed, "submit");
+      return await executePredict(fetchInternal, config.internalToken, submit, {
         walletId: requiredArg(parsed, "wallet-id"),
         operation: "mint_range",
+        managerId: requiredArgOrEnv(parsed, "manager-id", "AGENT_ARENA_SMOKE_MANAGER_ID"),
+        oracleId: requiredArgOrEnv(parsed, "oracle-id", "AGENT_ARENA_SMOKE_ORACLE_ID"),
         quantityRaw: requiredArg(parsed, "quantity-raw"),
         maxCostRaw,
         estimatedCostRaw: maxCostRaw,
         expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
         lowerStrikeRaw: requiredArgOrEnv(parsed, "lower-strike-raw", "AGENT_ARENA_SMOKE_LOWER_STRIKE_RAW"),
-        higherStrikeRaw: requiredArgOrEnv(parsed, "higher-strike-raw", "AGENT_ARENA_SMOKE_HIGHER_STRIKE_RAW")
+        higherStrikeRaw: requiredArgOrEnv(parsed, "higher-strike-raw", "AGENT_ARENA_SMOKE_HIGHER_STRIKE_RAW"),
+        dryRunOnly: !submit
       });
     }
 
     case "redeem-range-last": {
       const minProceedsRaw = requiredArg(parsed, "min-proceeds-raw");
-      return await disabledExecute(fetchInternal, config.internalToken, {
+      const submit = hasFlag(parsed, "submit");
+      return await executePredict(fetchInternal, config.internalToken, submit, buildRangeRedeemExecuteBody({
         walletId: requiredArg(parsed, "wallet-id"),
         operation: "redeem_range",
+        managerId: requiredArgOrEnv(parsed, "manager-id", "AGENT_ARENA_SMOKE_MANAGER_ID"),
+        oracleId: requiredArgOrEnv(parsed, "oracle-id", "AGENT_ARENA_SMOKE_ORACLE_ID"),
         quantityRaw: requiredArg(parsed, "quantity-raw"),
         minProceedsRaw,
-        estimatedProceedsRaw: minProceedsRaw,
         expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
         lowerStrikeRaw: requiredArgOrEnv(parsed, "lower-strike-raw", "AGENT_ARENA_SMOKE_LOWER_STRIKE_RAW"),
-        higherStrikeRaw: requiredArgOrEnv(parsed, "higher-strike-raw", "AGENT_ARENA_SMOKE_HIGHER_STRIKE_RAW")
-      });
+        higherStrikeRaw: requiredArgOrEnv(parsed, "higher-strike-raw", "AGENT_ARENA_SMOKE_HIGHER_STRIKE_RAW"),
+        dryRunOnly: !submit
+      }));
+    }
+
+    case "close-range-last": {
+      const minProceedsRaw = requiredArg(parsed, "min-proceeds-raw");
+      const submit = hasFlag(parsed, "submit");
+      return await executePredict(fetchInternal, config.internalToken, submit, buildRangeRedeemExecuteBody({
+        walletId: requiredArg(parsed, "wallet-id"),
+        operation: "close_range",
+        managerId: requiredArgOrEnv(parsed, "manager-id", "AGENT_ARENA_SMOKE_MANAGER_ID"),
+        oracleId: requiredArgOrEnv(parsed, "oracle-id", "AGENT_ARENA_SMOKE_ORACLE_ID"),
+        minProceedsRaw,
+        expiryMs: requiredArgOrEnv(parsed, "expiry-ms", "AGENT_ARENA_SMOKE_EXPIRY_MS"),
+        lowerStrikeRaw: requiredArgOrEnv(parsed, "lower-strike-raw", "AGENT_ARENA_SMOKE_LOWER_STRIKE_RAW"),
+        higherStrikeRaw: requiredArgOrEnv(parsed, "higher-strike-raw", "AGENT_ARENA_SMOKE_HIGHER_STRIKE_RAW"),
+        dryRunOnly: !submit
+      }));
     }
   }
-}
-
-async function disabledExecute(
-  fetchInternal: (request: Request) => Promise<Response>,
-  internalToken: string,
-  body: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const response = await callInternal(
-    fetchInternal,
-    "/api/arena/internal/predict/execute",
-    body,
-    "POST",
-    internalToken
-  );
-
-  return {
-    safetyStatus: "PREDICT_SUBMIT_DISABLED",
-    submitAttempted: false,
-    response
-  };
 }
 
 async function executePredict(
@@ -361,7 +392,8 @@ function isMode(value: string): value is CliMode {
     value === "redeem-last" ||
     value === "close-last" ||
     value === "mint-range" ||
-    value === "redeem-range-last";
+    value === "redeem-range-last" ||
+    value === "close-range-last";
 }
 
 function isBooleanFlag(value: string): boolean {

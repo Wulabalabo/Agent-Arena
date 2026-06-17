@@ -223,7 +223,7 @@ Expected: all tests pass.
 - Modify `agent-arena/apps/backend/src/predict/transactions.ts`
 - Modify `agent-arena/apps/backend/src/predict/transactions.test.ts`
 
-- [ ] **Step 1: Write failing tests for `mint_range` PTB**
+- [x] **Step 1: Write failing tests for `mint_range` PTB**
 
 Add assertions that `buildPredictTransactionFromPlan` creates:
 - `range_key::new(oracle_id, expiry, lower_strike, higher_strike)`
@@ -235,11 +235,11 @@ bun test agent-arena/apps/backend/src/predict/transactions.test.ts
 ```
 Expected: FAIL with `PREDICT_PTB_UNSUPPORTED_OPERATION` for `mint_range`.
 
-- [ ] **Step 2: Implement `mint_range` transaction builder**
+- [x] **Step 2: Implement `mint_range` transaction builder**
 
 In `buildPredictTransactionFromPlan`, add a `case "mint_range"` that mirrors directional mint but builds a `RangeKey` through `range_key::new`.
 
-- [ ] **Step 3: Write failing tests for `redeem_range` PTB**
+- [x] **Step 3: Write failing tests for `redeem_range` PTB**
 
 Add assertions that the PTB calls:
 - `range_key::new`
@@ -251,19 +251,19 @@ bun test agent-arena/apps/backend/src/predict/transactions.test.ts
 ```
 Expected: FAIL with `PREDICT_PTB_UNSUPPORTED_OPERATION` for `redeem_range`.
 
-- [ ] **Step 4: Implement `redeem_range` transaction builder**
+- [x] **Step 4: Implement `redeem_range` transaction builder**
 
 Add a `case "redeem_range"` that passes Predict object, manager, oracle, RangeKey, quantity, and Clock.
 
-- [ ] **Step 5: Add `close_range` to the operation union**
+- [x] **Step 5: Add `close_range` to the operation union**
 
 Add `close_range` to `PredictOperation`, `predictOperations`, and planner tests. Like `close_directional`, reject caller `quantityRaw` and require `resolvedQuantityRaw`.
 
-- [ ] **Step 6: Implement `close_range` as `predict::redeem_range`**
+- [x] **Step 6: Implement `close_range` as `predict::redeem_range`**
 
 Use the same PTB as `redeem_range`, but build the plan from `resolvedQuantityRaw`.
 
-- [ ] **Step 7: Verify**
+- [x] **Step 7: Verify**
 
 Run:
 ```powershell
@@ -277,7 +277,7 @@ Expected: all tests pass.
 - Modify `agent-arena/apps/backend/src/predict/trade-executor.ts`
 - Modify `agent-arena/apps/backend/src/predict/trade-executor.test.ts`
 
-- [ ] **Step 1: Write failing parser tests**
+- [x] **Step 1: Write failing parser tests**
 
 Add tests for:
 - `extractRangeMintActualCostRaw` reads `RangeMinted.cost`.
@@ -290,17 +290,17 @@ bun test agent-arena/apps/backend/src/predict/trade-executor.test.ts
 ```
 Expected: FAIL because range parser/resolver exports do not exist.
 
-- [ ] **Step 2: Add range input types**
+- [x] **Step 2: Add range input types**
 
 Add `RangePositionInput`, `MintRangeExecutorInput`, `RedeemRangeExecutorInput`, and `RangePositionResolution`.
 
-- [ ] **Step 3: Implement `buildRangePositionReadTransaction`**
+- [x] **Step 3: Implement `buildRangePositionReadTransaction`**
 
 Build:
 - `range_key::new(oracleId, expiryMs, lowerStrikeRaw, higherStrikeRaw)`
 - `predict_manager::range_position(managerId, rangeKey)`
 
-- [ ] **Step 4: Add executor methods**
+- [x] **Step 4: Add executor methods**
 
 Extend `PredictTradeExecutor` with:
 - `resolveRangePosition`
@@ -309,7 +309,7 @@ Extend `PredictTradeExecutor` with:
 - `dryRunRedeemRange`
 - `submitRedeemRange`
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run:
 ```powershell
@@ -325,7 +325,7 @@ Expected: all tests pass.
 - Modify `agent-arena/apps/backend/src/predict/guardrails.ts`
 - Modify `agent-arena/apps/backend/src/predict/guardrails.test.ts`
 
-- [ ] **Step 1: Write failing API tests**
+- [x] **Step 1: Write failing API tests**
 
 Add tests proving:
 - `mint_range` dry-run calls `dryRunMintRange`.
@@ -341,17 +341,17 @@ bun test agent-arena/apps/backend/src/predict/internal-api.test.ts
 ```
 Expected: FAIL because internal API still only executes directional trades.
 
-- [ ] **Step 2: Implement range execution branching**
+- [x] **Step 2: Implement range execution branching**
 
 Add `isRangeTradeOperation`, `dryRunRangeTrade`, `submitRangeTrade`, and range executor input builders.
 
-- [ ] **Step 3: Add guardrail support**
+- [x] **Step 3: Add guardrail support**
 
 Classify:
 - `mint_range` as max-cost checked.
 - `redeem_range` and `close_range` as min-proceeds checked.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run:
 ```powershell
@@ -366,7 +366,7 @@ Expected: all tests pass.
 - Modify `agent-arena/apps/backend/src/internal-predict-execution-smoke.test.ts`
 - Modify `agent-arena/README.md`
 
-- [ ] **Step 1: Audit existing range smoke flags**
+- [x] **Step 1: Audit existing range smoke flags**
 
 Confirm whether these flags already exist and preserve their names if present:
 - `--mint-range`
@@ -375,15 +375,15 @@ Confirm whether these flags already exist and preserve their names if present:
 - `--lower-strike-raw`
 - `--higher-strike-raw`
 
-- [ ] **Step 2: Fill missing range execution payloads**
+- [x] **Step 2: Fill missing range execution payloads**
 
 If the flags exist but still route to unsupported execution, wire them to the internal execute endpoint using `mint_range`, `redeem_range`, and `close_range`.
 
-- [ ] **Step 3: Add smoke tests**
+- [x] **Step 3: Add smoke tests**
 
 Prove `close-range-last` omits caller quantity and asks the backend to resolve it.
 
-- [ ] **Step 4: Run unit tests**
+- [x] **Step 4: Run unit tests**
 
 Run:
 ```powershell
