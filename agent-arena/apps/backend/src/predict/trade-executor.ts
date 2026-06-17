@@ -65,7 +65,7 @@ interface RedeemRangeExecutorInput extends RangePositionInput {
 interface WithdrawManagerDusdcExecutorInput extends ManagerInput {
   operation: "withdraw_manager_dusdc";
   amountRaw: string;
-  recipientAddress?: string;
+  recipientAddress: string;
 }
 
 export interface ManagerBalanceResolution extends ManagerInput {

@@ -1941,6 +1941,69 @@ describe("createInternalPredictFetchHandler", () => {
     ]);
   });
 
+  it("defaults manager DUSDC withdrawal recipient to the internal wallet address", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const withdrawals: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async resolveManagerBalance(input) {
+          return {
+            ...input,
+            balanceRaw: "2000"
+          };
+        },
+        async dryRunWithdrawManagerDusdc(input) {
+          withdrawals.push(input);
+          return {
+            operation: "withdraw_manager_dusdc",
+            mode: "dry_run",
+            status: "dry_run_ok",
+            txDigest: "withdraw-dry-run-digest",
+            managerId: input.managerId,
+            amountRaw: input.amountRaw,
+            recipientAddress: input.recipientAddress
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "withdraw_manager_dusdc",
+        managerId: "0xmanager",
+        amountRaw: "1000",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution: {
+        recipientAddress: created.wallet.address
+      },
+      transaction: {
+        recipientAddress: created.wallet.address
+      }
+    });
+    expect(withdrawals).toMatchObject([
+      {
+        managerId: "0xmanager",
+        amountRaw: "1000",
+        recipientAddress: created.wallet.address
+      }
+    ]);
+  });
+
   it("rejects manager DUSDC withdrawal submit when Predict submit is not explicitly enabled", async () => {
     const executionStore = createMemoryExecutionStore({
       now: () => "2026-06-17T00:00:00.000Z"

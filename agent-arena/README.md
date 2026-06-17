@@ -153,7 +153,30 @@ bun run smoke:predict -- --claim-settled-range --wallet-id <wallet-id> --manager
 bun run smoke:predict -- --withdraw-manager-dusdc --wallet-id <wallet-id> --manager-id <manager-id> --amount-raw 1
 ```
 
-Setup supports dry-run by default and real Testnet submit only when both conditions are true: the command passes `--submit`, and `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` is set in the backend environment. Directional and range mint, partial redeem, close, settled claim, and manager DUSDC withdrawal use the same two-gate pattern and default to dry-run. `close-last`, `close-range-last`, `claim-settled-directional`, and `claim-settled-range` intentionally omit `quantityRaw`; the backend resolves the full open position before signing. Settled claim commands require a Predict oracle that is already settled; if Predict settlement compaction is not ready yet, retry later rather than treating it as an Agent Arena settlement action. `withdraw-manager-dusdc` reads the manager DUSDC balance before dry-run or submit and accepts optional `--recipient-address`.
+### Auto range smoke
+
+Dry-run a current BTC range mint without manually filling oracle and strike values:
+
+```powershell
+bun run smoke:predict -- --auto-range-smoke --wallet-id <wallet-id> --manager-id <manager-id>
+```
+
+Submit range mint, then close the same range after dry-run succeeds and `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` is set:
+
+```powershell
+bun run smoke:predict -- --auto-range-smoke --wallet-id <wallet-id> --manager-id <manager-id> --submit
+```
+
+Submit range mint, close it, and run a tiny manager withdrawal:
+
+```powershell
+bun run smoke:predict -- --auto-range-smoke --wallet-id <wallet-id> --manager-id <manager-id> --submit --withdraw-after-close --withdraw-amount-raw 1
+```
+
+The auto runner selects the nearest eligible future BTC oracle, derives a test range around the current forward price or spot price, and prints `oracleId`, `expiryMs`, `lowerStrikeRaw`, and `higherStrikeRaw`. Dry-run mode does not close because a dry-run mint creates no position.
+By default, the auto runner skips BTC oracles with less than 720000ms until expiry so the smoke test does not pick a market that is already inside the final settlement window. Override this with `--min-time-to-expiry-ms <milliseconds>` when you intentionally want to probe a later or earlier cutoff.
+
+Setup supports dry-run by default and real Testnet submit only when both conditions are true: the command passes `--submit`, and `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` is set in the backend environment. Directional and range mint, partial redeem, close, settled claim, and manager DUSDC withdrawal use the same two-gate pattern and default to dry-run. `close-last`, `close-range-last`, `claim-settled-directional`, and `claim-settled-range` intentionally omit `quantityRaw`; the backend resolves the full open position before signing. Settled claim commands require a Predict oracle that is already settled; if Predict settlement compaction is not ready yet, retry later rather than treating it as an Agent Arena settlement action. `withdraw-manager-dusdc` reads the manager DUSDC balance before dry-run or submit and accepts optional `--recipient-address`; if omitted, the withdrawal returns to the internal trading wallet address.
 
 Public boundary:
 

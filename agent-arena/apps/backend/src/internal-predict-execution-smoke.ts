@@ -2,7 +2,11 @@ import { createMemoryExecutionStore } from "./predict/execution-store";
 import { createPredictConfig } from "./predict/config";
 import { internalTokenHeader } from "./predict/internal-auth";
 import { createInternalPredictFetchHandler } from "./predict/internal-api";
-import { runAutoRangeSmoke, selectAutoRangeMarket } from "./predict/auto-range-smoke";
+import {
+  DEFAULT_AUTO_RANGE_MIN_TIME_TO_EXPIRY_MS,
+  runAutoRangeSmoke,
+  selectAutoRangeMarket
+} from "./predict/auto-range-smoke";
 import { createPredictServerClient } from "./predict/predict-server-client";
 import { createPredictSetupExecutor } from "./predict/setup-executor";
 import { createPredictTradeExecutor } from "./predict/trade-executor";
@@ -359,8 +363,16 @@ async function executeMode(
       const minProceedsRaw = valueOrDefault(parsed, "min-proceeds-raw", "1");
       const withdrawAmountRaw = valueOrDefault(parsed, "withdraw-amount-raw", "1");
       const bandBps = Number(valueOrDefault(parsed, "band-bps", "50"));
+      const minTimeToExpiryMs = Number(valueOrDefault(
+        parsed,
+        "min-time-to-expiry-ms",
+        String(DEFAULT_AUTO_RANGE_MIN_TIME_TO_EXPIRY_MS)
+      ));
       if (!Number.isSafeInteger(bandBps) || bandBps <= 0 || bandBps >= 10_000) {
         throw new Error("INVALID_BAND_BPS");
+      }
+      if (!Number.isSafeInteger(minTimeToExpiryMs) || minTimeToExpiryMs < 0) {
+        throw new Error("INVALID_MIN_TIME_TO_EXPIRY_MS");
       }
 
       const selectedMarket = await selectAutoRangeMarket({
@@ -368,7 +380,8 @@ async function executeMode(
         client: createPredictServerClient({ baseUrl: config.predictServerUrl }),
         bandBps,
         quantityRaw,
-        maxCostRaw
+        maxCostRaw,
+        minTimeToExpiryMs
       });
 
       return await runAutoRangeSmoke({

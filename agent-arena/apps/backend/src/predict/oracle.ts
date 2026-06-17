@@ -18,6 +18,7 @@ export interface NormalizedPredictOracle {
 export interface SelectNearestFutureBtcOracleInput {
   serverTimeMs: number;
   oracles: unknown[];
+  minTimeToExpiryMs?: number;
 }
 
 export interface ConfirmOracleExecutionRequest {
@@ -71,7 +72,8 @@ export class PredictOracleError extends Error {
 
 export function selectNearestFutureBtcOracle({
   serverTimeMs,
-  oracles
+  oracles,
+  minTimeToExpiryMs = 0
 }: SelectNearestFutureBtcOracleInput): NormalizedPredictOracle | null {
   return oracles
     .map(normalizePredictOracle)
@@ -79,6 +81,7 @@ export function selectNearestFutureBtcOracle({
     .filter((oracle) => oracle.underlyingAsset === "BTC")
     .filter((oracle) => oracle.status === "active")
     .filter((oracle) => oracle.expiryMs > serverTimeMs)
+    .filter((oracle) => oracle.expiryMs - serverTimeMs >= minTimeToExpiryMs)
     .sort((left, right) => left.expiryMs - right.expiryMs)[0] ?? null;
 }
 

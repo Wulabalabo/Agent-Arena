@@ -401,6 +401,21 @@ describe("buildPredictOperationPlan", () => {
     expect(data.inputs).toHaveLength(3);
   });
 
+  it("rejects a DUSDC withdrawal PTB without a recipient", () => {
+    const plan = buildPredictOperationPlan({
+      operation: "withdraw_manager_dusdc",
+      quantityRaw: "5000000",
+      managerId
+    } as never);
+
+    expect(() => buildPredictTransactionFromPlan(plan, {
+      predictPackageId,
+      predictObjectId,
+      quoteAssetType,
+      clockObjectId
+    })).toThrow("MISSING_RECIPIENTADDRESS");
+  });
+
   it("builds a directional mint PTB from market key creation into predict mint", () => {
     const plan = buildPredictOperationPlan({
       operation: "mint_directional",

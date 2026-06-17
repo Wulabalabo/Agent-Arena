@@ -39,11 +39,14 @@ describe("internal Predict smoke helpers", () => {
       "--auto-range-smoke",
       "--wallet-id",
       "wallet_internal_001",
+      "--min-time-to-expiry-ms",
+      "300000",
       "--withdraw-after-close"
     ]);
 
     expect(parsed.mode).toBe("auto-range-smoke");
     expect(parsed.values.get("auto-range-smoke")).toBe(true);
+    expect(parsed.values.get("min-time-to-expiry-ms")).toBe("300000");
     expect(parsed.values.get("withdraw-after-close")).toBe(true);
   });
 

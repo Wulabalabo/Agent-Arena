@@ -116,6 +116,27 @@ describe("selectNearestFutureBtcOracle", () => {
     expect(selected?.oracleId).toBe("0xbtc-future");
   });
 
+  it("skips active BTC oracles that are too close to expiry when a minimum buffer is configured", () => {
+    const selected = selectNearestFutureBtcOracle({
+      serverTimeMs: 1781622000000,
+      minTimeToExpiryMs: 300_000,
+      oracles: [
+        {
+          ...validOracle,
+          oracleId: "0xbtc-too-close",
+          expiryMs: 1781622200000
+        },
+        {
+          ...validOracle,
+          oracleId: "0xbtc-buffered",
+          expiryMs: 1781622600000
+        }
+      ]
+    });
+
+    expect(selected?.oracleId).toBe("0xbtc-buffered");
+  });
+
   it("ignores non-BTC and inactive oracles", () => {
     const selected = selectNearestFutureBtcOracle({
       serverTimeMs: 1781622000000,

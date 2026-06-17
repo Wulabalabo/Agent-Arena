@@ -106,6 +106,40 @@ describe("auto range smoke market selection", () => {
     });
   });
 
+  it("skips BTC oracles that are inside the minimum time-to-expiry buffer", async () => {
+    const selected = await selectAutoRangeMarket({
+      config,
+      client: {
+        getStatus: async () => ({ current_time_ms: 1781622000000 }),
+        getPredictOracles: async () => [
+          {
+            oracle_id: "0xtoo-close",
+            underlying_asset: "BTC",
+            expiry: "1781622200000",
+            status: "active"
+          },
+          {
+            oracle_id: "0xbuffered",
+            underlying_asset: "BTC",
+            expiry: "1781622900000",
+            status: "active"
+          }
+        ],
+        getOracleState: async () => ({
+          latest_price: {
+            forward: "65611186326705"
+          }
+        })
+      },
+      bandBps: 50,
+      quantityRaw: "100000",
+      maxCostRaw: "1000000",
+      minTimeToExpiryMs: 300_000
+    });
+
+    expect(selected.oracleId).toBe("0xbuffered");
+  });
+
   it("throws ORACLE_PRICE_UNAVAILABLE when forward and spot are unavailable", async () => {
     await expect(selectAutoRangeMarket({
       config,

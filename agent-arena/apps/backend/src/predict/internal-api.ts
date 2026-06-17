@@ -580,15 +580,15 @@ async function buildExecutionPlanFromRequest(
   tradeExecutor: PredictTradeExecutor | undefined
 ): Promise<PredictOperationPlan> {
   if (!requiresBackendResolvedPosition(operation)) {
-    return buildPlanFromRequest(body, operation);
+    return buildPlanFromRequest(body, operation, wallet);
   }
 
   if (optionalRawString(body, "resolvedQuantityRaw") !== undefined) {
-    return buildPlanFromRequest(body, operation);
+    return buildPlanFromRequest(body, operation, wallet);
   }
 
   if (Object.hasOwn(body, "quantityRaw")) {
-    return buildPlanFromRequest(body, operation);
+    return buildPlanFromRequest(body, operation, wallet);
   }
 
   if (operation === "close_range" || operation === "claim_settled_range") {
@@ -1160,7 +1160,7 @@ function managerWithdrawalExecutorInput(
     operation: "withdraw_manager_dusdc",
     managerId: requiredPlanObjectId(operationPlan, "managerId"),
     amountRaw: requiredPlanValue(operationPlan.quantityRaw, "amountRaw"),
-    recipientAddress: operationPlan.objectIds.recipientAddress
+    recipientAddress: requiredPlanObjectId(operationPlan, "recipientAddress")
   };
 }
 
@@ -1448,7 +1448,8 @@ function fundingInstructions(quoteAssetType: string) {
 
 function buildPlanFromRequest(
   body: Record<string, unknown>,
-  operation: PredictOperation
+  operation: PredictOperation,
+  wallet?: InternalTradingWallet
 ): PredictOperationPlan {
   assertNoCallerTargets(body);
 
@@ -1472,7 +1473,9 @@ function buildPlanFromRequest(
     positionId: optionalString(body, "positionId"),
     quoteCoinObjectId: optionalString(body, "quoteCoinObjectId"),
     clockObjectId: optionalString(body, "clockObjectId"),
-    recipientAddress: optionalString(body, "recipientAddress")
+    recipientAddress: operation === "withdraw_manager_dusdc"
+      ? optionalString(body, "recipientAddress") ?? wallet?.address
+      : optionalString(body, "recipientAddress")
   } satisfies BuildPredictOperationPlanInput);
 }
 

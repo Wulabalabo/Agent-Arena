@@ -211,11 +211,8 @@ export function buildPredictTransactionFromPlan(
           tx.pure.u64(amountRaw)
         ]
       });
-      const recipientAddress = plan.objectIds.recipientAddress;
-
-      if (recipientAddress) {
-        tx.transferObjects([withdrawCoin], tx.pure.address(recipientAddress));
-      }
+      const recipientAddress = requiredObjectId(plan, "recipientAddress");
+      tx.transferObjects([withdrawCoin], tx.pure.address(recipientAddress));
 
       return tx;
     }

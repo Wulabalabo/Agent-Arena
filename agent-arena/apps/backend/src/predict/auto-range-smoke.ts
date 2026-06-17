@@ -2,6 +2,8 @@ import { selectNearestFutureBtcOracle } from "./oracle";
 
 type PriceSource = "forward" | "spot";
 
+export const DEFAULT_AUTO_RANGE_MIN_TIME_TO_EXPIRY_MS = 12 * 60 * 1000;
+
 export type AutoRangeSmokeErrorCode =
   | "NO_ACTIVE_BTC_ORACLE"
   | "ORACLE_PRICE_UNAVAILABLE"
@@ -245,6 +247,7 @@ export async function selectAutoRangeMarket(input: {
   bandBps: number;
   quantityRaw: string;
   maxCostRaw: string;
+  minTimeToExpiryMs?: number;
 }): Promise<AutoRangeMarketSelection> {
   if (!isRawIntegerString(input.quantityRaw) || !isRawIntegerString(input.maxCostRaw)) {
     throw new AutoRangeSmokeError("RANGE_SELECTION_INVALID");
@@ -256,7 +259,8 @@ export async function selectAutoRangeMarket(input: {
   ]);
   const oracle = selectNearestFutureBtcOracle({
     serverTimeMs: serverTimeMs(status),
-    oracles: Array.isArray(rawOracles) ? rawOracles : []
+    oracles: Array.isArray(rawOracles) ? rawOracles : [],
+    minTimeToExpiryMs: input.minTimeToExpiryMs ?? DEFAULT_AUTO_RANGE_MIN_TIME_TO_EXPIRY_MS
   });
 
   if (!oracle) {
