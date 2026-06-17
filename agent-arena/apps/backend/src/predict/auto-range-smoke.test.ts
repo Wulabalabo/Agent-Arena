@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   AutoRangeSmokeError,
   deriveAutoRangeFromPrice,
+  runAutoRangeSmoke,
   selectAutoRangeMarket
 } from "./auto-range-smoke";
 
@@ -339,5 +340,201 @@ describe("auto range smoke market selection", () => {
         strikeStepRaw: "250000000000"
       }
     })).toThrow(new AutoRangeSmokeError("RANGE_SELECTION_INVALID"));
+  });
+});
+
+describe("auto range smoke orchestration", () => {
+  const selectedMarket = {
+    oracleId: "0xoracle",
+    expiryMs: "1781622900000",
+    priceSource: "forward" as const,
+    referencePriceRaw: "65611186326705",
+    referencePrice: "65611.186326705",
+    lowerStrikeRaw: "65250000000000",
+    higherStrikeRaw: "66000000000000",
+    quantityRaw: "100000",
+    maxCostRaw: "1000000"
+  };
+
+  function successResponse(status: "dry_run_ok" | "confirmed" | "submitted" = "confirmed") {
+    return {
+      ok: true,
+      execution: {
+        status,
+        digest: "0xdigest"
+      }
+    };
+  }
+
+  function smokeInput(overrides: Partial<Parameters<typeof runAutoRangeSmoke>[0]> = {}) {
+    return {
+      walletId: "wallet-1",
+      managerId: "0xmanager",
+      selectedMarket,
+      minProceedsRaw: "1",
+      withdrawAmountRaw: "500",
+      submit: false,
+      withdrawAfterClose: false,
+      execute: async () => successResponse("dry_run_ok"),
+      ...overrides
+    };
+  }
+
+  it("dry-run mode only calls mint_range with dryRunOnly true", async () => {
+    const calls: unknown[] = [];
+    const result = await runAutoRangeSmoke(smokeInput({
+      execute: async (body) => {
+        calls.push(body);
+        return successResponse("dry_run_ok");
+      }
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(result.mode).toBe("dry_run");
+    expect(result.steps.map((step) => step.operation)).toEqual(["mint_range"]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      operation: "mint_range",
+      dryRunOnly: true,
+      quantityRaw: "100000",
+      maxCostRaw: "1000000"
+    });
+  });
+
+  it("submit mode calls mint_range then close_range and omits quantityRaw from close body", async () => {
+    const calls: Record<string, unknown>[] = [];
+    const result = await runAutoRangeSmoke(smokeInput({
+      submit: true,
+      execute: async (body) => {
+        calls.push(body);
+        return successResponse("confirmed");
+      }
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(result.mode).toBe("submit");
+    expect(result.steps.map((step) => step.operation)).toEqual(["mint_range", "close_range"]);
+    expect(result.steps.map((step) => step.name)).toEqual(["mint_range", "close_range_last"]);
+    expect(result.steps[1]).toMatchObject({
+      name: "close_range_last",
+      operation: "close_range",
+      status: "confirmed"
+    });
+    expect(calls.map((body) => body.operation)).toEqual(["mint_range", "close_range"]);
+    expect(calls[0]).toMatchObject({ dryRunOnly: false, quantityRaw: "100000" });
+    expect(calls[1]).toMatchObject({ dryRunOnly: false, operation: "close_range" });
+    expect(calls[1]).not.toHaveProperty("quantityRaw");
+  });
+
+  it("does not call close when mint fails and returns AUTO_RANGE_MINT_FAILED", async () => {
+    const calls: unknown[] = [];
+    const result = await runAutoRangeSmoke(smokeInput({
+      submit: true,
+      execute: async (body) => {
+        calls.push(body);
+        return { ok: false, execution: { status: "failed" } };
+      }
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(result.mode).toBe("submit");
+    expect(result.errors).toEqual(["AUTO_RANGE_MINT_FAILED"]);
+    expect(result.steps.map((step) => step.operation)).toEqual(["mint_range"]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("calls withdraw_manager_dusdc after a successful close when withdrawAfterClose is true", async () => {
+    const calls: Record<string, unknown>[] = [];
+    const result = await runAutoRangeSmoke(smokeInput({
+      submit: true,
+      withdrawAfterClose: true,
+      recipientAddress: "0xrecipient",
+      execute: async (body) => {
+        calls.push(body);
+        return successResponse("confirmed");
+      }
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(result.steps.map((step) => step.operation)).toEqual([
+      "mint_range",
+      "close_range",
+      "withdraw_manager_dusdc"
+    ]);
+    expect(calls[2]).toMatchObject({
+      operation: "withdraw_manager_dusdc",
+      dryRunOnly: false,
+      amountRaw: "500",
+      recipientAddress: "0xrecipient"
+    });
+  });
+
+  it("does not call withdraw when close fails and returns AUTO_RANGE_CLOSE_FAILED", async () => {
+    const calls: Record<string, unknown>[] = [];
+    const result = await runAutoRangeSmoke(smokeInput({
+      submit: true,
+      withdrawAfterClose: true,
+      execute: async (body) => {
+        calls.push(body);
+        return body.operation === "close_range"
+          ? { ok: true, execution: { status: "failed" } }
+          : successResponse("confirmed");
+      }
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual(["AUTO_RANGE_CLOSE_FAILED"]);
+    expect(result.steps.map((step) => step.operation)).toEqual(["mint_range", "close_range"]);
+    expect(calls.map((body) => body.operation)).toEqual(["mint_range", "close_range"]);
+  });
+
+  it("returns AUTO_RANGE_WITHDRAW_FAILED when withdraw fails", async () => {
+    const result = await runAutoRangeSmoke(smokeInput({
+      submit: true,
+      withdrawAfterClose: true,
+      execute: async (body) => body.operation === "withdraw_manager_dusdc"
+        ? { ok: true, execution: { status: "failed" } }
+        : successResponse("confirmed")
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual(["AUTO_RANGE_WITHDRAW_FAILED"]);
+    expect(result.steps.map((step) => step.operation)).toEqual([
+      "mint_range",
+      "close_range",
+      "withdraw_manager_dusdc"
+    ]);
+  });
+
+  it("returns selectedMarket, steps, errors, mode and sanitizes secret-shaped fields", async () => {
+    const result = await runAutoRangeSmoke(smokeInput({
+      execute: async (body) => ({
+        ...successResponse("dry_run_ok"),
+        requestEcho: {
+          ...body,
+          privateKey: "private",
+          encryptedPrivateKey: "encrypted",
+          secretKey: "secret",
+          walletSecret: "wallet-secret",
+          "x-agent-arena-internal-token": "token"
+        }
+      })
+    }));
+
+    expect(result).toMatchObject({
+      ok: true,
+      mode: "dry_run",
+      selectedMarket,
+      errors: []
+    });
+    expect(result.steps).toHaveLength(1);
+    expect(result.steps[0]?.request).toMatchObject({ operation: "mint_range" });
+    expect(JSON.stringify(result.steps)).not.toContain("privateKey");
+    expect(JSON.stringify(result.steps)).not.toContain("encryptedPrivateKey");
+    expect(JSON.stringify(result.steps)).not.toContain("secretKey");
+    expect(JSON.stringify(result.steps)).not.toContain("walletSecret");
+    expect(JSON.stringify(result.steps)).not.toContain("x-agent-arena-internal-token");
+    expect(JSON.stringify(result.steps)).not.toContain("private");
+    expect(JSON.stringify(result.steps)).not.toContain("token");
   });
 });

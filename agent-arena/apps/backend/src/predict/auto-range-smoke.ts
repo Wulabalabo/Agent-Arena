@@ -6,7 +6,25 @@ export type AutoRangeSmokeErrorCode =
   | "NO_ACTIVE_BTC_ORACLE"
   | "ORACLE_PRICE_UNAVAILABLE"
   | "RANGE_SELECTION_INVALID"
-  | "SERVER_TIME_UNAVAILABLE";
+  | "SERVER_TIME_UNAVAILABLE"
+  | AutoRangeSmokeExecutionErrorCode;
+
+export type AutoRangeSmokeExecutionErrorCode =
+  | "AUTO_RANGE_MINT_FAILED"
+  | "AUTO_RANGE_CLOSE_FAILED"
+  | "AUTO_RANGE_WITHDRAW_FAILED";
+
+export type AutoRangeSmokeMode = "dry_run" | "submit";
+
+export type AutoRangeSmokeOperation =
+  | "mint_range"
+  | "close_range"
+  | "withdraw_manager_dusdc";
+
+export type AutoRangeSmokeStepName =
+  | "mint_range"
+  | "close_range_last"
+  | "withdraw_manager_dusdc";
 
 interface StrikeGridInput {
   minStrikeRaw?: string;
@@ -41,6 +59,134 @@ export interface AutoRangeMarketSelection {
   higherStrikeRaw: string;
   quantityRaw: string;
   maxCostRaw: string;
+}
+
+export interface AutoRangeSmokeStep {
+  name: AutoRangeSmokeStepName;
+  operation: AutoRangeSmokeOperation;
+  status?: unknown;
+  request: Record<string, unknown>;
+  response: unknown;
+  ok: boolean;
+}
+
+export interface AutoRangeSmokeResult {
+  ok: boolean;
+  mode: AutoRangeSmokeMode;
+  selectedMarket: AutoRangeMarketSelection;
+  steps: AutoRangeSmokeStep[];
+  errors: AutoRangeSmokeExecutionErrorCode[];
+}
+
+export interface RunAutoRangeSmokeInput {
+  walletId: string;
+  managerId: string;
+  selectedMarket: AutoRangeMarketSelection;
+  minProceedsRaw: string;
+  withdrawAmountRaw: string;
+  recipientAddress?: string;
+  submit?: boolean;
+  withdrawAfterClose?: boolean;
+  execute: (body: Record<string, unknown>) => Promise<unknown>;
+}
+
+export function buildAutoRangeMintBody(input: {
+  walletId: string;
+  managerId: string;
+  selectedMarket: AutoRangeMarketSelection;
+  dryRunOnly: boolean;
+}): Record<string, unknown> {
+  return {
+    walletId: input.walletId,
+    operation: "mint_range",
+    managerId: input.managerId,
+    oracleId: input.selectedMarket.oracleId,
+    quantityRaw: input.selectedMarket.quantityRaw,
+    maxCostRaw: input.selectedMarket.maxCostRaw,
+    estimatedCostRaw: input.selectedMarket.maxCostRaw,
+    expiryMs: input.selectedMarket.expiryMs,
+    lowerStrikeRaw: input.selectedMarket.lowerStrikeRaw,
+    higherStrikeRaw: input.selectedMarket.higherStrikeRaw,
+    dryRunOnly: input.dryRunOnly
+  };
+}
+
+export function buildAutoRangeCloseBody(input: {
+  walletId: string;
+  managerId: string;
+  selectedMarket: AutoRangeMarketSelection;
+  minProceedsRaw: string;
+  dryRunOnly: boolean;
+}): Record<string, unknown> {
+  return {
+    walletId: input.walletId,
+    operation: "close_range",
+    managerId: input.managerId,
+    oracleId: input.selectedMarket.oracleId,
+    minProceedsRaw: input.minProceedsRaw,
+    estimatedProceedsRaw: input.minProceedsRaw,
+    expiryMs: input.selectedMarket.expiryMs,
+    lowerStrikeRaw: input.selectedMarket.lowerStrikeRaw,
+    higherStrikeRaw: input.selectedMarket.higherStrikeRaw,
+    dryRunOnly: input.dryRunOnly
+  };
+}
+
+export async function runAutoRangeSmoke(input: RunAutoRangeSmokeInput): Promise<AutoRangeSmokeResult> {
+  const mode: AutoRangeSmokeMode = input.submit ? "submit" : "dry_run";
+  const dryRunOnly = mode === "dry_run";
+  const steps: AutoRangeSmokeStep[] = [];
+
+  const mint = await executeStep(input.execute, "mint_range", "mint_range", buildAutoRangeMintBody({
+    walletId: input.walletId,
+    managerId: input.managerId,
+    selectedMarket: input.selectedMarket,
+    dryRunOnly
+  }));
+  steps.push(mint);
+
+  if (!mint.ok) {
+    return buildAutoRangeSmokeResult(input.selectedMarket, mode, steps, ["AUTO_RANGE_MINT_FAILED"]);
+  }
+
+  if (dryRunOnly) {
+    return buildAutoRangeSmokeResult(input.selectedMarket, mode, steps, []);
+  }
+
+  const close = await executeStep(input.execute, "close_range_last", "close_range", buildAutoRangeCloseBody({
+    walletId: input.walletId,
+    managerId: input.managerId,
+    selectedMarket: input.selectedMarket,
+    minProceedsRaw: input.minProceedsRaw,
+    dryRunOnly: false
+  }));
+  steps.push(close);
+
+  if (!close.ok) {
+    return buildAutoRangeSmokeResult(input.selectedMarket, mode, steps, ["AUTO_RANGE_CLOSE_FAILED"]);
+  }
+
+  if (input.withdrawAfterClose) {
+    const withdraw = await executeStep(
+      input.execute,
+      "withdraw_manager_dusdc",
+      "withdraw_manager_dusdc",
+      buildAutoRangeWithdrawBody({
+        walletId: input.walletId,
+        managerId: input.managerId,
+        amountRaw: input.withdrawAmountRaw,
+        recipientAddress: input.recipientAddress,
+        dryRunOnly: false
+      })
+    );
+    steps.push(withdraw);
+
+    if (!withdraw.ok) {
+      return buildAutoRangeSmokeResult(input.selectedMarket, mode, steps, ["AUTO_RANGE_WITHDRAW_FAILED"]);
+    }
+  }
+
+  return buildAutoRangeSmokeResult(input.selectedMarket, mode, steps, []);
 }
 
 export function deriveAutoRangeFromPrice(input: {
@@ -236,4 +382,98 @@ function toBigInt(value: unknown): bigint | null {
 
 function isRawIntegerString(value: unknown): value is string {
   return typeof value === "string" && /^\d+$/.test(value);
+}
+
+function buildAutoRangeWithdrawBody(input: {
+  walletId: string;
+  managerId: string;
+  amountRaw: string;
+  recipientAddress?: string;
+  dryRunOnly: boolean;
+}): Record<string, unknown> {
+  return {
+    walletId: input.walletId,
+    operation: "withdraw_manager_dusdc",
+    managerId: input.managerId,
+    amountRaw: input.amountRaw,
+    ...(input.recipientAddress ? { recipientAddress: input.recipientAddress } : {}),
+    dryRunOnly: input.dryRunOnly
+  };
+}
+
+async function executeStep(
+  execute: RunAutoRangeSmokeInput["execute"],
+  name: AutoRangeSmokeStepName,
+  operation: AutoRangeSmokeOperation,
+  request: Record<string, unknown>
+): Promise<AutoRangeSmokeStep> {
+  const response = await execute(request);
+  const sanitizedResponse = sanitizeSmokeValue(response);
+  return {
+    name,
+    operation,
+    status: readSmokeStepStatus(sanitizedResponse),
+    request: sanitizeSmokeValue(request) as Record<string, unknown>,
+    response: sanitizedResponse,
+    ok: isSuccessfulSmokeResponse(response)
+  };
+}
+
+function buildAutoRangeSmokeResult(
+  selectedMarket: AutoRangeMarketSelection,
+  mode: AutoRangeSmokeMode,
+  steps: AutoRangeSmokeStep[],
+  errors: AutoRangeSmokeExecutionErrorCode[]
+): AutoRangeSmokeResult {
+  return {
+    ok: errors.length === 0,
+    mode,
+    selectedMarket,
+    steps,
+    errors
+  };
+}
+
+function isSuccessfulSmokeResponse(response: unknown): boolean {
+  const record = readRecord(response);
+  const execution = readRecord(record?.execution);
+  return record?.ok !== false &&
+    (
+      execution?.status === "dry_run_ok" ||
+      execution?.status === "confirmed" ||
+      execution?.status === "submitted"
+    );
+}
+
+function readSmokeStepStatus(response: unknown): unknown {
+  const record = readRecord(response);
+  const execution = readRecord(record?.execution);
+  return execution?.status ?? record?.status;
+}
+
+const secretShapeKeys = new Set([
+  "privateKey",
+  "encryptedPrivateKey",
+  "secretKey",
+  "walletSecret",
+  "x-agent-arena-internal-token"
+]);
+
+function sanitizeSmokeValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeSmokeValue(item));
+  }
+
+  if (typeof value === "object" && value !== null) {
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (secretShapeKeys.has(key)) {
+        continue;
+      }
+      sanitized[key] = sanitizeSmokeValue(nestedValue);
+    }
+    return sanitized;
+  }
+
+  return value;
 }
