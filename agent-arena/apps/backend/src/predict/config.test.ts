@@ -75,4 +75,37 @@ describe("createPredictConfig", () => {
       })
     ).toThrow("INVALID_AGENT_ARENA_PRICE_DECIMALS");
   });
+
+  it("keeps backend .env.example aligned with required Predict config", async () => {
+    const exampleText = await Bun.file(new URL("../../.env.example", import.meta.url)).text();
+    const exampleEnv = parseDotEnvExample(exampleText);
+
+    const config = createPredictConfig(exampleEnv);
+
+    expect(config.network).toBe("testnet");
+    expect(config.quoteDecimals).toBe(6);
+    expect(config.priceDecimals).toBe(9);
+  });
 });
+
+function parseDotEnvExample(text: string): Record<string, string> {
+  const env: Record<string, string> = {};
+
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex === -1) {
+      continue;
+    }
+
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
+    env[key] = value.replace(/^"|"$/g, "");
+  }
+
+  return env;
+}

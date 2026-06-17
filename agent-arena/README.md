@@ -100,6 +100,8 @@ The Internal Predict Execution Probe is Testnet-only and internal-only. It is fo
 Required environment:
 
 ```powershell
+Copy-Item apps/backend/.env.example apps/backend/.env
+
 $env:AGENT_ARENA_NETWORK="testnet"
 $env:AGENT_ARENA_SUI_RPC_URL="<testnet-rpc-url>"
 $env:AGENT_ARENA_PREDICT_SERVER_URL="<predict-server-url>"
@@ -112,6 +114,8 @@ $env:AGENT_ARENA_PRICE_DECIMALS="9"
 $env:AGENT_ARENA_INTERNAL_TOKEN="<operator-only-token>"
 $env:AGENT_ARENA_WALLET_SECRET="<server-only-wallet-secret>"
 ```
+
+The root `smoke:predict` script runs with `--cwd apps/backend`, so Bun reads `apps/backend/.env`. A root-level `.env` is not enough for this command.
 
 Optional environment:
 
