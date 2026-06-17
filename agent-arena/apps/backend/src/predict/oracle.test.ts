@@ -491,6 +491,7 @@ describe("createPredictServerClient", () => {
     await client.getRedeemedPositions();
     await client.getMintedRanges();
     await client.getRedeemedRanges();
+    await client.getOracleState("0xoracle");
 
     expect(requestedUrls).toEqual([
       "https://predict.example/api/status",
@@ -499,7 +500,8 @@ describe("createPredictServerClient", () => {
       "https://predict.example/api/positions/minted",
       "https://predict.example/api/positions/redeemed",
       "https://predict.example/api/ranges/minted",
-      "https://predict.example/api/ranges/redeemed"
+      "https://predict.example/api/ranges/redeemed",
+      "https://predict.example/api/oracles/0xoracle/state"
     ]);
   });
 

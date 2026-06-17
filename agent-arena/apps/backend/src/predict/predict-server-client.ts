@@ -6,6 +6,7 @@ interface PredictServerClientOptions {
 export interface PredictServerClient {
   getStatus: () => Promise<unknown>;
   getPredictOracles: (predictId: string) => Promise<unknown>;
+  getOracleState: (oracleId: string) => Promise<unknown>;
   getManagers: () => Promise<unknown>;
   getMintedPositions: () => Promise<unknown>;
   getRedeemedPositions: () => Promise<unknown>;
@@ -25,6 +26,8 @@ export function createPredictServerClient({
     getStatus: () => requestJson(fetcher, baseUrl, "/status"),
     getPredictOracles: (predictId: string) =>
       requestJson(fetcher, baseUrl, `/predicts/${encodeURIComponent(predictId)}/oracles`),
+    getOracleState: (oracleId: string) =>
+      requestJson(fetcher, baseUrl, `/oracles/${encodeURIComponent(oracleId)}/state`),
     getManagers: () => requestJson(fetcher, baseUrl, "/managers"),
     getMintedPositions: () => requestJson(fetcher, baseUrl, "/positions/minted"),
     getRedeemedPositions: () => requestJson(fetcher, baseUrl, "/positions/redeemed"),
