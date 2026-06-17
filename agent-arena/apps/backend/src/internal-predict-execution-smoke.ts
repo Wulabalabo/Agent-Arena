@@ -2,12 +2,14 @@ import { createMemoryExecutionStore } from "./predict/execution-store";
 import { createPredictConfig } from "./predict/config";
 import { internalTokenHeader } from "./predict/internal-auth";
 import { createInternalPredictFetchHandler } from "./predict/internal-api";
+import { runAutoRangeSmoke, selectAutoRangeMarket } from "./predict/auto-range-smoke";
+import { createPredictServerClient } from "./predict/predict-server-client";
 import { createPredictSetupExecutor } from "./predict/setup-executor";
 import { createPredictTradeExecutor } from "./predict/trade-executor";
 import type { CoinBalanceReader, PredictConfig } from "./predict/types";
 import { createJsonWalletStore } from "./predict/wallet-store";
 
-type CliMode =
+export type CliMode =
   | "create-wallet"
   | "check-balances"
   | "setup"
@@ -20,9 +22,10 @@ type CliMode =
   | "redeem-range-last"
   | "close-range-last"
   | "claim-settled-range"
+  | "auto-range-smoke"
   | "withdraw-manager-dusdc";
 
-interface ParsedArgs {
+export interface ParsedArgs {
   mode: CliMode;
   values: Map<string, string | true>;
 }
@@ -350,6 +353,43 @@ async function executeMode(
       }));
     }
 
+    case "auto-range-smoke": {
+      const quantityRaw = valueOrDefault(parsed, "quantity-raw", "100000");
+      const maxCostRaw = valueOrDefault(parsed, "max-cost-raw", "1000000");
+      const minProceedsRaw = valueOrDefault(parsed, "min-proceeds-raw", "1");
+      const withdrawAmountRaw = valueOrDefault(parsed, "withdraw-amount-raw", "1");
+      const bandBps = Number(valueOrDefault(parsed, "band-bps", "50"));
+      if (!Number.isSafeInteger(bandBps) || bandBps <= 0 || bandBps >= 10_000) {
+        throw new Error("INVALID_BAND_BPS");
+      }
+
+      const selectedMarket = await selectAutoRangeMarket({
+        config,
+        client: createPredictServerClient({ baseUrl: config.predictServerUrl }),
+        bandBps,
+        quantityRaw,
+        maxCostRaw
+      });
+
+      return await runAutoRangeSmoke({
+        walletId: requiredArg(parsed, "wallet-id"),
+        managerId: requiredArgOrEnv(parsed, "manager-id", "AGENT_ARENA_SMOKE_MANAGER_ID"),
+        selectedMarket,
+        submit: hasFlag(parsed, "submit"),
+        minProceedsRaw,
+        withdrawAfterClose: hasFlag(parsed, "withdraw-after-close"),
+        withdrawAmountRaw,
+        recipientAddress: optionalArg(parsed, "recipient-address"),
+        execute: (body) => callInternal(
+          fetchInternal,
+          "/api/arena/internal/predict/execute",
+          body,
+          "POST",
+          config.internalToken
+        )
+      }) as unknown as Record<string, unknown>;
+    }
+
     case "withdraw-manager-dusdc": {
       const submit = hasFlag(parsed, "submit");
       return await executePredict(fetchInternal, config.internalToken, submit, buildManagerWithdrawExecuteBody({
@@ -406,7 +446,7 @@ async function callInternal(
   };
 }
 
-function parseArgs(argv: string[]): ParsedArgs {
+export function parseArgs(argv: string[]): ParsedArgs {
   const values = new Map<string, string | true>();
   let mode: CliMode | undefined;
 
@@ -459,11 +499,13 @@ function isMode(value: string): value is CliMode {
     value === "redeem-range-last" ||
     value === "close-range-last" ||
     value === "claim-settled-range" ||
+    value === "auto-range-smoke" ||
     value === "withdraw-manager-dusdc";
 }
 
 function isBooleanFlag(value: string): boolean {
-  return value === "submit";
+  return value === "submit" ||
+    value === "withdraw-after-close";
 }
 
 function requiredArg(parsed: ParsedArgs, key: string): string {

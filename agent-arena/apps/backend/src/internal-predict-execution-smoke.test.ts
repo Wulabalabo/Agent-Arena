@@ -3,6 +3,7 @@ import {
   buildDirectionalRedeemExecuteBody,
   buildManagerWithdrawExecuteBody,
   buildRangeRedeemExecuteBody,
+  parseArgs,
   redactSmokeOutput
 } from "./internal-predict-execution-smoke";
 
@@ -28,6 +29,65 @@ describe("internal Predict smoke helpers", () => {
     expect(serialized).not.toContain("must-not-print");
     expect(serialized).not.toContain("privateKey");
     expect(serialized).not.toContain("encryptedPrivateKey");
+    expect(serialized).not.toContain("secretKey");
+    expect(serialized).not.toContain("walletSecret");
+    expect(serialized).not.toContain("x-agent-arena-internal-token");
+  });
+
+  it("parses auto-range-smoke mode and withdraw-after-close flag", () => {
+    const parsed = parseArgs([
+      "--auto-range-smoke",
+      "--wallet-id",
+      "wallet_internal_001",
+      "--withdraw-after-close"
+    ]);
+
+    expect(parsed.mode).toBe("auto-range-smoke");
+    expect(parsed.values.get("auto-range-smoke")).toBe(true);
+    expect(parsed.values.get("withdraw-after-close")).toBe(true);
+  });
+
+  it("redacts private material from auto-range shaped output", () => {
+    const redacted = redactSmokeOutput({
+      ok: true,
+      mode: "submit",
+      selectedMarket: {
+        oracleId: "0xoracle",
+        privateKey: "must-not-print"
+      },
+      steps: [
+        {
+          name: "mint_range",
+          request: {
+            walletSecret: "must-not-print",
+            quantityRaw: "100000"
+          },
+          response: {
+            httpStatus: 200,
+            secretKey: "must-not-print",
+            headers: {
+              "x-agent-arena-internal-token": "must-not-print"
+            }
+          }
+        },
+        {
+          name: "withdraw_manager_dusdc",
+          response: {
+            wallet: {
+              walletSecret: "must-not-print",
+              address: "0xrecipient"
+            }
+          }
+        }
+      ]
+    });
+
+    const serialized = JSON.stringify(redacted);
+    expect(serialized).toContain("mint_range");
+    expect(serialized).toContain("withdraw_manager_dusdc");
+    expect(serialized).toContain("0xrecipient");
+    expect(serialized).not.toContain("must-not-print");
+    expect(serialized).not.toContain("privateKey");
     expect(serialized).not.toContain("secretKey");
     expect(serialized).not.toContain("walletSecret");
     expect(serialized).not.toContain("x-agent-arena-internal-token");
