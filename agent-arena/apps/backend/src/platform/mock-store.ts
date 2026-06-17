@@ -6,7 +6,9 @@ import {
   type AgentProfile,
   type Competition,
   type ExecutionRecord,
+  type ExposureStatus,
   type IntentMarket,
+  type OwnerWithdrawalRecord,
   type PositionRef,
   type RiskDecision,
   type TradingWallet
@@ -36,9 +38,11 @@ export class PlatformMockStore {
   private readonly intentIdsByIdempotencyKey = new Map<string, string>();
   private readonly riskDecisions = new Map<string, RiskDecision>();
   private readonly executions = new Map<string, ExecutionRecord>();
+  private readonly ownerWithdrawals = new Map<string, OwnerWithdrawalRecord>();
   private nextAgentNumber = 1;
   private nextDraftNumber = 1;
   private nextWalletNumber = 1;
+  private nextOwnerWithdrawalNumber = 1;
 
   createPairingDraft(displayName: string): AgentPairingDraft {
     const id = `draft_${this.nextDraftNumber}`;
@@ -121,6 +125,20 @@ export class PlatformMockStore {
     return agent ? cloneAgent(agent) : undefined;
   }
 
+  updateAgentExposureStatus(agentId: string, exposureStatus: ExposureStatus): AgentProfile {
+    const agent = this.agents.get(agentId);
+    if (!agent) {
+      throw new Error("AGENT_NOT_FOUND");
+    }
+
+    const updated = {
+      ...agent,
+      exposureStatus
+    };
+    this.agents.set(agentId, cloneAgent(updated));
+    return cloneAgent(updated);
+  }
+
   bindTradingWallet(agentId: string, address: string): TradingWallet {
     const agent = this.agents.get(agentId);
     if (!agent) {
@@ -167,6 +185,11 @@ export class PlatformMockStore {
       return undefined;
     }
 
+    const wallet = this.tradingWallets.get(walletId);
+    return wallet ? cloneTradingWallet(wallet) : undefined;
+  }
+
+  getTradingWalletById(walletId: string): TradingWallet | undefined {
     const wallet = this.tradingWallets.get(walletId);
     return wallet ? cloneTradingWallet(wallet) : undefined;
   }
@@ -235,6 +258,21 @@ export class PlatformMockStore {
     return execution ? cloneExecution(execution) : undefined;
   }
 
+  recordOwnerWithdrawal(input: Omit<OwnerWithdrawalRecord, "id" | "createdAt">): OwnerWithdrawalRecord {
+    const withdrawal: OwnerWithdrawalRecord = {
+      ...input,
+      id: `owner_withdrawal_${this.nextOwnerWithdrawalNumber}`,
+      createdAt: "2026-06-15T00:00:00.000Z"
+    };
+    this.nextOwnerWithdrawalNumber += 1;
+    this.ownerWithdrawals.set(withdrawal.id, cloneOwnerWithdrawal(withdrawal));
+    return cloneOwnerWithdrawal(withdrawal);
+  }
+
+  listOwnerWithdrawals(): OwnerWithdrawalRecord[] {
+    return [...this.ownerWithdrawals.values()].map(cloneOwnerWithdrawal);
+  }
+
   saveRuntimeCredential(credential: AgentRuntimeCredential): void {
     this.credentialsByRuntimeToken.set(credential.token, cloneRuntimeCredential(credential));
   }
@@ -293,6 +331,10 @@ function cloneRiskDecision(riskDecision: RiskDecision): RiskDecision {
 
 function cloneExecution(execution: ExecutionRecord): ExecutionRecord {
   return { ...execution };
+}
+
+function cloneOwnerWithdrawal(withdrawal: OwnerWithdrawalRecord): OwnerWithdrawalRecord {
+  return { ...withdrawal };
 }
 
 function createIntentKey(intent: AgentIntent): string {

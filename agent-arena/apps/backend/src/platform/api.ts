@@ -16,11 +16,12 @@ import {
   sortLeaderboard,
   type LeaderboardEntry
 } from "./scoring";
-import type { AgentIntent, Competition, ExecutionRecord } from "./types";
+import type { AgentIntent, Competition, ExecutionRecord, OwnerWithdrawalStatus } from "./types";
 import { PlatformInputError } from "./validation";
 import {
   validateDisplayName,
-  validateNonEmptyString
+  validateNonEmptyString,
+  validateOwnerWithdrawalPayload
 } from "./validation";
 
 const defaultCompetitionId = "btc-15m-001";
@@ -33,7 +34,29 @@ const corsHeaders = {
   "access-control-allow-headers": `content-type, ${runtimeTokenHeader}`
 };
 
-export function createPlatformFetchHandler(store = new PlatformMockStore()) {
+export interface OwnerWithdrawalServiceInput {
+  ownerAddress: string;
+  agentId: string;
+  walletId: string;
+  walletAddress: string;
+  managerId: string;
+  amountRaw: string;
+  recipientAddress?: string;
+}
+
+export interface OwnerWithdrawalServiceResult {
+  status: OwnerWithdrawalStatus;
+  txDigest?: string | null;
+}
+
+export interface CreatePlatformFetchHandlerOptions {
+  ownerWithdrawalService?: (input: OwnerWithdrawalServiceInput) => Promise<OwnerWithdrawalServiceResult>;
+}
+
+export function createPlatformFetchHandler(
+  store = new PlatformMockStore(),
+  options: CreatePlatformFetchHandlerOptions = {}
+) {
   if (!store.getCompetition(defaultCompetitionId)) {
     store.seedCompetition();
   }
@@ -67,6 +90,7 @@ export function createPlatformFetchHandler(store = new PlatformMockStore()) {
             "POST /api/arena/intents",
             "GET /api/arena/intents/:id",
             "GET /api/arena/leaderboard?competitionId=...",
+            "POST /api/arena/owner/trading-wallets/:walletId/withdraw",
             "GET /api/arena/owner/agents/:id/replay"
           ]
         });
@@ -78,6 +102,16 @@ export function createPlatformFetchHandler(store = new PlatformMockStore()) {
 
       if (request.method === "POST" && matchesRoute(route, ["owner", "agents", "claim"])) {
         return await claimAgent(request, store);
+      }
+
+      if (
+        request.method === "POST" &&
+        route.length === 4 &&
+        route[0] === "owner" &&
+        route[1] === "trading-wallets" &&
+        route[3] === "withdraw"
+      ) {
+        return await withdrawTradingWallet(request, store, route[2], options.ownerWithdrawalService);
       }
 
       if (request.method === "POST" && matchesRoute(route, ["auth", "register"])) {
@@ -216,6 +250,67 @@ async function claimAgent(
       scopes: credential.scopes
     }
   }, 201);
+}
+
+async function withdrawTradingWallet(
+  request: Request,
+  store: PlatformMockStore,
+  walletId: string,
+  ownerWithdrawalService: CreatePlatformFetchHandlerOptions["ownerWithdrawalService"]
+): Promise<Response> {
+  const body = await readJsonObject(request);
+  if (typeof body.ownerAddress !== "string" || typeof body.signature !== "string") {
+    return errorResponse(401, "OWNER_AUTH_REQUIRED", "Owner wallet authentication is required");
+  }
+
+  const payload = validateOwnerWithdrawalPayload(body);
+  const wallet = store.getTradingWalletById(walletId);
+  if (!wallet) {
+    return errorResponse(404, "WALLET_NOT_FOUND", "Trading wallet not found");
+  }
+
+  const agent = store.getAgent(wallet.agentId);
+  if (!agent) {
+    return errorResponse(404, "AGENT_NOT_FOUND", "Agent not found");
+  }
+
+  if (payload.ownerAddress !== agent.ownerAddress) {
+    return errorResponse(403, "OWNER_MISMATCH", "Owner address does not match the trading wallet owner");
+  }
+
+  if (agent.exposureStatus !== "flat" && payload.closeFirst !== true) {
+    return errorResponse(
+      409,
+      "OPEN_EXPOSURE_EXISTS",
+      "Close or settle the Agent exposure before withdrawing manager DUSDC"
+    );
+  }
+
+  if (!ownerWithdrawalService) {
+    return errorResponse(503, "OWNER_WITHDRAWAL_SERVICE_REQUIRED", "Owner withdrawal service is not configured");
+  }
+
+  const result = await ownerWithdrawalService({
+    ownerAddress: payload.ownerAddress,
+    agentId: agent.id,
+    walletId: wallet.id,
+    walletAddress: wallet.address,
+    managerId: payload.managerId,
+    amountRaw: payload.amountRaw,
+    recipientAddress: payload.recipientAddress
+  });
+  const withdrawal = store.recordOwnerWithdrawal({
+    ownerAddress: payload.ownerAddress,
+    agentId: agent.id,
+    walletId: wallet.id,
+    managerId: payload.managerId,
+    amountRaw: payload.amountRaw,
+    recipientAddress: payload.recipientAddress,
+    txDigest: result.txDigest ?? null,
+    status: result.status
+  });
+
+  return jsonResponse({ withdrawal }, 201);
 }
 
 async function submitIntent(request: Request, store: PlatformMockStore): Promise<Response> {

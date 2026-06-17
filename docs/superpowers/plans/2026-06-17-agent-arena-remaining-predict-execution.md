@@ -526,7 +526,7 @@ Run with `--submit` and confirm wallet DUSDC balance increases or recipient rece
 - Modify `agent-arena/apps/frontend/src/components/platform/TradingWalletPanel.test.tsx`
 - Modify `agent-arena/specs/06-agent-participation-platform-spec.md`
 
-- [ ] **Step 1: Write failing owner-auth tests**
+- [x] **Step 1: Write failing owner-auth tests**
 
 Add tests proving:
 - owner withdrawal requires the owner wallet claim/auth path, not an Agent runtime token.
@@ -540,7 +540,7 @@ bun test agent-arena/apps/backend/src/platform/api.test.ts agent-arena/apps/back
 ```
 Expected: FAIL because owner withdrawal endpoints do not exist.
 
-- [ ] **Step 2: Add owner maintenance endpoint**
+- [x] **Step 2: Add owner maintenance endpoint**
 
 Add a route separate from `/api/arena/internal/*`, for example:
 ```text
@@ -548,11 +548,11 @@ POST /api/arena/owner/trading-wallets/:walletId/withdraw
 ```
 The route must call the withdrawal executor through an owner-authorized service method, not by forwarding raw internal execute bodies.
 
-- [ ] **Step 3: Add frontend owner-only status**
+- [x] **Step 3: Add frontend owner-only status**
 
 Show withdrawal state only in owner-maintenance UI. Do not expose a withdraw control in Agent Skill docs or runtime-token UI.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run:
 ```powershell

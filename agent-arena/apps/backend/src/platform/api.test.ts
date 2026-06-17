@@ -93,6 +93,145 @@ describe("Agent Arena platform API", () => {
     expect(body).not.toHaveProperty("apiKey");
   });
 
+  it("rejects owner wallet withdrawal when only an Agent runtime token is supplied", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch);
+
+    const response = await fetch(new Request(
+      `http://localhost/api/arena/owner/trading-wallets/${claimed.tradingWallet.id}/withdraw`,
+      {
+        method: "POST",
+        headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token },
+        body: JSON.stringify({
+          managerId: "0xmanager",
+          amountRaw: "1000"
+        })
+      }
+    ));
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "OWNER_AUTH_REQUIRED"
+      }
+    });
+  });
+
+  it("records owner wallet withdrawal requests through an owner-authorized service", async () => {
+    const store = new (await import("./mock-store")).PlatformMockStore();
+    const serviceCalls: unknown[] = [];
+    const fetch = createPlatformFetchHandler(store, {
+      ownerWithdrawalService: async (input) => {
+        serviceCalls.push(input);
+        return {
+          status: "submitted",
+          txDigest: "0xwithdrawdigest"
+        };
+      }
+    });
+    const claimed = await claimTestAgent(fetch);
+
+    const response = await fetch(new Request(
+      `http://localhost/api/arena/owner/trading-wallets/${claimed.tradingWallet.id}/withdraw`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ownerAddress: "0xowner",
+          signature: "0xsignedOwnerRequest",
+          managerId: "0xmanager",
+          amountRaw: "1000",
+          recipientAddress: "0x00000000000000000000000000000000000000000000000000000000000000ef"
+        })
+      }
+    ));
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      withdrawal: {
+        id: "owner_withdrawal_1",
+        ownerAddress: "0xowner",
+        walletId: claimed.tradingWallet.id,
+        managerId: "0xmanager",
+        amountRaw: "1000",
+        recipientAddress: "0x00000000000000000000000000000000000000000000000000000000000000ef",
+        txDigest: "0xwithdrawdigest",
+        status: "submitted"
+      }
+    });
+    expect(serviceCalls).toMatchObject([
+      {
+        walletId: claimed.tradingWallet.id,
+        agentId: claimed.agent.id,
+        managerId: "0xmanager",
+        amountRaw: "1000"
+      }
+    ]);
+    expect(store.listOwnerWithdrawals()).toMatchObject([
+      {
+        id: "owner_withdrawal_1",
+        txDigest: "0xwithdrawdigest"
+      }
+    ]);
+  });
+
+  it("rejects owner wallet withdrawal while exposure is live unless closeFirst is explicit", async () => {
+    const store = new (await import("./mock-store")).PlatformMockStore();
+    const fetch = createPlatformFetchHandler(store, {
+      ownerWithdrawalService: async () => ({
+        status: "submitted",
+        txDigest: "0xwithdrawdigest"
+      })
+    });
+    const claimed = await claimTestAgent(fetch);
+    store.updateAgentExposureStatus(claimed.agent.id, "directional");
+
+    const blocked = await fetch(new Request(
+      `http://localhost/api/arena/owner/trading-wallets/${claimed.tradingWallet.id}/withdraw`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ownerAddress: "0xowner",
+          signature: "0xsignedOwnerRequest",
+          managerId: "0xmanager",
+          amountRaw: "1000"
+        })
+      }
+    ));
+
+    expect(blocked.status).toBe(409);
+    await expect(blocked.json()).resolves.toMatchObject({
+      error: {
+        code: "OPEN_EXPOSURE_EXISTS"
+      }
+    });
+  });
+
+  it("rejects owner wallet withdrawal with an invalid recipient address", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch);
+
+    const response = await fetch(new Request(
+      `http://localhost/api/arena/owner/trading-wallets/${claimed.tradingWallet.id}/withdraw`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ownerAddress: "0xowner",
+          signature: "0xsignedOwnerRequest",
+          managerId: "0xmanager",
+          amountRaw: "1000",
+          recipientAddress: "0xbad"
+        })
+      }
+    ));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "INVALID_INPUT"
+      }
+    });
+  });
+
   it("submits an authenticated intent with the runtime token", async () => {
     const fetch = createPlatformFetchHandler();
     const claimed = await claimTestAgent(fetch);

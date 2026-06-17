@@ -1,13 +1,14 @@
 import { Copy, ShieldCheck, Wallet } from "lucide-react";
 import type { ReactNode } from "react";
-import type { AgentProfile, TradingWallet } from "../../features/platform/types";
+import type { AgentProfile, OwnerWithdrawalRecord, TradingWallet } from "../../features/platform/types";
 
 interface TradingWalletPanelProps {
   agent: AgentProfile;
   tradingWallet: TradingWallet;
+  ownerWithdrawal?: OwnerWithdrawalRecord;
 }
 
-export function TradingWalletPanel({ agent, tradingWallet }: TradingWalletPanelProps) {
+export function TradingWalletPanel({ agent, ownerWithdrawal, tradingWallet }: TradingWalletPanelProps) {
   return (
     <section aria-label="Testnet trading wallet" className="paper-card-sm p-4">
       <div className="flex items-start justify-between gap-3">
@@ -42,6 +43,25 @@ export function TradingWalletPanel({ agent, tradingWallet }: TradingWalletPanelP
           value="The platform signs only approved DeepBook Predict operations for this agent."
         />
       </div>
+
+      {ownerWithdrawal ? (
+        <div className="paper-inset mt-3 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <InfoRow
+              icon={<ShieldCheck aria-hidden="true" size={16} />}
+              label="Owner withdrawal"
+              value={ownerWithdrawal.txDigest ?? ownerWithdrawal.recipientAddress ?? tradingWallet.address}
+            />
+            <span className={`paper-chip shrink-0 px-2 py-1 ${ownerWithdrawal.status === "failed" ? "paper-chip-red" : "paper-chip-green"}`}>
+              {ownerWithdrawal.status}
+            </span>
+          </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <Metric label="Amount raw" value={ownerWithdrawal.amountRaw} />
+            <Metric label="Recipient" value={ownerWithdrawal.recipientAddress ?? tradingWallet.address} />
+          </div>
+        </div>
+      ) : null}
 
       <button className="paper-button paper-button-primary mt-3 px-3 py-2 font-display text-xs font-black uppercase" type="button">
         Refresh balances

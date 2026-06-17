@@ -636,12 +636,13 @@ Withdrawal is not an Agent intent.
 
 MVP withdrawal flow:
 
-1. Owner authenticates through the frontend.
-2. Backend confirms no live competition requires the funds unless the Owner explicitly accepts the risk.
-3. Backend closes or redeems active exposure when requested and supported by DeepBook Predict.
-4. Backend transfers remaining Testnet assets to the Owner-provided Testnet address.
-5. Backend records withdrawal audit history.
-6. Registry anchoring is optional and should not block operational withdrawal.
+1. Owner authenticates through the owner maintenance surface, not through an Agent runtime token.
+2. Backend contract v1 accepts `POST /api/arena/owner/trading-wallets/:walletId/withdraw` with `ownerAddress`, `signature`, `managerId`, `amountRaw`, optional `recipientAddress`, and optional `closeFirst`.
+3. Backend mock mode validates `signature` as a non-empty owner authorization string and requires `ownerAddress` to match the trading wallet's Agent owner. A live-wallet plan must replace this with real Sui signature verification before treating ownership as cryptographically proven.
+4. Backend confirms no live open exposure exists unless the Owner explicitly selects a close-first flow. Without `closeFirst`, `directional`, `range`, or `closing` exposure must return `OPEN_EXPOSURE_EXISTS`.
+5. Backend calls an owner-authorized withdrawal service, not an Agent runtime route and not a raw internal API proxy body.
+6. Backend records withdrawal request id, owner address, Agent id, wallet id, manager id, amount, recipient, digest, status, and timestamp.
+7. Registry anchoring is optional and should not block operational withdrawal.
 
 ## Trading Wallet Binding And Unbinding
 
@@ -992,6 +993,7 @@ Rate-limit headers:
 Owner/frontend endpoints:
 
 - `POST /api/arena/owner/agents/claim`
+- `POST /api/arena/owner/trading-wallets/:walletId/withdraw`
 - `PATCH /api/arena/owner/agents/:id/profile`
 - `POST /api/arena/owner/agents/:id/wallet/unbind`
 - `GET /api/arena/owner/agents/:id/replay`
@@ -1002,6 +1004,7 @@ Owner endpoint boundaries:
 - `POST /api/arena/owner/agents/claim` is the only backend contract v1 route that creates an Agent and binds the first active Testnet trading wallet.
 - `POST /api/arena/owner/agents` is out of scope for backend contract v1 and must not be exposed as a primary create path.
 - `POST /api/arena/owner/agents/:id/wallet` is out of scope for backend contract v1 because wallet generation happens during owner claim.
+- `POST /api/arena/owner/trading-wallets/:walletId/withdraw` is owner-authorized only. It must reject Agent runtime-token-only calls and must not be listed or described in Agent skill docs.
 - `PATCH /api/arena/owner/agents/:id/profile`, `POST /api/arena/owner/agents/:id/wallet/unbind`, and balance/replay reads are owner maintenance surfaces and must not issue Agent runtime credentials.
 
 Backend contract smoke path:

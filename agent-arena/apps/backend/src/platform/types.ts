@@ -13,6 +13,7 @@ export type AgentAction = (typeof agentActions)[number];
 export type RoundStatus = "pre_open" | "live" | "expired" | "settled";
 export type IntentStatus = "accepted" | "rejected" | "executed" | "partial";
 export type ExecutionStatus = "queued" | "signed" | "submitted" | "confirmed" | "failed" | "partial";
+export type OwnerWithdrawalStatus = "dry_run_ok" | "submitted" | "failed";
 export type PositionKind = "directional" | "range";
 export type AgentRuntimeStatus = "waiting" | "active" | "cooldown" | "rejected" | "offline";
 export type ExposureStatus = "flat" | "directional" | "range" | "closing" | "settled";
@@ -67,6 +68,19 @@ export interface TradingWallet {
   testnetSuiBalance: string;
   quoteBalance: string;
   predictManagerStatus: "missing" | "ready";
+  createdAt: string;
+}
+
+export interface OwnerWithdrawalRecord {
+  id: string;
+  ownerAddress: string;
+  agentId: string;
+  walletId: string;
+  managerId: string;
+  amountRaw: string;
+  recipientAddress?: string;
+  txDigest: string | null;
+  status: OwnerWithdrawalStatus;
   createdAt: string;
 }
 

@@ -8,6 +8,8 @@ import {
 } from "./types";
 
 const decimalStringPattern = /^\d+(\.\d+)?$/;
+const rawIntegerStringPattern = /^\d+$/;
+const suiAddressPattern = /^0x[0-9a-fA-F]{64}$/;
 const twitterHandlePattern = /^[A-Za-z0-9_]+$/;
 
 export class PlatformInputError extends Error {
@@ -35,6 +37,15 @@ export interface ValidatedIntentPayload {
   confidence: number;
   reason: string;
   createdAt: string;
+}
+
+export interface ValidatedOwnerWithdrawalPayload {
+  ownerAddress: string;
+  signature: string;
+  managerId: string;
+  amountRaw: string;
+  recipientAddress?: string;
+  closeFirst: boolean;
 }
 
 export function normalizeTwitterHandle(value: string | null | undefined): NormalizedTwitterHandle {
@@ -72,6 +83,46 @@ export function validateDecimalString(value: unknown, field: string): string {
   }
 
   return value;
+}
+
+export function validateRawIntegerString(value: unknown, field: string): string {
+  if (typeof value !== "string" || !rawIntegerStringPattern.test(value) || !/[1-9]/.test(value)) {
+    throw new PlatformInputError(`${field} must be a positive raw integer string`);
+  }
+
+  return value;
+}
+
+export function validateSuiAddress(value: unknown, field: string): string {
+  const address = validateNonEmptyString(value, field).trim();
+  if (!suiAddressPattern.test(address)) {
+    throw new PlatformInputError(`${field} must be a 32-byte Sui address`);
+  }
+
+  return address;
+}
+
+export function validateOwnerWithdrawalPayload(payload: unknown): ValidatedOwnerWithdrawalPayload {
+  const record = asRecord(payload, "payload");
+  rejectUnknownFields(record, [
+    "ownerAddress",
+    "signature",
+    "managerId",
+    "amountRaw",
+    "recipientAddress",
+    "closeFirst"
+  ], "payload");
+
+  return {
+    ownerAddress: validateNonEmptyString(record.ownerAddress, "ownerAddress").trim(),
+    signature: validateNonEmptyString(record.signature, "signature").trim(),
+    managerId: validateNonEmptyString(record.managerId, "managerId").trim(),
+    amountRaw: validateRawIntegerString(record.amountRaw, "amountRaw"),
+    recipientAddress: record.recipientAddress === undefined
+      ? undefined
+      : validateSuiAddress(record.recipientAddress, "recipientAddress"),
+    closeFirst: record.closeFirst === undefined ? false : validateBoolean(record.closeFirst, "closeFirst")
+  };
 }
 
 export function validateIntentPayload(payload: unknown): ValidatedIntentPayload {

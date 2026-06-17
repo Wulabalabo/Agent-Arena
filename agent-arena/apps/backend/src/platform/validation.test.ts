@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   normalizeTwitterHandle,
+  validateOwnerWithdrawalPayload,
   validateDecimalString,
   validateDisplayName,
   validateIntentPayload
@@ -32,6 +33,32 @@ describe("platform validation", () => {
     expect(validateDisplayName("  Trend Ranger  ")).toBe("Trend Ranger");
     expect(() => validateDisplayName("")).toThrow("displayName must be a non-empty string");
     expect(() => validateDisplayName("x".repeat(81))).toThrow("displayName must be at most 80 characters");
+  });
+
+  it("validates owner withdrawal payloads and Sui recipient addresses", () => {
+    expect(validateOwnerWithdrawalPayload({
+      ownerAddress: "0xowner",
+      signature: "0xsignedOwnerRequest",
+      managerId: "0xmanager",
+      amountRaw: "1000",
+      recipientAddress: "0x00000000000000000000000000000000000000000000000000000000000000ef",
+      closeFirst: true
+    })).toEqual({
+      ownerAddress: "0xowner",
+      signature: "0xsignedOwnerRequest",
+      managerId: "0xmanager",
+      amountRaw: "1000",
+      recipientAddress: "0x00000000000000000000000000000000000000000000000000000000000000ef",
+      closeFirst: true
+    });
+
+    expect(() => validateOwnerWithdrawalPayload({
+      ownerAddress: "0xowner",
+      signature: "0xsignedOwnerRequest",
+      managerId: "0xmanager",
+      amountRaw: "1000",
+      recipientAddress: "0xbad"
+    })).toThrow("recipientAddress must be a 32-byte Sui address");
   });
 
   it("validates open_directional intent requirements", () => {
