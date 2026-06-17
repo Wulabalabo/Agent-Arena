@@ -857,13 +857,14 @@ The first live test flow is:
 3. Operator transfers Testnet SUI and DUSDC to that address.
 4. Operator calls `GET /api/arena/internal/wallets/:walletId/balances`.
 5. Backend confirms funding status.
-6. Operator calls `POST /api/arena/internal/predict/setup`.
-7. Backend discovers or creates the manager, verifies owner, and persists the binding.
-8. Backend deposits DUSDC only after a confirmed manager object exists.
-9. Operator runs one small mint.
-10. Operator runs one partial redeem.
-11. Operator runs one full close or settled claim when available.
-12. Operator runs one range mint and one range redeem.
+6. Operator calls `POST /api/arena/internal/predict/setup` with `dryRunOnly=true` first.
+7. Backend dry-runs `predict::create_manager` when no manager exists and blocks deposit until a real manager id exists.
+8. Operator explicitly enables Testnet submit and calls setup with `dryRunOnly=false`.
+9. Backend creates the manager first, confirms the manager id from events or object changes, and only then deposits DUSDC.
+10. Operator runs one small mint.
+11. Operator runs one partial redeem.
+12. Operator runs one full close or settled claim when available.
+13. Operator runs one range mint and one range redeem.
 
 The API should return a clear address and funding instruction. It should never ask the operator to paste private key material into chat or frontend.
 
@@ -880,7 +881,9 @@ Suggested modes:
 ```text
 --create-wallet
 --check-balances --wallet-id <id>
---setup --wallet-id <id> --deposit-dusdc 5
+--setup --wallet-id <id> --deposit-dusdc-raw 5000000
+--setup --wallet-id <id> --deposit-dusdc-raw 0 --submit
+--setup --wallet-id <id> --manager-id <manager-id> --deposit-dusdc-raw 5000000 --submit
 --mint-up --wallet-id <id> --quantity-raw 100000 --max-cost-raw 1000000
 --redeem-last --wallet-id <id> --quantity-raw 50000 --min-proceeds-raw 1
 --close-last --wallet-id <id> --min-proceeds-raw 1
@@ -889,6 +892,8 @@ Suggested modes:
 ```
 
 The script may call the internal HTTP API or import backend modules directly. It must redact private keys in output.
+
+Real submit must remain opt-in. `--submit` is not enough by itself; the local environment must also set `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true`. Without both gates, setup returns `PREDICT_SUBMIT_DISABLED`.
 
 ## Error Codes
 

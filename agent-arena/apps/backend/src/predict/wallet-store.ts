@@ -34,6 +34,7 @@ export interface MemoryWalletStore {
   getWallet(walletId: string): Promise<InternalTradingWallet | null>;
   listWallets(): Promise<InternalTradingWallet[]>;
   getBalances(walletId: string): Promise<InternalWalletBalances>;
+  getSigner(walletId: string): Promise<Ed25519Keypair>;
 }
 
 interface JsonWalletStoreFile {
@@ -116,6 +117,15 @@ export function createMemoryWalletStore(options: CreateMemoryWalletStoreOptions)
         quoteAssetType,
         dusdcBalanceRaw
       };
+    },
+
+    async getSigner(walletId) {
+      const record = records.get(walletId);
+      if (!record) {
+        throw new Error("WALLET_NOT_FOUND");
+      }
+
+      return restoreSigner(record, walletSecret);
     }
   };
 }
@@ -198,6 +208,16 @@ export function createJsonWalletStore(options: CreateJsonWalletStoreOptions): Me
         quoteAssetType,
         dusdcBalanceRaw
       };
+    },
+
+    async getSigner(walletId) {
+      const file = await loadWalletFile(options.storePath);
+      const record = file.records.find((candidate) => candidate.wallet.id === walletId);
+      if (!record) {
+        throw new Error("WALLET_NOT_FOUND");
+      }
+
+      return restoreSigner(record, walletSecret);
     }
   };
 }
@@ -208,6 +228,37 @@ function copyWallet(wallet: InternalTradingWallet): InternalTradingWallet {
 
 function sealPrivateKey(privateKey: string, walletSecret: string): string {
   return Buffer.from(`${walletSecret}:${privateKey}`, "utf8").toString("base64");
+}
+
+function restoreSigner(record: InternalWalletRecord, walletSecret: string): Ed25519Keypair {
+  const privateKey = unsealPrivateKey(record.encryptedPrivateKey, walletSecret);
+  const signer = Ed25519Keypair.fromSecretKey(privateKey);
+  if (signer.toSuiAddress().toLowerCase() !== record.wallet.address.toLowerCase()) {
+    throw new Error("WALLET_SIGNER_ADDRESS_MISMATCH");
+  }
+
+  return signer;
+}
+
+function unsealPrivateKey(encryptedPrivateKey: string, walletSecret: string): string {
+  let decoded: string;
+  try {
+    decoded = Buffer.from(encryptedPrivateKey, "base64").toString("utf8");
+  } catch {
+    throw new Error("INVALID_WALLET_PRIVATE_KEY");
+  }
+
+  const prefix = `${walletSecret}:`;
+  if (!decoded.startsWith(prefix)) {
+    throw new Error("WALLET_SECRET_MISMATCH");
+  }
+
+  const privateKey = decoded.slice(prefix.length);
+  if (!privateKey) {
+    throw new Error("INVALID_WALLET_PRIVATE_KEY");
+  }
+
+  return privateKey;
 }
 
 async function loadWalletFile(storePath: string): Promise<JsonWalletStoreFile> {

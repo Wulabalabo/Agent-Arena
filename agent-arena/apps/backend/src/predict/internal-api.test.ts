@@ -286,6 +286,222 @@ describe("createInternalPredictFetchHandler", () => {
     });
   });
 
+  it("rejects real setup submit when Predict submit is not explicitly enabled", async () => {
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      quoteAssetType,
+      enablePredictSubmit: false
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/setup", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        depositDusdcRaw: "5000000",
+        dryRunOnly: false
+      })
+    }));
+
+    expect(response.status).toBe(501);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "PREDICT_SUBMIT_DISABLED"
+      },
+      setupPhases: {
+        managerDiscovery: "missing",
+        createManager: "submit_required",
+        depositStatus: "blocked_until_manager_exists"
+      }
+    });
+  });
+
+  it("submits create_manager through the setup executor when real submit is enabled", async () => {
+    const submittedWallets: string[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      quoteAssetType,
+      enablePredictSubmit: true,
+      setupExecutor: {
+        async submitCreateManager(input) {
+          submittedWallets.push(input.wallet.id);
+          return {
+            operation: "create_manager",
+            mode: "submit",
+            status: "submitted",
+            txDigest: "digest-create",
+            managerId: "0xmanager"
+          };
+        },
+        async submitDeposit(input) {
+          return {
+            operation: "deposit_dusdc",
+            mode: "submit",
+            status: "submitted",
+            txDigest: "digest-deposit",
+            managerId: input.managerId,
+            amountRaw: input.amountRaw
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/setup", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        depositDusdcRaw: "5000000",
+        dryRunOnly: false
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      manager: {
+        id: "0xmanager",
+        status: "ready",
+        source: "submitted"
+      },
+      setupPhases: {
+        createManager: "submitted",
+        depositStatus: "submitted"
+      },
+      transactions: [
+        {
+          operation: "create_manager",
+          status: "submitted",
+          txDigest: "digest-create",
+          managerId: "0xmanager"
+        },
+        {
+          operation: "deposit_dusdc",
+          status: "submitted",
+          txDigest: "digest-deposit",
+          managerId: "0xmanager",
+          amountRaw: "5000000"
+        }
+      ]
+    });
+    expect(submittedWallets).toEqual([created.wallet.id]);
+  });
+
+  it("reports deposit as not_requested when only create_manager is submitted", async () => {
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      quoteAssetType,
+      enablePredictSubmit: true,
+      setupExecutor: {
+        async submitCreateManager() {
+          return {
+            operation: "create_manager",
+            mode: "submit",
+            status: "submitted",
+            txDigest: "digest-create",
+            managerId: "0xmanager"
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/setup", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        depositDusdcRaw: "0",
+        dryRunOnly: false
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      setupPhases: {
+        createManager: "submitted",
+        depositStatus: "not_requested"
+      },
+      transactions: [
+        {
+          operation: "create_manager",
+          status: "submitted"
+        }
+      ]
+    });
+  });
+
+  it("submits DUSDC deposit only when a verified manager already exists", async () => {
+    const deposits: Array<{ managerId: string; amountRaw: string }> = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      quoteAssetType,
+      enablePredictSubmit: true,
+      resolveManager: async (wallet) => ({
+        managerId: "0xmanager",
+        ownerAddress: wallet.address,
+        address: wallet.address,
+        source: "local"
+      }),
+      setupExecutor: {
+        async submitDeposit(input) {
+          deposits.push({
+            managerId: input.managerId,
+            amountRaw: input.amountRaw
+          });
+          return {
+            operation: "deposit_dusdc",
+            mode: "submit",
+            status: "submitted",
+            txDigest: "digest-deposit",
+            managerId: input.managerId,
+            quoteCoinObjectId: "0xcoin",
+            amountRaw: input.amountRaw
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/setup", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        depositDusdcRaw: "5000000",
+        dryRunOnly: false
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      manager: {
+        id: "0xmanager",
+        status: "ready",
+        source: "local"
+      },
+      setupPhases: {
+        createManager: "skip",
+        depositStatus: "submitted"
+      },
+      transactions: [
+        {
+          operation: "deposit_dusdc",
+          status: "submitted",
+          txDigest: "digest-deposit",
+          managerId: "0xmanager",
+          amountRaw: "5000000"
+        }
+      ]
+    });
+    expect(deposits).toEqual([{ managerId: "0xmanager", amountRaw: "5000000" }]);
+  });
+
   it("previews a directional operation with a typed operation plan and no private material", async () => {
     const fetch = createInternalPredictFetchHandler({
       internalToken,

@@ -23,6 +23,7 @@ export interface PredictConfig {
   priceDecimals: 9;
   internalToken: string;
   walletSecret: string;
+  enablePredictSubmit: boolean;
 }
 
 export type InternalWalletBindingMode = "internal_probe" | "claimed_agent";

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { buildPredictOperationPlan } from "./transactions";
+import { buildPredictOperationPlan, buildPredictTransactionFromPlan } from "./transactions";
+
+const predictPackageId = "0x00000000000000000000000000000000000000000000000000000000000000f5";
+const predictObjectId = "0x00000000000000000000000000000000000000000000000000000000000000aa";
+const managerId = "0x00000000000000000000000000000000000000000000000000000000000000bb";
+const quoteCoinObjectId = "0x00000000000000000000000000000000000000000000000000000000000000cc";
+const quoteAssetType = "0xquote::dusdc::DUSDC";
+const clockObjectId = "0x6";
 
 describe("buildPredictOperationPlan", () => {
   it("builds a directional preview with the whitelisted trade amount target", () => {
@@ -218,5 +225,74 @@ describe("buildPredictOperationPlan", () => {
         } as never)
       ).toThrow("ARBITRARY_MOVE_TARGET_NOT_ALLOWED");
     }
+  });
+
+  it("builds a create_manager PTB against the configured Predict package", () => {
+    const plan = buildPredictOperationPlan({
+      operation: "create_manager"
+    });
+    const tx = buildPredictTransactionFromPlan(plan, {
+      predictPackageId,
+      predictObjectId,
+      quoteAssetType,
+      clockObjectId
+    });
+    const data = tx.getData() as { commands: Array<Record<string, any>> };
+
+    expect(data.commands).toHaveLength(1);
+    expect(data.commands[0]!.MoveCall).toMatchObject({
+      package: predictPackageId,
+      module: "predict",
+      function: "create_manager",
+      typeArguments: [],
+      arguments: []
+    });
+  });
+
+  it("builds a DUSDC deposit PTB by splitting a funded quote coin and depositing into manager", () => {
+    const plan = buildPredictOperationPlan({
+      operation: "deposit_dusdc",
+      quantityRaw: "5000000",
+      managerId,
+      quoteCoinObjectId
+    });
+    const tx = buildPredictTransactionFromPlan(plan, {
+      predictPackageId,
+      predictObjectId,
+      quoteAssetType,
+      clockObjectId
+    });
+    const data = tx.getData() as { commands: Array<Record<string, any>> };
+
+    expect(data.commands).toHaveLength(2);
+    expect(data.commands[0]!.$kind).toBe("SplitCoins");
+    expect(data.commands[1]!.MoveCall).toMatchObject({
+      package: predictPackageId,
+      module: "predict_manager",
+      function: "deposit",
+      typeArguments: [quoteAssetType]
+    });
+  });
+
+  it("rejects building PTBs for trading operations until live setup is proven", () => {
+    const plan = buildPredictOperationPlan({
+      operation: "mint_directional",
+      direction: "up",
+      strikeRaw: "65000000000000",
+      expiryMs: "1780000000000",
+      quantityRaw: "1000000",
+      maxCostRaw: "1100000",
+      managerId,
+      oracleId: "0x00000000000000000000000000000000000000000000000000000000000000dd"
+    });
+
+    expect(() =>
+      buildPredictTransactionFromPlan(plan, {
+        predictPackageId,
+        predictObjectId,
+        quoteAssetType,
+        clockObjectId
+      })
+    ).toThrow("PREDICT_PTB_UNSUPPORTED_OPERATION");
   });
 });

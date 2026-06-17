@@ -1,3 +1,4 @@
+import { Transaction } from "@mysten/sui/transactions";
 import { assertRawIntegerString, compareRawIntegers } from "./guardrails";
 
 export type PredictOperation =
@@ -48,6 +49,13 @@ export interface PredictOperationPlan {
   quantityRaw?: string;
   maxCostRaw?: string;
   minProceedsRaw?: string;
+}
+
+export interface BuildPredictTransactionOptions {
+  predictPackageId: string;
+  predictObjectId: string;
+  quoteAssetType: string;
+  clockObjectId: string;
 }
 
 const predictOperations = new Set<string>([
@@ -132,8 +140,45 @@ export function buildPredictOperationPlan(input: BuildPredictOperationPlanInput)
   }
 }
 
-export function buildPredictTransactionFromPlan(_plan: PredictOperationPlan): never {
-  throw new Error("PREDICT_PTB_BUILDER_NOT_WIRED");
+export function buildPredictTransactionFromPlan(
+  plan: PredictOperationPlan,
+  options: BuildPredictTransactionOptions
+): Transaction {
+  const tx = new Transaction();
+
+  switch (plan.operation) {
+    case "create_manager":
+      tx.moveCall({
+        target: `${options.predictPackageId}::predict::create_manager`,
+        arguments: []
+      });
+      return tx;
+
+    case "deposit_dusdc": {
+      const managerId = requiredObjectId(plan, "managerId");
+      const amountRaw = assertRawIntegerString(plan.quantityRaw, "quantityRaw");
+      const quoteCoinObjectId = plan.objectIds.quoteCoinObjectId;
+      const [depositCoin] = quoteCoinObjectId
+        ? tx.splitCoins(tx.object(quoteCoinObjectId), [amountRaw])
+        : [tx.coin({
+          type: options.quoteAssetType,
+          balance: BigInt(amountRaw)
+        })];
+
+      tx.moveCall({
+        target: `${options.predictPackageId}::predict_manager::deposit`,
+        typeArguments: [options.quoteAssetType],
+        arguments: [
+          tx.object(managerId),
+          depositCoin
+        ]
+      });
+      return tx;
+    }
+
+    default:
+      throw new Error("PREDICT_PTB_UNSUPPORTED_OPERATION");
+  }
 }
 
 function buildDirectionalPlan(
@@ -253,4 +298,13 @@ function collectObjectIds(input: BuildPredictOperationPlanInput): Record<string,
   }
 
   return objectIds;
+}
+
+function requiredObjectId(plan: PredictOperationPlan, key: string): string {
+  const value = plan.objectIds[key];
+  if (!value) {
+    throw new Error(`MISSING_${key.toUpperCase()}`);
+  }
+
+  return value;
 }

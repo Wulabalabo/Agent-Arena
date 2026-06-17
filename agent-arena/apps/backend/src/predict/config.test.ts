@@ -30,8 +30,26 @@ describe("createPredictConfig", () => {
       quoteDecimals: 6,
       priceDecimals: 9,
       internalToken: validEnv.AGENT_ARENA_INTERNAL_TOKEN,
-      walletSecret: validEnv.AGENT_ARENA_WALLET_SECRET
+      walletSecret: validEnv.AGENT_ARENA_WALLET_SECRET,
+      enablePredictSubmit: false
     });
+  });
+
+  it("requires an explicit opt-in flag before real Predict submit is enabled", () => {
+    expect(createPredictConfig({
+      ...validEnv,
+      AGENT_ARENA_ENABLE_PREDICT_SUBMIT: "true"
+    }).enablePredictSubmit).toBe(true);
+
+    expect(createPredictConfig({
+      ...validEnv,
+      AGENT_ARENA_ENABLE_PREDICT_SUBMIT: "TRUE"
+    }).enablePredictSubmit).toBe(true);
+
+    expect(createPredictConfig({
+      ...validEnv,
+      AGENT_ARENA_ENABLE_PREDICT_SUBMIT: "false"
+    }).enablePredictSubmit).toBe(false);
   });
 
   it("rejects non-Testnet network values", () => {

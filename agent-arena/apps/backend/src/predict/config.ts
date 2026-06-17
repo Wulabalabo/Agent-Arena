@@ -35,7 +35,8 @@ export function createPredictConfig(env: Env = Bun.env): PredictConfig {
     quoteDecimals: parseRequiredDecimals(env, "AGENT_ARENA_QUOTE_DECIMALS", 6),
     priceDecimals: parseRequiredDecimals(env, "AGENT_ARENA_PRICE_DECIMALS", 9),
     internalToken: required(env, "AGENT_ARENA_INTERNAL_TOKEN"),
-    walletSecret: required(env, "AGENT_ARENA_WALLET_SECRET")
+    walletSecret: required(env, "AGENT_ARENA_WALLET_SECRET"),
+    enablePredictSubmit: env.AGENT_ARENA_ENABLE_PREDICT_SUBMIT?.trim().toLowerCase() === "true"
   };
 }
 

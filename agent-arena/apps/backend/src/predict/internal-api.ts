@@ -6,6 +6,7 @@ import { createPredictConfig } from "./config";
 import { PredictGuardrailError, assertRawIntegerString, evaluatePreSubmitGuardrails } from "./guardrails";
 import { assertInternalRequest } from "./internal-auth";
 import { type DiscoveredPredictManager, PredictManagerError, planManagerSetup } from "./manager";
+import type { PredictSetupExecutor } from "./setup-executor";
 import {
   buildPredictOperationPlan,
   type BuildPredictOperationPlanInput,
@@ -28,6 +29,8 @@ interface InternalPredictHandlerOptions {
   balanceReader?: CoinBalanceReader;
   quoteAssetType?: string;
   resolveManager?: (wallet: InternalTradingWallet) => Promise<DiscoveredPredictManager | null>;
+  setupExecutor?: PredictSetupExecutor;
+  enablePredictSubmit?: boolean;
   env?: Record<string, string | undefined>;
 }
 
@@ -38,10 +41,13 @@ export function createInternalPredictFetchHandler({
   balanceReader,
   quoteAssetType,
   resolveManager,
+  setupExecutor,
+  enablePredictSubmit,
   env
 }: InternalPredictHandlerOptions) {
   let resolvedWalletStore = walletStore;
   let resolvedQuoteAssetType = quoteAssetType;
+  let resolvedEnablePredictSubmit = enablePredictSubmit;
 
   return async function handleInternalPredictRequest(request: Request): Promise<Response> {
     try {
@@ -64,7 +70,14 @@ export function createInternalPredictFetchHandler({
       }
 
       if (pathname === "/api/arena/internal/predict/setup" && request.method === "POST") {
-        return await handleSetup(request, getWalletStore().walletStore, resolveManager);
+        const resolved = getWalletStore();
+        return await handleSetup(
+          request,
+          resolved.walletStore,
+          resolveManager,
+          setupExecutor,
+          resolved.enablePredictSubmit
+        );
       }
 
       if (pathname === "/api/arena/internal/predict/preview" && request.method === "POST") {
@@ -90,7 +103,11 @@ export function createInternalPredictFetchHandler({
     }
   };
 
-  function getWalletStore(): { walletStore: MemoryWalletStore; quoteAssetType: string } {
+  function getWalletStore(): {
+    walletStore: MemoryWalletStore;
+    quoteAssetType: string;
+    enablePredictSubmit: boolean;
+  } {
     if (resolvedWalletStore) {
       if (!resolvedQuoteAssetType) {
         throw new InternalApiError(
@@ -102,13 +119,15 @@ export function createInternalPredictFetchHandler({
 
       return {
         walletStore: resolvedWalletStore,
-        quoteAssetType: resolvedQuoteAssetType
+        quoteAssetType: resolvedQuoteAssetType,
+        enablePredictSubmit: resolvedEnablePredictSubmit === true
       };
     }
 
     try {
       const config = createPredictConfig(env);
       resolvedQuoteAssetType = config.quoteAssetType;
+      resolvedEnablePredictSubmit = config.enablePredictSubmit;
       resolvedWalletStore = createMemoryWalletStore({
         walletSecret: config.walletSecret,
         balanceReader,
@@ -117,7 +136,8 @@ export function createInternalPredictFetchHandler({
 
       return {
         walletStore: resolvedWalletStore,
-        quoteAssetType: resolvedQuoteAssetType
+        quoteAssetType: resolvedQuoteAssetType,
+        enablePredictSubmit: resolvedEnablePredictSubmit === true
       };
     } catch (error) {
       const suffix = error instanceof Error ? `: ${error.message}` : "";
@@ -173,38 +193,146 @@ async function handleGetBalances(
 async function handleSetup(
   request: Request,
   walletStore: MemoryWalletStore,
-  resolveManager: ((wallet: InternalTradingWallet) => Promise<DiscoveredPredictManager | null>) | undefined
+  resolveManager: ((wallet: InternalTradingWallet) => Promise<DiscoveredPredictManager | null>) | undefined,
+  setupExecutor: PredictSetupExecutor | undefined,
+  enablePredictSubmit: boolean
 ): Promise<Response> {
   const body = await parseJsonBody(request);
   const wallet = await loadWallet(walletStore, requiredString(body, "walletId"));
   const manager = resolveManager ? await resolveManager(wallet) : null;
+  const dryRunOnly = body.dryRunOnly === true;
   const setupPlan = planManagerSetup({
     manager,
-    dryRunOnly: body.dryRunOnly === true,
+    dryRunOnly,
     depositDusdcRaw: optionalRawString(body, "depositDusdcRaw")
   });
+  const baseResponse = buildSetupBaseResponse(wallet, manager, setupPlan);
+
+  if (setupPlan.createManager === "dry_run_only") {
+    const transactions = setupExecutor?.dryRunCreateManager
+      ? [await setupExecutor.dryRunCreateManager({ wallet })]
+      : [];
+
+    return jsonResponse({
+      ...baseResponse,
+      transactions
+    });
+  }
+
+  if (setupPlan.createManager === "submit_required") {
+    if (!enablePredictSubmit) {
+      return errorResponseWithDetails(
+        501,
+        "PREDICT_SUBMIT_DISABLED",
+        "Real Predict setup submit is disabled. Set AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true and pass an explicit submit request.",
+        baseResponse
+      );
+    }
+
+    if (!setupExecutor?.submitCreateManager) {
+      throw new InternalApiError(
+        503,
+        "PREDICT_SETUP_EXECUTOR_REQUIRED",
+        "Predict setup executor is required before submitting create_manager"
+      );
+    }
+
+    const transaction = await setupExecutor.submitCreateManager({ wallet });
+    if (!transaction.managerId) {
+      throw new InternalApiError(
+        502,
+        "PREDICT_MANAGER_ID_MISSING",
+        "Predict create_manager submitted but the manager id was not returned"
+      );
+    }
+    const transactions = [transaction];
+    let depositStatus = "not_requested";
+
+    if (setupPlan.depositDusdcRaw && BigInt(setupPlan.depositDusdcRaw) > 0n) {
+      if (!setupExecutor.submitDeposit) {
+        throw new InternalApiError(
+          503,
+          "PREDICT_SETUP_EXECUTOR_REQUIRED",
+          "Predict setup executor is required before submitting deposit"
+        );
+      }
+
+      transactions.push(await setupExecutor.submitDeposit({
+        wallet,
+        managerId: transaction.managerId,
+        amountRaw: setupPlan.depositDusdcRaw
+      }));
+      depositStatus = "submitted";
+    }
+
+    return jsonResponse({
+      ...baseResponse,
+      manager: {
+        id: transaction.managerId,
+        status: "ready",
+        source: "submitted"
+      },
+      setupPhases: {
+        ...baseResponse.setupPhases,
+        createManager: "submitted",
+        depositStatus,
+        ...(depositStatus === "submitted" ? {} : { depositBlockedReason: undefined })
+      },
+      transactions
+    });
+  }
+
+  if (setupPlan.depositStatus === "ready_to_dry_run" && setupPlan.managerId && setupPlan.depositDusdcRaw) {
+    if (dryRunOnly) {
+      const transactions = setupExecutor?.dryRunDeposit
+        ? [await setupExecutor.dryRunDeposit({
+          wallet,
+          managerId: setupPlan.managerId,
+          amountRaw: setupPlan.depositDusdcRaw
+        })]
+        : [];
+
+      return jsonResponse({
+        ...baseResponse,
+        transactions
+      });
+    }
+
+    if (!enablePredictSubmit) {
+      return errorResponseWithDetails(
+        501,
+        "PREDICT_SUBMIT_DISABLED",
+        "Real Predict setup submit is disabled. Set AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true and pass an explicit submit request.",
+        baseResponse
+      );
+    }
+
+    if (!setupExecutor?.submitDeposit) {
+      throw new InternalApiError(
+        503,
+        "PREDICT_SETUP_EXECUTOR_REQUIRED",
+        "Predict setup executor is required before submitting deposit"
+      );
+    }
+
+    const transaction = await setupExecutor.submitDeposit({
+      wallet,
+      managerId: setupPlan.managerId,
+      amountRaw: setupPlan.depositDusdcRaw
+    });
+
+    return jsonResponse({
+      ...baseResponse,
+      setupPhases: {
+        ...baseResponse.setupPhases,
+        depositStatus: "submitted"
+      },
+      transactions: [transaction]
+    });
+  }
 
   return jsonResponse({
-    walletId: wallet.id,
-    address: wallet.address,
-    manager: manager
-      ? {
-        id: manager.managerId,
-        status: "ready",
-        source: manager.source
-      }
-      : {
-        status: "missing"
-      },
-    setupPhases: {
-      managerDiscovery: manager ? manager.source : "missing",
-      createManager: setupPlan.createManager,
-      depositStatus: setupPlan.depositStatus,
-      ...(setupPlan.depositStatus === "blocked_until_manager_exists"
-        ? { depositBlockedReason: "manager_object_required_before_deposit_dry_run" }
-        : {})
-    },
-    depositDusdcRaw: setupPlan.depositDusdcRaw,
+    ...baseResponse,
     transactions: []
   });
 }
@@ -248,6 +376,46 @@ async function handlePreview(
       payout: formatRawUnits(estimatedProceedsRaw, 6)
     }
   });
+}
+
+function buildSetupBaseResponse(
+  wallet: InternalTradingWallet,
+  manager: DiscoveredPredictManager | null,
+  setupPlan: {
+    createManager: string;
+    depositStatus: string;
+    managerId?: string;
+    depositDusdcRaw?: string;
+  }
+): {
+  walletId: string;
+  address: string;
+  manager: { id?: string; status: string; source?: string };
+  setupPhases: Record<string, string>;
+  depositDusdcRaw?: string;
+} {
+  return {
+    walletId: wallet.id,
+    address: wallet.address,
+    manager: manager
+      ? {
+        id: manager.managerId,
+        status: "ready",
+        source: manager.source
+      }
+      : {
+        status: "missing"
+      },
+    setupPhases: {
+      managerDiscovery: manager ? manager.source : "missing",
+      createManager: setupPlan.createManager,
+      depositStatus: setupPlan.depositStatus,
+      ...(setupPlan.depositStatus === "blocked_until_manager_exists"
+        ? { depositBlockedReason: "manager_object_required_before_deposit_dry_run" }
+        : {})
+    },
+    depositDusdcRaw: setupPlan.depositDusdcRaw
+  };
 }
 
 async function handleExecute(

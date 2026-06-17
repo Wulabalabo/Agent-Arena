@@ -59,6 +59,20 @@ describe("internal wallet store", () => {
     });
   });
 
+  it("restores an internal signer for the wallet without exposing key material", async () => {
+    const store = createMemoryWalletStore({ walletSecret: "secret", quoteAssetType });
+    const wallet = await store.createWallet({
+      agentId: "agent_internal_001",
+      bindingMode: "internal_probe"
+    });
+
+    const signer = await store.getSigner(wallet.id);
+
+    expect(signer.toSuiAddress()).toBe(wallet.address);
+    expect(JSON.stringify(await store.getWallet(wallet.id))).not.toContain("secretKey");
+    expect(JSON.stringify(await store.getWallet(wallet.id))).not.toContain("encryptedPrivateKey");
+  });
+
   it("lists defensive wallet copies without key material", async () => {
     const store = createMemoryWalletStore({ walletSecret: "secret", quoteAssetType });
     const first = await store.createWallet({
@@ -175,8 +189,32 @@ describe("internal wallet store", () => {
 
     await expect(secondStore.getWallet(wallet.id)).resolves.toEqual(wallet);
     await expect(secondStore.listWallets()).resolves.toEqual([wallet]);
+    await expect(secondStore.getSigner(wallet.id)).resolves.toMatchObject({
+      toSuiAddress: expect.any(Function)
+    });
+    expect((await secondStore.getSigner(wallet.id)).toSuiAddress()).toBe(wallet.address);
     expect(JSON.stringify(await secondStore.getWallet(wallet.id))).not.toContain("encryptedPrivateKey");
     expect(JSON.stringify(await secondStore.listWallets())).not.toContain("encryptedPrivateKey");
+  });
+
+  it("rejects signer restoration with the wrong wallet secret", async () => {
+    const storePath = await makeTempStorePath("wallets-secret-mismatch");
+    const firstStore = createJsonWalletStore({
+      walletSecret: "correct-secret",
+      quoteAssetType,
+      storePath
+    });
+    const wallet = await firstStore.createWallet({
+      agentId: "agent_internal_001",
+      bindingMode: "internal_probe"
+    });
+    const secondStore = createJsonWalletStore({
+      walletSecret: "wrong-secret",
+      quoteAssetType,
+      storePath
+    });
+
+    await expect(secondStore.getSigner(wallet.id)).rejects.toThrow("WALLET_SECRET_MISMATCH");
   });
 });
 

@@ -2,6 +2,7 @@ import { createMemoryExecutionStore } from "./predict/execution-store";
 import { createPredictConfig } from "./predict/config";
 import { internalTokenHeader } from "./predict/internal-auth";
 import { createInternalPredictFetchHandler } from "./predict/internal-api";
+import { createPredictSetupExecutor } from "./predict/setup-executor";
 import type { CoinBalanceReader, PredictConfig } from "./predict/types";
 import { createJsonWalletStore } from "./predict/wallet-store";
 
@@ -81,11 +82,22 @@ export async function runInternalPredictExecutionSmoke(argv: string[] = Bun.argv
       quoteAssetType: config.quoteAssetType,
       storePath: walletStorePath
     });
+    const explicitManagerId = optionalArg(parsed, "manager-id");
     const fetchInternal = createInternalPredictFetchHandler({
       internalToken: config.internalToken,
       walletStore,
       executionStore: createMemoryExecutionStore(),
       quoteAssetType: config.quoteAssetType,
+      enablePredictSubmit: config.enablePredictSubmit,
+      setupExecutor: createPredictSetupExecutor({ config, walletStore }),
+      resolveManager: explicitManagerId
+        ? async (wallet) => ({
+          managerId: explicitManagerId,
+          ownerAddress: wallet.address,
+          address: wallet.address,
+          source: "local"
+        })
+        : undefined,
       env: Bun.env
     });
 
@@ -137,7 +149,7 @@ async function executeMode(
       return await callInternal(fetchInternal, "/api/arena/internal/predict/setup", {
         walletId: requiredArg(parsed, "wallet-id"),
         depositDusdcRaw: requiredArg(parsed, "deposit-dusdc-raw"),
-        dryRunOnly: true
+        dryRunOnly: !hasFlag(parsed, "submit")
       }, "POST", config.internalToken);
 
     case "preview-up":
@@ -292,6 +304,11 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
+    if (isBooleanFlag(key)) {
+      values.set(key, true);
+      continue;
+    }
+
     const next = argv[index + 1];
     if (next === undefined || next.startsWith("--")) {
       throw new Error(`MISSING_VALUE_${key}`);
@@ -319,6 +336,10 @@ function isMode(value: string): value is CliMode {
     value === "redeem-range-last";
 }
 
+function isBooleanFlag(value: string): boolean {
+  return value === "submit";
+}
+
 function requiredArg(parsed: ParsedArgs, key: string): string {
   const value = parsed.values.get(key);
   if (typeof value !== "string" || value.trim() === "") {
@@ -335,6 +356,10 @@ function valueOrDefault(parsed: ParsedArgs, key: string, fallback: string): stri
 function optionalArg(parsed: ParsedArgs, key: string): string | undefined {
   const value = parsed.values.get(key);
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function hasFlag(parsed: ParsedArgs, key: string): boolean {
+  return parsed.values.get(key) === true;
 }
 
 function requiredArgOrEnv(parsed: ParsedArgs, key: string, envKey: string): string {
