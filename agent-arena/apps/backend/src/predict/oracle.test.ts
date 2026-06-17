@@ -327,6 +327,39 @@ describe("confirmOracleForExecution", () => {
     });
   });
 
+  it("accepts explicit settled claim operations only with settled oracles", async () => {
+    for (const operation of ["claim_settled_directional", "claim_settled_range"] as const) {
+      const confirmed = await confirmOracleForExecution({
+        request: {
+          operation,
+          oracleId: "0xbtc-nearest",
+          expiryMs: 1781621000000,
+          predictObjectId: "0xpredict",
+          strikeRaw: operation === "claim_settled_directional" ? "65600000000000" : undefined,
+          lowerStrikeRaw: operation === "claim_settled_range" ? "65500000000000" : undefined,
+          higherStrikeRaw: operation === "claim_settled_range" ? "65600000000000" : undefined,
+          serverTimeMs: 1781622000000,
+          minObjectVersion: "42"
+        },
+        readOracle: async () => ({
+          ...validSuiRpcOracle,
+          data: {
+            ...validSuiRpcOracle.data,
+            content: {
+              fields: {
+                ...validSuiRpcOracle.data.content.fields,
+                expiry: "1781621000000",
+                status: "settled"
+              }
+            }
+          }
+        })
+      });
+
+      expect(confirmed.status).toBe("settled");
+    }
+  });
+
   it("rejects non-settled close or redeem with settled expired oracle", async () => {
     await expect(confirmOracleForExecution({
       request: {

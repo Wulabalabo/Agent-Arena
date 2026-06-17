@@ -49,6 +49,66 @@ describe("mock intent execution", () => {
     expect(execution.riskDecisionId).toBe(riskDecision.id);
   });
 
+  it("calls a live Predict adapter only with stored intent, risk, execution, and wallet identity", async () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store, "Live Adapter");
+    const wallet = store.bindTradingWallet(agent.id, "0xagentwallet");
+    store.seedCompetition();
+    const adapterCalls: unknown[] = [];
+
+    const result = await submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-live-adapter",
+      action: "open_directional",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "2026-06-15T10:15:00.000Z",
+        strike: "65000",
+        isUp: true
+      },
+      quantity: "10",
+      maxCost: "5.00",
+      confidence: 0.72,
+      reason: "Live execution path.",
+      createdAt: "2026-06-15T10:03:12.000Z"
+    }, {
+      predictExecutionAdapter: async (input: unknown) => {
+        adapterCalls.push(input);
+        return {
+          status: "confirmed",
+          predictTxDigest: "0xlive_digest"
+        };
+      }
+    });
+
+    const [intent] = store.listIntents();
+    const [riskDecision] = store.listRiskDecisions();
+    const [execution] = store.listExecutions();
+
+    expect(result.status).toBe("executed");
+    expect(result.predictTxDigest).toBe("0xlive_digest");
+    expect(adapterCalls).toEqual([
+      {
+        intentId: intent.id,
+        riskDecisionId: riskDecision.id,
+        executionId: execution.id,
+        agentId: agent.id,
+        walletId: wallet.id,
+        predictOperation: "mint_directional"
+      }
+    ]);
+    expect(execution).toMatchObject({
+      id: result.executionId,
+      intentId: intent.id,
+      riskDecisionId: riskDecision.id,
+      agentId: agent.id,
+      predictTxDigest: "0xlive_digest",
+      status: "confirmed"
+    });
+  });
+
   it("rejects exposure when no wallet is bound", () => {
     const store = new PlatformMockStore();
     const agent = createClaimedTestAgent(store, "No Wallet");

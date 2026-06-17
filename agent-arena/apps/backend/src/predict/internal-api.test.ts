@@ -503,10 +503,14 @@ describe("createInternalPredictFetchHandler", () => {
   });
 
   it("previews a directional operation with a typed operation plan and no private material", async () => {
+    const confirmations: unknown[] = [];
     const fetch = createInternalPredictFetchHandler({
       internalToken,
       walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
-      quoteAssetType
+      quoteAssetType,
+      confirmOracleForExecution: async (request: unknown) => {
+        confirmations.push(request);
+      }
     });
     const created = await createWallet(fetch);
 
@@ -549,6 +553,14 @@ describe("createInternalPredictFetchHandler", () => {
     });
     expect(JSON.stringify(body)).not.toContain("privateKey");
     expect(JSON.stringify(body)).not.toContain("encryptedPrivateKey");
+    expect(confirmations).toEqual([
+      expect.objectContaining({
+        operation: "preview_directional",
+        oracleId: "0xoracle",
+        expiryMs: 1780000000000,
+        strikeRaw: "65000000000000"
+      })
+    ]);
   });
 
   it("rejects numeric raw quantity values instead of stringifying them", async () => {
@@ -721,11 +733,15 @@ describe("createInternalPredictFetchHandler", () => {
       now: () => "2026-06-17T00:00:00.000Z"
     });
     const dryRuns: unknown[] = [];
+    const confirmations: unknown[] = [];
     const fetch = createInternalPredictFetchHandler({
       internalToken,
       walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
       executionStore,
       quoteAssetType,
+      confirmOracleForExecution: async (request: unknown) => {
+        confirmations.push(request);
+      },
       tradeExecutor: {
         async dryRunMintDirectional(input) {
           dryRuns.push(input);
@@ -782,6 +798,14 @@ describe("createInternalPredictFetchHandler", () => {
       }
     });
     expect(dryRuns).toHaveLength(1);
+    expect(confirmations).toEqual([
+      expect.objectContaining({
+        operation: "mint_directional",
+        oracleId: "0xoracle",
+        expiryMs: 1780000000000,
+        strikeRaw: "65000000000000"
+      })
+    ]);
     await expect(executionStore.listSigningAudits({
       executionId: "exec_internal_001"
     })).resolves.toMatchObject([

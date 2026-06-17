@@ -11,6 +11,7 @@ import {
 } from "./guardrails";
 import { assertInternalRequest } from "./internal-auth";
 import { type DiscoveredPredictManager, PredictManagerError, planManagerSetup } from "./manager";
+import type { ConfirmOracleExecutionRequest } from "./oracle";
 import type { PredictSetupExecutor } from "./setup-executor";
 import type { PredictTradeExecutor, PredictTradeTransactionSummary } from "./trade-executor";
 import {
@@ -36,6 +37,7 @@ interface InternalPredictHandlerOptions {
   balanceReader?: CoinBalanceReader;
   quoteAssetType?: string;
   resolveManager?: (wallet: InternalTradingWallet) => Promise<DiscoveredPredictManager | null>;
+  confirmOracleForExecution?: (request: ConfirmOracleExecutionRequest) => Promise<void>;
   setupExecutor?: PredictSetupExecutor;
   tradeExecutor?: PredictTradeExecutor;
   enablePredictSubmit?: boolean;
@@ -49,6 +51,7 @@ export function createInternalPredictFetchHandler({
   balanceReader,
   quoteAssetType,
   resolveManager,
+  confirmOracleForExecution,
   setupExecutor,
   tradeExecutor,
   enablePredictSubmit,
@@ -91,7 +94,7 @@ export function createInternalPredictFetchHandler({
 
       if (pathname === "/api/arena/internal/predict/preview" && request.method === "POST") {
         const resolved = getWalletStore();
-        return await handlePreview(request, resolved.walletStore, resolved.quoteAssetType);
+        return await handlePreview(request, resolved.walletStore, resolved.quoteAssetType, confirmOracleForExecution);
       }
 
       if (pathname === "/api/arena/internal/predict/execute" && request.method === "POST") {
@@ -101,6 +104,7 @@ export function createInternalPredictFetchHandler({
           resolved.walletStore,
           executionStore,
           tradeExecutor,
+          confirmOracleForExecution,
           resolved.enablePredictSubmit
         );
       }
@@ -356,13 +360,15 @@ async function handleSetup(
 async function handlePreview(
   request: Request,
   walletStore: MemoryWalletStore,
-  quoteAssetType: string
+  quoteAssetType: string,
+  confirmOracleForExecution: ((request: ConfirmOracleExecutionRequest) => Promise<void>) | undefined
 ): Promise<Response> {
   const body = await parseJsonBody(request);
   const wallet = await loadWallet(walletStore, requiredString(body, "walletId"));
   const requestedOperation = requiredOperation(body);
   const previewOperation = previewOperationFor(requestedOperation);
   const operationPlan = buildPlanFromRequest(body, previewOperation);
+  await confirmOracleForPlan(confirmOracleForExecution, operationPlan);
   const hasRequestEstimate = body.estimatedCostRaw !== undefined || body.estimatedProceedsRaw !== undefined;
   const estimatedCostRaw = optionalRawEstimate(body, "estimatedCostRaw") ?? "0";
   const estimatedProceedsRaw = optionalRawEstimate(body, "estimatedProceedsRaw") ?? "0";
@@ -439,12 +445,14 @@ async function handleExecute(
   walletStore: MemoryWalletStore,
   executionStore: MemoryExecutionStore,
   tradeExecutor: PredictTradeExecutor | undefined,
+  confirmOracleForExecution: ((request: ConfirmOracleExecutionRequest) => Promise<void>) | undefined,
   enablePredictSubmit: boolean
 ): Promise<Response> {
   const body = await parseJsonBody(request);
   const wallet = await loadWallet(walletStore, requiredString(body, "walletId"));
   const operation = requiredOperation(body);
   const operationPlan = await buildExecutionPlanFromRequest(body, operation, wallet, tradeExecutor);
+  await confirmOracleForPlan(confirmOracleForExecution, operationPlan);
   const execution = await executionStore.createExecution({
     walletId: wallet.id,
     agentId: wallet.agentId,
@@ -1082,6 +1090,34 @@ function buildPlanFromRequest(
     quoteCoinObjectId: optionalString(body, "quoteCoinObjectId"),
     clockObjectId: optionalString(body, "clockObjectId")
   } satisfies BuildPredictOperationPlanInput);
+}
+
+async function confirmOracleForPlan(
+  confirmOracleForExecution: ((request: ConfirmOracleExecutionRequest) => Promise<void>) | undefined,
+  operationPlan: PredictOperationPlan
+): Promise<void> {
+  if (!confirmOracleForExecution) {
+    return;
+  }
+
+  const oracleId = operationPlan.objectIds.oracleId;
+  if (!oracleId || operationPlan.expiryMs === undefined) {
+    return;
+  }
+
+  const expiryMs = Number(operationPlan.expiryMs);
+  if (!Number.isSafeInteger(expiryMs)) {
+    throw new InternalApiError(400, "INVALID_RAW_AMOUNT", "Invalid expiryMs");
+  }
+
+  await confirmOracleForExecution({
+    operation: operationPlan.operation,
+    oracleId,
+    expiryMs,
+    strikeRaw: operationPlan.keyInputs.strikeRaw,
+    lowerStrikeRaw: operationPlan.keyInputs.lowerStrikeRaw,
+    higherStrikeRaw: operationPlan.keyInputs.higherStrikeRaw
+  });
 }
 
 function previewOperationFor(operation: PredictOperation): PredictOperation {

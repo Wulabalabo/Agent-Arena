@@ -596,6 +596,8 @@ Requirements:
 - The signer module should be the only backend component that can decrypt or load a private key.
 - Key lookup must require `tradingWalletId`, `intentId`, `riskDecisionId`, and `executionId`.
 - Signing requests must be denied when any reference is missing or does not match the Agent and competition.
+- Agent runtime routes must not forward arbitrary request bodies into the internal Predict execution probe. A live Predict execution adapter must be called only after the platform has stored an accepted intent, stored a matching risk decision, created an execution record, and resolved the Agent's bound trading wallet.
+- The live execution adapter input must be typed platform identity data, not raw Agent JSON: `intentId`, `riskDecisionId`, `executionId`, `agentId`, `tradingWalletId`, and the backend-selected Predict operation.
 
 ### Signing Audit
 

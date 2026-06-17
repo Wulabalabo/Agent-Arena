@@ -12,6 +12,26 @@ export interface MockExecutionResponse {
   rejectionCode?: string;
 }
 
+export interface PredictIntentExecutionAdapterInput {
+  intentId: string;
+  riskDecisionId: string;
+  executionId: string;
+  agentId: string;
+  walletId: string;
+  predictOperation: string;
+}
+
+export interface PredictIntentExecutionAdapterResult {
+  status: ExecutionRecord["status"];
+  predictTxDigest?: string | null;
+}
+
+export interface SubmitIntentExecutionOptions {
+  predictExecutionAdapter?: (
+    input: PredictIntentExecutionAdapterInput
+  ) => PredictIntentExecutionAdapterResult | Promise<PredictIntentExecutionAdapterResult>;
+}
+
 export class PlatformExecutionError extends Error {
   constructor(message: string) {
     super(message);
@@ -22,7 +42,17 @@ export class PlatformExecutionError extends Error {
 export function submitIntentWithMockExecution(
   store: PlatformMockStore,
   payload: unknown
-): MockExecutionResponse {
+): MockExecutionResponse;
+export function submitIntentWithMockExecution(
+  store: PlatformMockStore,
+  payload: unknown,
+  options: Required<Pick<SubmitIntentExecutionOptions, "predictExecutionAdapter">>
+): Promise<MockExecutionResponse>;
+export function submitIntentWithMockExecution(
+  store: PlatformMockStore,
+  payload: unknown,
+  options: SubmitIntentExecutionOptions = {}
+): MockExecutionResponse | Promise<MockExecutionResponse> {
   const validated = validateIntentPayload(payload);
   const existingIntent = store.findIntentByIdempotencyKey(
     validated.agentId,
@@ -81,6 +111,16 @@ export function submitIntentWithMockExecution(
   }
 
   const executionId = `exec_${store.listExecutions().length + 1}`;
+  if (options.predictExecutionAdapter) {
+    return executeWithPredictAdapter({
+      store,
+      intent: draftIntent,
+      riskDecisionId,
+      executionId,
+      predictExecutionAdapter: options.predictExecutionAdapter
+    });
+  }
+
   const execution = createMockExecution(executionId, draftIntent, riskDecisionId);
   store.saveExecution(execution);
   const executedIntent = createIntent(intentId, validated, "executed", null);
@@ -93,6 +133,82 @@ export function submitIntentWithMockExecution(
     executionId,
     predictTxDigest: execution.predictTxDigest ?? undefined
   };
+}
+
+async function executeWithPredictAdapter(input: {
+  store: PlatformMockStore;
+  intent: AgentIntent;
+  riskDecisionId: string;
+  executionId: string;
+  predictExecutionAdapter: NonNullable<SubmitIntentExecutionOptions["predictExecutionAdapter"]>;
+}): Promise<MockExecutionResponse> {
+  const wallet = input.store.getTradingWalletByAgentId(input.intent.agentId);
+  if (!wallet) {
+    throw new PlatformExecutionError("WALLET_NOT_BOUND");
+  }
+
+  const queuedExecution: ExecutionRecord = {
+    id: input.executionId,
+    intentId: input.intent.id,
+    agentId: input.intent.agentId,
+    competitionId: input.intent.competitionId,
+    riskDecisionId: input.riskDecisionId,
+    status: "queued",
+    predictTxDigest: null,
+    action: input.intent.action,
+    createdAt: input.intent.createdAt
+  };
+  input.store.saveExecution(queuedExecution);
+
+  const result = await input.predictExecutionAdapter({
+    intentId: input.intent.id,
+    riskDecisionId: input.riskDecisionId,
+    executionId: input.executionId,
+    agentId: input.intent.agentId,
+    walletId: wallet.id,
+    predictOperation: predictOperationForIntent(input.intent)
+  });
+
+  const execution: ExecutionRecord = {
+    ...queuedExecution,
+    status: result.status,
+    predictTxDigest: result.predictTxDigest ?? null
+  };
+  input.store.saveExecution(execution);
+
+  input.store.saveIntent({
+    ...input.intent,
+    status: "executed",
+    rejectionCode: null
+  });
+
+  return {
+    status: "executed",
+    intentId: input.intent.id,
+    riskDecisionId: input.riskDecisionId,
+    executionId: input.executionId,
+    predictTxDigest: execution.predictTxDigest ?? undefined
+  };
+}
+
+function predictOperationForIntent(intent: AgentIntent): string {
+  if (intent.action === "open_directional") {
+    return "mint_directional";
+  }
+
+  if (intent.action === "open_range") {
+    return "mint_range";
+  }
+
+  if (intent.action === "reduce") {
+    return intent.positionRef?.kind === "range" ? "redeem_range" : "redeem_directional";
+  }
+
+  if (intent.action === "close") {
+    return intent.positionRef?.kind === "range" ? "close_range" : "close_directional";
+  }
+
+  throw new PlatformExecutionError(`PREDICT_OPERATION_UNSUPPORTED:${intent.action}`);
 }
 
 function createIntent(

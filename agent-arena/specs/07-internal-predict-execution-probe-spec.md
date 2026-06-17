@@ -65,6 +65,9 @@ DeepBook Predict functions used by this probe:
 - `predict::get_trade_amounts`
 - `predict::get_range_trade_amounts`
 - `predict_manager::deposit`
+- `predict_manager::range_position`
+- `predict_manager::balance`
+- `predict_manager::withdraw`
 - `predict::mint`
 - `predict::redeem`
 - `predict::redeem_permissionless`
@@ -77,13 +80,28 @@ DeepBook Predict functions used by this probe:
 
 Sui transaction execution uses Programmable Transaction Blocks and `signAndExecuteTransaction` from the Sui TypeScript SDK.
 
+Verified DeepBook Predict ABI evidence for the remaining execution work:
+
+- Source branch: `predict-testnet-4-16`.
+- Source files:
+  - `packages/predict/sources/predict.move`
+  - `packages/predict/sources/predict_manager.move`
+  - `packages/predict/sources/market_key/range_key.move`
+- `predict::mint_range<T>` arguments: `Predict`, `PredictManager`, `OracleSVI`, `RangeKey`, `quantity`, `Clock`.
+- `predict::redeem_range<T>` arguments: `Predict`, `PredictManager`, `OracleSVI`, `RangeKey`, `quantity`, `Clock`.
+- `predict::redeem_permissionless<T>` arguments: `Predict`, `PredictManager`, `OracleSVI`, `MarketKey`, `quantity`, `Clock`; it requires a settled oracle and deposits proceeds into the manager through the permissionless manager deposit path.
+- `predict_manager::range_position` reads a `RangeKey` position and returns `u64`.
+- `predict_manager::balance<T>` reads manager balance for a quote type and returns `u64`.
+- `predict_manager::withdraw<T>` returns `Coin<T>` and requires the transaction sender to be the manager owner.
+- `RangeMinted` includes `cost`; `RangeRedeemed` includes `payout` and `is_settled`.
+
 ## Existing Repo State
 
 Current backend state:
 
 - The backend is a Bun TypeScript service.
 - Platform execution is mock-backed through `submitIntentWithMockExecution`.
-- Backend package does not yet depend on `@mysten/sui`.
+- Backend package depends on `@mysten/sui` for Testnet PTB dry-runs and submit smoke tests.
 - The current platform contract flow already supports:
   - `POST /api/arena/agent/init`,
   - `POST /api/arena/owner/agents/claim`,

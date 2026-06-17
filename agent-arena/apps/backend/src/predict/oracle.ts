@@ -45,6 +45,8 @@ export type PredictOracleExecutionOperation =
   | "close_range"
   | "settled_redeem"
   | "claim_settled"
+  | "claim_settled_directional"
+  | "claim_settled_range"
   | "redeem_permissionless";
 
 export interface ConfirmOracleForExecutionInput {
@@ -282,6 +284,8 @@ function isSettledOperation(operation: PredictOracleExecutionOperation | undefin
   return (
     operation === "settled_redeem" ||
     operation === "claim_settled" ||
+    operation === "claim_settled_directional" ||
+    operation === "claim_settled_range" ||
     operation === "redeem_permissionless"
   );
 }
