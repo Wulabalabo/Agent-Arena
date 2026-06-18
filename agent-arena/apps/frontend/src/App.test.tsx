@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LiveBtcMarketSnapshot } from "./features/predict/live-market";
 
@@ -34,53 +34,36 @@ describe("App", () => {
     window.history.pushState({}, "", "/");
   });
 
-  it("defaults to the Lobby page with three primary nav items", () => {
+  it("defaults to the Lobby page", () => {
     render(<App />);
 
-    expect(screen.getByText(/AI Agents compete in DeepBook Predict Testnet arenas/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Enter Live Competition/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Back Agent$/i })).not.toBeInTheDocument();
-
-    const nav = screen.getByRole("navigation");
-    expect(within(nav).getByRole("button", { name: /^Lobby$/i })).toBeInTheDocument();
-    expect(within(nav).getByRole("button", { name: /^Arena$/i })).toBeInTheDocument();
-    expect(within(nav).getByRole("button", { name: /^Leaderboard$/i })).toBeInTheDocument();
-    expect(within(nav).queryByRole("button", { name: /Pair Agent/i })).not.toBeInTheDocument();
-    expect(within(nav).queryByRole("button", { name: /^Wallet$/i })).not.toBeInTheDocument();
-    expect(within(nav).queryByRole("button", { name: /^Replay$/i })).not.toBeInTheDocument();
-    expect(within(nav).queryByRole("button", { name: /^Skills$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Agent Arena/i })).toBeInTheDocument();
+    expect(screen.getByText(/Testnet-only AI Agent competition layer/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /copy prompt/i })).toBeInTheDocument();
   });
 
-  it("navigates between Lobby, Arena, and Leaderboard in the primary nav", () => {
-    render(<App />);
-
-    fireEvent.click(screen.getByRole("button", { name: /^Arena$/i }));
-    expect(screen.getByRole("heading", { name: /BTC 15m Testnet Arena/i })).toBeInTheDocument();
-    expect(screen.getByText(/Latest Predict flow/i)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /^Leaderboard$/i }));
-    expect(screen.getByText(/Score formula/i)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /^Lobby$/i }));
-    expect(screen.getByRole("button", { name: /Enter Live Competition/i })).toBeInTheDocument();
-  });
-
-  it("loads live Predict market data after navigating to Arena", async () => {
+  it("navigates between Lobby, Arena, and Leaderboard only", async () => {
     render(<App liveMarketLoader={async () => appLiveMarketSnapshot} />);
 
+    expect(screen.getByRole("button", { name: /^Lobby$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Arena$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Leaderboard$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Pair Agent/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Wallet$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Replay$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Skills$/i })).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: /^Arena$/i }));
+    expect(await screen.findByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
+    expect(screen.getByText(/Binance BTCUSDT reference display/i)).toBeInTheDocument();
+    expect(screen.getByText(/Predict oracle drives arena settlement/i)).toBeInTheDocument();
 
-    expect(await screen.findByText("$65,611.52")).toBeInTheDocument();
-    expect(screen.getByText(/Position minted/i)).toBeInTheDocument();
-  });
+    fireEvent.click(screen.getByRole("button", { name: /^Leaderboard$/i }));
+    expect(screen.getByRole("heading", { name: /^Leaderboard$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Ranked Agents/i })).toBeInTheDocument();
 
-  it("opens the live competition console from the Lobby CTA", () => {
-    render(<App />);
-
-    fireEvent.click(screen.getByRole("button", { name: /Enter Live Competition/i }));
-
-    expect(screen.getByRole("heading", { name: /BTC 15m Testnet Arena/i })).toBeInTheDocument();
-    expect(screen.getByText(/Latest Predict flow/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Lobby$/i }));
+    expect(screen.getByRole("button", { name: /copy prompt/i })).toBeInTheDocument();
   });
 
   it("claims an Agent from the owner-facing claim URL", async () => {

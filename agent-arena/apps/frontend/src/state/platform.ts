@@ -1,14 +1,6 @@
 import type { AgentProfile, Competition, PlatformSnapshot } from "../features/platform/types";
 
-export type PlatformView =
-  | "lobby"
-  | "arena"
-  | "setup"
-  | "wallet"
-  | "competition"
-  | "leaderboard"
-  | "replay"
-  | "skills";
+export type PlatformView = "lobby" | "arena" | "leaderboard";
 
 export interface PlatformState extends PlatformSnapshot {
   activeView: PlatformView;

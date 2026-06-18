@@ -1,12 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
-import { AgentPairingPanel } from "./components/platform/AgentPairingPanel";
-import { CompetitionLobby } from "./components/platform/CompetitionLobby";
+import { ArenaPage } from "./components/platform/ArenaPage";
 import { LeaderboardPanel } from "./components/platform/LeaderboardPanel";
-import { LiveCompetition } from "./components/platform/LiveCompetition";
-import { ReplayTimeline } from "./components/platform/ReplayTimeline";
-import { SkillDocsPanel } from "./components/platform/SkillDocsPanel";
+import { LobbyPage } from "./components/platform/LobbyPage";
 import { SuiDappKitAgentClaimPanel } from "./components/platform/SuiDappKitAgentClaimPanel";
-import { TradingWalletPanel } from "./components/platform/TradingWalletPanel";
 import { AppNav } from "./components/navigation/AppNav";
 import { createPredictClient } from "./features/predict/client";
 import { predictConfig } from "./features/predict/config";
@@ -16,17 +12,19 @@ import {
   type LiveBtcMarketSnapshot
 } from "./features/predict/live-market";
 import { useLiveBtcMarketSnapshot } from "./features/predict/use-live-btc-market";
+import {
+  createPublicActionFeedItems,
+  createUserAgentArenaProfile
+} from "./features/platform/arena-ui";
 import { mockPlatformSnapshot } from "./features/platform/mock";
 import {
   createInitialPlatformState,
   getSelectedAgent,
   getSelectedCompetition,
-  selectAgent,
   selectPlatformView,
   type PlatformView
 } from "./state/platform";
 
-const runtimeCredential = "agent_runtime_test_token";
 const apiBaseUrl = "http://127.0.0.1:8787/api/arena";
 
 interface AppProps {
@@ -39,7 +37,28 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
   const selectedAgent = useMemo(() => getSelectedAgent(state), [state]);
   const selectedCompetition = useMemo(() => getSelectedCompetition(state), [state]);
   const claimRegistrationCode = getClaimRegistrationCode();
-  const isCompetitionConsoleView = state.activeView === "arena" || state.activeView === "competition";
+  const userAgentProfile = useMemo(
+    () =>
+      createUserAgentArenaProfile({
+        agent: selectedAgent,
+        tradingWallet: state.tradingWallet,
+        positions: state.positions,
+        intents: state.intents,
+        executions: state.executions,
+        leaderboard: state.leaderboard
+      }),
+    [selectedAgent, state.tradingWallet, state.positions, state.intents, state.executions, state.leaderboard]
+  );
+  const publicActionFeedItems = useMemo(
+    () =>
+      createPublicActionFeedItems({
+        agents: state.agents,
+        intents: state.intents,
+        executions: state.executions,
+        leaderboard: state.leaderboard
+      }),
+    [state.agents, state.intents, state.executions, state.leaderboard]
+  );
   const predictClient = useMemo(() => createPredictClient({ serverUrl: predictConfig.serverUrl }), []);
   const defaultLiveMarketLoader = useCallback(
     () => loadLiveBtcMarketSnapshot({ client: predictClient, config: predictConfig }),
@@ -50,7 +69,7 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
     [predictClient]
   );
   const liveMarket = useLiveBtcMarketSnapshot({
-    enabled: isCompetitionConsoleView,
+    enabled: state.activeView === "arena",
     fullRefreshEveryMs: 5_000,
     loader: liveMarketLoader ?? defaultLiveMarketLoader,
     pollIntervalMs: 500,
@@ -61,27 +80,11 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
     setState((currentState) => selectPlatformView(currentState, view));
   }
 
-  function handleSelectAgent(agentId: string) {
-    setState((currentState) => selectAgent(currentState, agentId));
-  }
-
   return (
     <main className="min-h-screen bg-transparent text-on-surface">
       <AppNav activeView={state.activeView} onNavigate={navigate} />
 
       <div className="paper-frame mx-auto grid max-w-[1440px] gap-4 px-4 py-4">
-        {isCompetitionConsoleView ? (
-          <section aria-label="Agent competition console" className="paper-card-sm p-5">
-            <p className="paper-label text-on-surface-variant">Testnet</p>
-            <h1 className="mt-2 max-w-3xl font-display text-2xl font-black uppercase text-on-surface">
-              AI Agents compete in DeepBook Predict Testnet arenas
-            </h1>
-            <p className="mt-2 text-sm font-bold text-on-surface-variant">
-              Pair an external Agent, fund its trading wallet, and watch platform records connect intent, policy, and Predict tx proof.
-            </p>
-          </section>
-        ) : null}
-
         {claimRegistrationCode ? (
           <SuiDappKitAgentClaimPanel
             apiBaseUrl={apiBaseUrl}
@@ -89,45 +92,18 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
             registrationCode={claimRegistrationCode}
           />
         ) : state.activeView === "lobby" ? (
-          <CompetitionLobby
-            competitions={state.competitions}
-            leaderboard={state.leaderboard}
-            onEnterCompetition={() => navigate("arena")}
-            onOpenPairing={() => navigate("setup")}
-            onOpenSkills={() => navigate("skills")}
-          />
-        ) : state.activeView === "setup" ? (
-          <AgentPairingPanel
-            agent={selectedAgent}
-            claimUrl="http://127.0.0.1:5173/agent-arena/claim/AGENT-ARENA-TESTNET-001"
-            expiresAt="2026-06-16T11:00:00.000Z"
-            registrationCode="AGENT-ARENA-TESTNET-001"
-            runtimeCredential={runtimeCredential}
-          />
-        ) : state.activeView === "wallet" ? (
-          <TradingWalletPanel agent={selectedAgent} tradingWallet={state.tradingWallet} />
-        ) : isCompetitionConsoleView ? (
-          <LiveCompetition
-            agents={state.agents}
+          <LobbyPage competition={selectedCompetition} leaderboard={state.leaderboard} />
+        ) : state.activeView === "arena" ? (
+          <ArenaPage
+            actionFeedItems={publicActionFeedItems}
             competition={selectedCompetition}
-            executions={state.executions}
-            intents={state.intents}
-            positions={state.positions}
-            riskDecisions={state.riskDecisions}
-            selectedAgent={selectedAgent}
-            tradingWallet={state.tradingWallet}
+            liveMarketError={liveMarket.error}
             liveMarketSnapshot={liveMarket.snapshot}
             liveMarketStatus={liveMarket.status}
-            liveMarketError={liveMarket.error}
-            onSelectAgent={handleSelectAgent}
-            onViewReplay={() => navigate("replay")}
+            userAgentProfile={userAgentProfile}
           />
-        ) : state.activeView === "leaderboard" ? (
-          <LeaderboardPanel entries={state.leaderboard} />
-        ) : state.activeView === "replay" ? (
-          <ReplayTimeline events={state.replay} />
         ) : (
-          <SkillDocsPanel apiBaseUrl={apiBaseUrl} />
+          <LeaderboardPanel competition={selectedCompetition} entries={state.leaderboard} />
         )}
       </div>
     </main>
