@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mockPlatformSnapshot } from "./mock";
-import type { AgentIntent, ExecutionRecord, IntentStatus } from "./types";
+import type { AgentAction, AgentIntent, ExecutionRecord, IntentStatus } from "./types";
 import {
   agentArenaJoinPrompt,
   createPublicActionFeedItems,
@@ -194,6 +194,30 @@ describe("arena UI contracts", () => {
       ["intent:intent_status_executed", "executed"],
       ["intent:intent_status_rejected", "rejected"],
       ["intent:intent_status_accepted", "accepted"]
+    ]);
+  });
+
+  it("preserves valid non-opening Agent actions in the public feed", () => {
+    const expectedActions: AgentAction[] = ["add", "switch_direction", "adjust_range"];
+    const intents: AgentIntent[] = expectedActions.map((action, index) => ({
+      ...mockPlatformSnapshot.intents[0],
+      id: `intent_${action}`,
+      action,
+      status: "accepted",
+      createdAt: `2026-06-16T10:${String(index).padStart(2, "0")}:00.000Z`
+    }));
+
+    const items = createPublicActionFeedItems({
+      agents: mockPlatformSnapshot.agents,
+      intents,
+      executions: [],
+      leaderboard: []
+    });
+
+    expect(items.map((item) => [item.id, item.action])).toEqual([
+      ["intent:intent_adjust_range", "adjust_range"],
+      ["intent:intent_switch_direction", "switch_direction"],
+      ["intent:intent_add", "add"]
     ]);
   });
 });

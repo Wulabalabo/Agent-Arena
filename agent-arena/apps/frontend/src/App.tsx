@@ -19,7 +19,6 @@ import {
 import { mockPlatformSnapshot } from "./features/platform/mock";
 import {
   createInitialPlatformState,
-  getSelectedAgent,
   getSelectedCompetition,
   selectPlatformView,
   type PlatformView
@@ -34,20 +33,19 @@ interface AppProps {
 
 export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}) {
   const [state, setState] = useState(() => createInitialPlatformState(mockPlatformSnapshot));
-  const selectedAgent = useMemo(() => getSelectedAgent(state), [state]);
   const selectedCompetition = useMemo(() => getSelectedCompetition(state), [state]);
   const claimRegistrationCode = getClaimRegistrationCode();
   const userAgentProfile = useMemo(
     () =>
       createUserAgentArenaProfile({
-        agent: selectedAgent,
-        tradingWallet: state.tradingWallet,
-        positions: state.positions,
-        intents: state.intents,
-        executions: state.executions,
-        leaderboard: state.leaderboard
+        agent: null,
+        tradingWallet: null,
+        positions: [],
+        intents: [],
+        executions: [],
+        leaderboard: []
       }),
-    [selectedAgent, state.tradingWallet, state.positions, state.intents, state.executions, state.leaderboard]
+    []
   );
   const publicActionFeedItems = useMemo(
     () =>

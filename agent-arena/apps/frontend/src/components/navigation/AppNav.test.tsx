@@ -5,11 +5,14 @@ import { AppNav } from "./AppNav";
 describe("AppNav", () => {
   it("renders only Lobby, Arena, and Leaderboard as primary navigation items", () => {
     const onNavigate = vi.fn();
-    render(<AppNav activeView="lobby" onNavigate={onNavigate} />);
+    render(<AppNav activeView="arena" onNavigate={onNavigate} />);
 
     expect(screen.getByRole("button", { name: /^Lobby$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Arena$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Leaderboard$/i })).toBeInTheDocument();
+    expect(screen.getByRole("navigation")).not.toHaveClass("hidden");
+    expect(screen.getByRole("button", { name: /^Arena$/i })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: /^Lobby$/i })).not.toHaveAttribute("aria-current");
     expect(screen.queryByRole("button", { name: /Pair Agent/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Wallet$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Replay$/i })).not.toBeInTheDocument();

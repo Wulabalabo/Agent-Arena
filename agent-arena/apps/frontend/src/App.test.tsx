@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LiveBtcMarketSnapshot } from "./features/predict/live-market";
 
@@ -62,6 +62,12 @@ describe("App", () => {
     expect(await screen.findByText("$65,611.52")).toBeInTheDocument();
     expect(screen.getByText(/Binance BTCUSDT reference display/i)).toBeInTheDocument();
     expect(screen.getByText(/Predict oracle drives arena settlement/i)).toBeInTheDocument();
+    const myAgentProfile = screen.getByRole("region", { name: /My Agent profile/i });
+    expect(within(myAgentProfile).getAllByText(/No claimed Agent/i).length).toBeGreaterThan(0);
+    expect(within(myAgentProfile).getByText(/No active Agent/i)).toBeInTheDocument();
+    expect(within(myAgentProfile).queryByText(/Trend Ranger/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Public action feed/i })).toBeInTheDocument();
+    expect(screen.getByText(/open directional/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^Leaderboard$/i }));
     expect(screen.getByRole("heading", { name: /^Leaderboard$/i })).toBeInTheDocument();

@@ -15,19 +15,20 @@ const navItems: Array<{ id: PlatformView; label: string }> = [
 export function AppNav({ activeView, onNavigate }: AppNavProps) {
   return (
     <header className="border-b-2 border-outline-variant bg-surface-container-lowest">
-      <div className="paper-frame mx-auto flex h-11 max-w-[1440px] items-center justify-between px-4">
-        <div className="flex items-center gap-5">
+      <div className="paper-frame mx-auto flex min-h-11 max-w-[1440px] items-center justify-between gap-3 px-4">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-5">
           <button
-            className="font-display text-sm font-black uppercase text-on-surface hover:text-primary"
+            className="shrink-0 font-display text-sm font-black uppercase text-on-surface hover:text-primary"
             type="button"
             onClick={() => onNavigate("lobby")}
           >
             Agent Arena
           </button>
-          <nav className="hidden items-center gap-4 md:flex">
+          <nav className="flex min-w-0 items-center gap-2 overflow-x-auto sm:gap-4">
             {navItems.map((item) => (
               <button
-                className={`border-b-2 px-0.5 py-1 font-display text-xs font-semibold ${
+                aria-current={activeView === item.id ? "page" : undefined}
+                className={`shrink-0 border-b-2 px-0.5 py-1 font-display text-xs font-semibold ${
                   activeView === item.id
                     ? "border-primary text-primary"
                     : "border-transparent text-on-surface-variant hover:border-outline-variant hover:text-on-surface"

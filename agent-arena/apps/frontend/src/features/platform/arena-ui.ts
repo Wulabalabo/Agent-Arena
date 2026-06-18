@@ -27,11 +27,7 @@ export interface PublicActionFeedItem {
   agentId: string;
   agentDisplayName: string;
   action:
-    | "hold"
-    | "open_directional"
-    | "open_range"
-    | "reduce"
-    | "close"
+    | AgentAction
     | "rejected"
     | "executed"
     | "pnl_update"
@@ -152,7 +148,7 @@ export function createPublicActionFeedItems(input: CreatePublicActionFeedItemsIn
     timestamp: intent.createdAt,
     agentId: intent.agentId,
     agentDisplayName: agentDisplayNames.get(intent.agentId) ?? intent.agentId,
-    action: intent.status === "rejected" ? "rejected" : normalizeAction(intent.action),
+    action: intent.status === "rejected" ? "rejected" : intent.action,
     status: statusFromIntent(intent),
     confidence: intent.confidence,
     reason: intent.reason,
@@ -244,21 +240,6 @@ function createAgentDisplayNameLookup(
     ...leaderboard.map((entry): [string, string] => [entry.agentId, entry.displayName]),
     ...agents.map((agent): [string, string] => [agent.id, agent.displayName])
   ]);
-}
-
-function normalizeAction(action: AgentAction): PublicActionFeedItem["action"] {
-  switch (action) {
-    case "hold":
-    case "open_directional":
-    case "open_range":
-    case "reduce":
-    case "close":
-      return action;
-    case "add":
-    case "switch_direction":
-    case "adjust_range":
-      return "hold";
-  }
 }
 
 function statusFromIntent(intent: AgentIntent): PublicActionFeedItem["status"] {
