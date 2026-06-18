@@ -15,6 +15,9 @@ describe("AppNav", () => {
     expect(screen.queryByRole("button", { name: /^Replay$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Skills$/i })).not.toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: /^Agent Arena$/i }));
+    expect(onNavigate).toHaveBeenCalledWith("lobby");
+
     fireEvent.click(screen.getByRole("button", { name: /^Arena$/i }));
     expect(onNavigate).toHaveBeenCalledWith("arena");
   });

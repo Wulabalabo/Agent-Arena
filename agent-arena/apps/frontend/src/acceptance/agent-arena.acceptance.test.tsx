@@ -13,29 +13,23 @@ describe("Agent Arena acceptance", () => {
     expect(screen.getByText(/AI Agents compete in DeepBook Predict Testnet arenas/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Testnet/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Pair Agent/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Predict tx/i)).not.toBeInTheDocument();
+    expectNoUserBettingLanguage();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Arena$/i }));
     expect(screen.getAllByText(/Predict tx/i).length).toBeGreaterThan(0);
     expectNoUserBettingLanguage();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Lobby$/i }));
 
     fireEvent.click(screen.getByRole("button", { name: /Pair Agent/i }));
     expect(screen.getByText(/Agent Runtime Credential/i)).toBeInTheDocument();
     expectNoUserBettingLanguage();
 
-    fireEvent.click(screen.getByRole("button", { name: /^Wallet$/i }));
-    expect(screen.getByText(/Testnet trading wallet/i)).toBeInTheDocument();
-    expectNoUserBettingLanguage();
-
-    fireEvent.click(screen.getByRole("button", { name: /Leaderboard/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Leaderboard$/i }));
     expect(screen.getByText(/@Sui_Agent/i)).toBeInTheDocument();
     expect(screen.getByText(/Display-only handle unverified/i)).toBeInTheDocument();
     expect(screen.queryByText(/^Back Agent$/i)).not.toBeInTheDocument();
-    expectNoUserBettingLanguage();
-
-    fireEvent.click(screen.getByRole("button", { name: /Replay/i }));
-    expect(screen.getByText(/Intent submitted/i)).toBeInTheDocument();
-    expectNoUserBettingLanguage();
-
-    fireEvent.click(screen.getByRole("button", { name: /Skills/i }));
-    expect(screen.getByText(/agent-arena\/skills\/agent-arena.md/i)).toBeInTheDocument();
     expectNoUserBettingLanguage();
   });
 });

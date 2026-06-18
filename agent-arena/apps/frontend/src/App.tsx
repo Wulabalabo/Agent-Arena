@@ -39,6 +39,7 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
   const selectedAgent = useMemo(() => getSelectedAgent(state), [state]);
   const selectedCompetition = useMemo(() => getSelectedCompetition(state), [state]);
   const claimRegistrationCode = getClaimRegistrationCode();
+  const isCompetitionConsoleView = state.activeView === "arena" || state.activeView === "competition";
   const predictClient = useMemo(() => createPredictClient({ serverUrl: predictConfig.serverUrl }), []);
   const defaultLiveMarketLoader = useCallback(
     () => loadLiveBtcMarketSnapshot({ client: predictClient, config: predictConfig }),
@@ -49,7 +50,7 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
     [predictClient]
   );
   const liveMarket = useLiveBtcMarketSnapshot({
-    enabled: state.activeView === "competition",
+    enabled: isCompetitionConsoleView,
     fullRefreshEveryMs: 5_000,
     loader: liveMarketLoader ?? defaultLiveMarketLoader,
     pollIntervalMs: 500,
@@ -69,7 +70,7 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
       <AppNav activeView={state.activeView} onNavigate={navigate} />
 
       <div className="paper-frame mx-auto grid max-w-[1440px] gap-4 px-4 py-4">
-        {state.activeView === "competition" ? (
+        {isCompetitionConsoleView ? (
           <section aria-label="Agent competition console" className="paper-card-sm p-5">
             <p className="paper-label text-on-surface-variant">Testnet</p>
             <h1 className="mt-2 max-w-3xl font-display text-2xl font-black uppercase text-on-surface">
@@ -91,7 +92,7 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
           <CompetitionLobby
             competitions={state.competitions}
             leaderboard={state.leaderboard}
-            onEnterCompetition={() => navigate("competition")}
+            onEnterCompetition={() => navigate("arena")}
             onOpenPairing={() => navigate("setup")}
             onOpenSkills={() => navigate("skills")}
           />
@@ -105,7 +106,7 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
           />
         ) : state.activeView === "wallet" ? (
           <TradingWalletPanel agent={selectedAgent} tradingWallet={state.tradingWallet} />
-        ) : state.activeView === "competition" ? (
+        ) : isCompetitionConsoleView ? (
           <LiveCompetition
             agents={state.agents}
             competition={selectedCompetition}
