@@ -50,10 +50,10 @@ export function ArenaPage({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <main className="min-w-0 space-y-4">
+        <section aria-label="Arena market and my Agent" className="min-w-0 space-y-4">
           <ArenaPriceChart error={liveMarketError} snapshot={liveMarketSnapshot} status={liveMarketStatus} />
           <UserAgentProfilePanel profile={userAgentProfile} />
-        </main>
+        </section>
 
         <PublicActionFeed items={actionFeedItems} />
       </div>

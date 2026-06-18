@@ -12,6 +12,7 @@ interface ArenaPriceChartProps {
 export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProps) {
   const price = snapshot?.price;
   const oracle = snapshot?.oracle;
+  const hasActiveReferenceTrace = Boolean(price) && status !== "error";
 
   return (
     <section aria-label="BTC reference chart" className="paper-card-sm p-4">
@@ -20,7 +21,7 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
           <p className="paper-label text-on-surface-variant">BTC reference chart</p>
           <h2 className="mt-1 font-display text-lg font-black uppercase text-on-surface">Binance BTCUSDT heartbeat</h2>
         </div>
-        <span className={`paper-chip shrink-0 px-2 py-1 ${status === "ready" ? "paper-chip-green" : status === "error" ? "paper-chip-red" : ""}`}>
+        <span className={`paper-chip shrink-0 px-2 py-1 ${hasActiveReferenceTrace ? "paper-chip-green" : status === "error" ? "paper-chip-red" : ""}`}>
           <Radio aria-hidden="true" size={12} />
           {status}
         </span>
@@ -35,6 +36,11 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
           <Activity aria-hidden="true" size={12} />
           Predict oracle drives arena settlement
         </span>
+        {hasActiveReferenceTrace ? (
+          <span className="paper-chip paper-chip-green px-2 py-1">Active BTC reference trace</span>
+        ) : (
+          <span className="paper-chip px-2 py-1">Waiting for BTC reference data</span>
+        )}
       </div>
 
       <div className="mt-4 h-44 w-full overflow-hidden rounded-sm border-2 border-black bg-[#111827] text-white">
@@ -46,11 +52,20 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
             </linearGradient>
           </defs>
           <path d="M0 38H640M0 88H640M0 138H640" stroke="#374151" strokeDasharray="6 8" strokeWidth="1" />
-          <path d="M72 20V78M128 54V124M184 30V92M240 62V146M296 42V112M352 24V86M408 58V132M464 34V102M520 48V118M576 26V92" stroke="#e5e7eb" strokeWidth="4" />
-          <path d="M72 56H128M128 86H184M184 58H240M240 112H296M296 76H352M352 52H408M408 96H464M464 68H520M520 82H576" stroke="#facc15" strokeWidth="3" />
-          <path d="M24 120C62 118 76 66 112 74C151 83 158 130 200 116C239 103 245 38 288 50C332 62 324 119 368 107C412 95 414 40 456 54C494 66 496 124 536 108C570 94 582 48 616 52" fill="none" stroke="#22c55e" strokeLinecap="round" strokeWidth="5" />
-          <path d="M24 120C62 118 76 66 112 74C151 83 158 130 200 116C239 103 245 38 288 50C332 62 324 119 368 107C412 95 414 40 456 54C494 66 496 124 536 108C570 94 582 48 616 52V176H24Z" fill="url(#arena-chart-fill)" />
-          <circle cx="616" cy="52" fill="#ffffff" r="6" />
+          {hasActiveReferenceTrace ? (
+            <>
+              <path d="M72 20V78M128 54V124M184 30V92M240 62V146M296 42V112M352 24V86M408 58V132M464 34V102M520 48V118M576 26V92" stroke="#e5e7eb" strokeWidth="4" />
+              <path d="M72 56H128M128 86H184M184 58H240M240 112H296M296 76H352M352 52H408M408 96H464M464 68H520M520 82H576" stroke="#facc15" strokeWidth="3" />
+              <path d="M24 120C62 118 76 66 112 74C151 83 158 130 200 116C239 103 245 38 288 50C332 62 324 119 368 107C412 95 414 40 456 54C494 66 496 124 536 108C570 94 582 48 616 52" fill="none" stroke="#22c55e" strokeLinecap="round" strokeWidth="5" />
+              <path d="M24 120C62 118 76 66 112 74C151 83 158 130 200 116C239 103 245 38 288 50C332 62 324 119 368 107C412 95 414 40 456 54C494 66 496 124 536 108C570 94 582 48 616 52V176H24Z" fill="url(#arena-chart-fill)" />
+              <circle cx="616" cy="52" fill="#ffffff" r="6" />
+            </>
+          ) : (
+            <>
+              <path d="M72 68V108M128 70V112M184 66V106M240 72V116M296 70V112M352 68V108M408 72V116M464 70V112M520 68V108M576 72V116" stroke="#6b7280" strokeWidth="4" />
+              <path d="M24 100C78 92 116 112 168 100C222 88 260 112 312 100C366 88 404 112 456 100C510 88 556 112 616 100" fill="none" stroke="#9ca3af" strokeDasharray="10 10" strokeLinecap="round" strokeWidth="5" />
+            </>
+          )}
         </svg>
       </div>
 
@@ -58,7 +73,7 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
         <ChartMetric
           label="Reference BTC"
           value={price ? formatUsd(price.spot) : "Waiting"}
-          detail={price?.updatedAt ? `Updated ${formatTimeUtc(price.updatedAt)}` : "Binance BTCUSDT"}
+          detail={price?.updatedAt ? `Updated ${formatTimeUtc(price.updatedAt)}` : "Waiting for BTC reference data"}
         />
         <ChartMetric
           label="Predict oracle"

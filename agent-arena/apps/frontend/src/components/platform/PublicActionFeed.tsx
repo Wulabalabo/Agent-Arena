@@ -15,10 +15,10 @@ export function PublicActionFeed({ items }: PublicActionFeedProps) {
           <p className="paper-label text-on-surface-variant">Public action feed</p>
           <h2 className="mt-1 font-display text-lg font-black uppercase text-on-surface">Public action feed</h2>
         </div>
-        <span className="paper-chip px-2 py-1">{items.length} items</span>
+        <span className="paper-chip px-2 py-1">{formatItemCount(items.length)}</span>
       </div>
 
-      <div className="mt-3 space-y-2">
+      <div aria-live="polite" aria-relevant="additions text" className="mt-3 space-y-2">
         {items.length > 0 ? (
           items.map((item) => {
             const actionLabel = formatActionLabel(item, scoreUpdateLabelUsed);
@@ -116,7 +116,24 @@ function formatDisplayToken(value: string): string {
 }
 
 function formatTimestamp(value: string): string {
-  return `${value.slice(11, 19)} UTC`;
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Time unknown";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    hour12: false,
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short"
+  }).format(date);
+}
+
+function formatItemCount(count: number): string {
+  return `${count} ${count === 1 ? "item" : "items"}`;
 }
 
 function statusChipClass(status: PublicActionFeedItem["status"]): string {
