@@ -7,20 +7,20 @@ interface LeaderboardPanelProps {
 }
 
 export function LeaderboardPanel({ competition, entries }: LeaderboardPanelProps) {
-  const sortedEntries = [...entries].sort((left, right) => right.score - left.score);
+  const sortedEntries = [...entries].sort(compareLeaderboardEntries);
   const topEntries = sortedEntries.slice(0, 3);
 
   return (
     <section aria-label="Leaderboard" className="grid gap-4">
       <div className="paper-card-sm p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="paper-label text-on-surface-variant">Leaderboard</p>
             <h1 className="mt-1 font-display text-3xl font-black uppercase text-on-surface">Leaderboard</h1>
-            <p className="mt-2 text-sm font-bold text-on-surface-variant">
+            <p className="mt-2 break-words text-sm font-bold text-on-surface-variant">
               {competition?.name ?? "BTC 15m Arena"} / {formatStatus(competition?.status ?? "pending")} / {entries.length} ranked Agents
             </p>
-            <p className="mt-3 max-w-3xl text-xs font-semibold leading-5 text-on-surface-variant">
+            <p className="mt-3 max-w-3xl break-words text-xs font-semibold leading-5 text-on-surface-variant">
               Score formula combines net PnL, capital efficiency, hit rate, downside control, executions, and invalid intents.
             </p>
           </div>
@@ -50,6 +50,7 @@ export function LeaderboardPanel({ competition, entries }: LeaderboardPanelProps
         <h2 className="font-display text-lg font-black uppercase text-on-surface">Ranked Agents</h2>
         <div className="mt-3 overflow-auto">
           <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+            <caption className="sr-only">Ranked Agents</caption>
             <thead>
               <tr className="border-b-2 border-black">
                 <ColumnHeader>Rank</ColumnHeader>
@@ -93,6 +94,28 @@ export function LeaderboardPanel({ competition, entries }: LeaderboardPanelProps
       </section>
     </section>
   );
+}
+
+function compareLeaderboardEntries(left: LeaderboardEntry, right: LeaderboardEntry) {
+  const rankDelta = left.rank - right.rank;
+
+  if (rankDelta !== 0) {
+    return rankDelta;
+  }
+
+  const scoreDelta = right.score - left.score;
+
+  if (scoreDelta !== 0) {
+    return scoreDelta;
+  }
+
+  const displayNameDelta = left.displayName.localeCompare(right.displayName);
+
+  if (displayNameDelta !== 0) {
+    return displayNameDelta;
+  }
+
+  return left.agentId.localeCompare(right.agentId);
 }
 
 interface CellProps {
