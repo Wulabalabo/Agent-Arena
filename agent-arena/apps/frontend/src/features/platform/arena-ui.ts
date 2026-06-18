@@ -3,6 +3,8 @@ import type {
   AgentIntent,
   AgentPositionSnapshot,
   AgentProfile,
+  AgentRuntimeStatus,
+  ExposureStatus,
   ExecutionRecord,
   LeaderboardEntry,
   TradingWallet
@@ -54,8 +56,8 @@ export interface UserAgentArenaProfile {
   twitterHandle: string | null;
   twitterVerified: false;
   tradingWalletAddress: string | null;
-  runtimeStatus: string;
-  exposureStatus: string;
+  runtimeStatus: AgentRuntimeStatus | "none";
+  exposureStatus: ExposureStatus | "none";
   positionLabel: string;
   openQuantityRaw: string | null;
   submittedBudgetRaw: string | null;
@@ -109,11 +111,18 @@ export function createUserAgentArenaProfile(input: CreateUserAgentArenaProfileIn
 
   const agentIntents = intents.filter((intent) => intent.agentId === agent.id);
   const agentExecutions = executions.filter((execution) => execution.agentId === agent.id);
+  const agentTradingWallet = tradingWallet?.agentId === agent.id ? tradingWallet : null;
   const latestIntent = findNewestByCreatedAt(agentIntents);
   const latestExecution = findNewestByCreatedAt(agentExecutions);
   const openPosition = positions.find((position) => position.agentId === agent.id && position.status === "open");
   const leaderboardEntry = leaderboard.find((entry) => entry.agentId === agent.id);
-  const accountState = deriveAccountState({ agent, tradingWallet, openPosition, latestIntent, latestExecution });
+  const accountState = deriveAccountState({
+    agent,
+    tradingWallet: agentTradingWallet,
+    openPosition,
+    latestIntent,
+    latestExecution
+  });
 
   return {
     accountState,
@@ -122,7 +131,7 @@ export function createUserAgentArenaProfile(input: CreateUserAgentArenaProfileIn
     ownerAddress: agent.ownerAddress || null,
     twitterHandle: agent.twitterHandle,
     twitterVerified: false,
-    tradingWalletAddress: tradingWallet?.address ?? agent.tradingWalletAddress ?? null,
+    tradingWalletAddress: agentTradingWallet?.address ?? agent.tradingWalletAddress ?? null,
     runtimeStatus: agent.runtimeStatus,
     exposureStatus: agent.exposureStatus,
     positionLabel: formatPositionLabel(openPosition),
@@ -139,7 +148,7 @@ export function createUserAgentArenaProfile(input: CreateUserAgentArenaProfileIn
 export function createPublicActionFeedItems(input: CreatePublicActionFeedItemsInput): PublicActionFeedItem[] {
   const agentDisplayNames = createAgentDisplayNameLookup(input.agents, input.leaderboard);
   const intentItems = input.intents.map((intent): PublicActionFeedItem => ({
-    id: intent.id,
+    id: `intent:${intent.id}`,
     timestamp: intent.createdAt,
     agentId: intent.agentId,
     agentDisplayName: agentDisplayNames.get(intent.agentId) ?? intent.agentId,
@@ -151,12 +160,12 @@ export function createPublicActionFeedItems(input: CreatePublicActionFeedItemsIn
     ...marketFields(intent)
   }));
   const executionItems = input.executions.map((execution): PublicActionFeedItem => ({
-    id: execution.id,
+    id: `execution:${execution.id}`,
     timestamp: execution.createdAt,
     agentId: execution.agentId,
     agentDisplayName: agentDisplayNames.get(execution.agentId) ?? execution.agentId,
     action: "executed",
-    status: execution.status === "failed" ? "failed" : "executed",
+    status: statusFromExecution(execution),
     predictTxDigest: execution.predictTxDigest ?? undefined
   }));
 
@@ -250,6 +259,21 @@ function statusFromIntent(intent: AgentIntent): PublicActionFeedItem["status"] {
   }
 
   return "accepted";
+}
+
+function statusFromExecution(execution: ExecutionRecord): PublicActionFeedItem["status"] {
+  switch (execution.status) {
+    case "confirmed":
+      return "executed";
+    case "queued":
+    case "signed":
+    case "submitted":
+      return "queued";
+    case "failed":
+      return "failed";
+    case "partial":
+      return "info";
+  }
 }
 
 function marketFields(intent: AgentIntent): Partial<PublicActionFeedItem> {

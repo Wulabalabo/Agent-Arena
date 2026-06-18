@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mockPlatformSnapshot } from "./mock";
+import type { ExecutionRecord } from "./types";
 import {
   agentArenaJoinPrompt,
   createPublicActionFeedItems,
@@ -50,6 +51,22 @@ describe("arena UI contracts", () => {
     expect(profile.tradingWalletAddress).toBeNull();
   });
 
+  it("does not attach another Agent's trading wallet to the selected profile", () => {
+    const profile = createUserAgentArenaProfile({
+      agent: mockPlatformSnapshot.agents[1],
+      tradingWallet: mockPlatformSnapshot.tradingWallet,
+      positions: [],
+      intents: [],
+      executions: [],
+      leaderboard: mockPlatformSnapshot.leaderboard
+    });
+
+    expect(profile.accountState).toBe("claimed_no_runtime");
+    expect(profile.displayName).toBe("Range Cartographer");
+    expect(profile.tradingWalletAddress).toBe("0xagentwallet_agent_2");
+    expect(profile.tradingWalletAddress).not.toBe(mockPlatformSnapshot.tradingWallet.address);
+  });
+
   it("derives public action feed items from intents and executions", () => {
     const items = createPublicActionFeedItems({
       agents: mockPlatformSnapshot.agents,
@@ -58,12 +75,55 @@ describe("arena UI contracts", () => {
       leaderboard: mockPlatformSnapshot.leaderboard
     });
 
-    expect(items.map((item) => item.action)).toContain("open_directional");
-    expect(items.map((item) => item.action)).toContain("rejected");
-    expect(items[0]).toEqual(expect.objectContaining({
-      agentDisplayName: expect.any(String),
-      timestamp: expect.any(String),
-      status: expect.any(String)
+    expect(items.map((item) => item.timestamp)).toEqual(
+      [...items.map((item) => item.timestamp)].sort((left, right) => right.localeCompare(left))
+    );
+    expect(items.map((item) => item.id)).toEqual(["intent:intent_2", "execution:exec_1", "intent:intent_1"]);
+
+    expect(items.find((item) => item.id === "intent:intent_1")).toEqual(expect.objectContaining({
+      action: "open_directional",
+      direction: "UP",
+      status: "executed"
     }));
+    expect(items.find((item) => item.id === "intent:intent_2")).toEqual(expect.objectContaining({
+      action: "rejected",
+      lowerStrike: "64000000000000",
+      higherStrike: "66000000000000",
+      rejectionCode: "RISK_LIMIT_EXCEEDED",
+      status: "rejected"
+    }));
+    expect(items.find((item) => item.id === "execution:exec_1")).toEqual(expect.objectContaining({
+      action: "executed",
+      agentDisplayName: "Trend Ranger",
+      predictTxDigest: "0xmock_exec_1",
+      status: "executed"
+    }));
+  });
+
+  it("maps execution feed statuses without marking pending records as executed", () => {
+    const executions: ExecutionRecord[] = [
+      { ...mockPlatformSnapshot.executions[0], id: "exec_queued", status: "queued", createdAt: "2026-06-16T10:05:00.000Z" },
+      { ...mockPlatformSnapshot.executions[0], id: "exec_signed", status: "signed", createdAt: "2026-06-16T10:06:00.000Z" },
+      { ...mockPlatformSnapshot.executions[0], id: "exec_submitted", status: "submitted", createdAt: "2026-06-16T10:07:00.000Z" },
+      { ...mockPlatformSnapshot.executions[0], id: "exec_partial", status: "partial", createdAt: "2026-06-16T10:08:00.000Z" },
+      { ...mockPlatformSnapshot.executions[0], id: "exec_confirmed", status: "confirmed", createdAt: "2026-06-16T10:09:00.000Z" },
+      { ...mockPlatformSnapshot.executions[0], id: "exec_failed", status: "failed", createdAt: "2026-06-16T10:10:00.000Z" }
+    ];
+
+    const items = createPublicActionFeedItems({
+      agents: mockPlatformSnapshot.agents,
+      intents: [],
+      executions,
+      leaderboard: mockPlatformSnapshot.leaderboard
+    });
+
+    expect(items.map((item) => [item.id, item.status])).toEqual([
+      ["execution:exec_failed", "failed"],
+      ["execution:exec_confirmed", "executed"],
+      ["execution:exec_partial", "info"],
+      ["execution:exec_submitted", "queued"],
+      ["execution:exec_signed", "queued"],
+      ["execution:exec_queued", "queued"]
+    ]);
   });
 });
