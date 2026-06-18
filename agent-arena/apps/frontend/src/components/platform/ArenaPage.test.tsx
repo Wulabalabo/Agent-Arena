@@ -42,6 +42,32 @@ describe("ArenaPage", () => {
     expect(screen.getByText(/Predict refresh failed/i)).toBeInTheDocument();
   });
 
+  it("formats chart timestamps as UTC instead of slicing offset strings", () => {
+    renderArenaPage({
+      liveMarketSnapshot: {
+        ...liveMarketSnapshot,
+        oracle: liveMarketSnapshot.oracle
+          ? {
+            ...liveMarketSnapshot.oracle,
+            expiresAt: "2026-06-16T23:15:00+08:00"
+          }
+          : null,
+        price: liveMarketSnapshot.price
+          ? {
+            ...liveMarketSnapshot.price,
+            updatedAt: "2026-06-16T23:00:00+08:00"
+          }
+          : null,
+        fetchedAt: "2026-06-16T23:00:55+08:00"
+      }
+    });
+
+    expect(screen.getByText("Updated 15:00:00 UTC")).toBeInTheDocument();
+    expect(screen.getByText("2026-06-16 15:15:00 UTC")).toBeInTheDocument();
+    expect(screen.getByText("Fetched 2026-06-16 15:00:55.000 UTC")).toBeInTheDocument();
+    expect(screen.queryByText("Updated 23:00:00 UTC")).not.toBeInTheDocument();
+  });
+
   it("renders the empty public feed state", () => {
     renderArenaPage({ actionFeedItems: [] });
 

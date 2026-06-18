@@ -3,6 +3,18 @@ import type { ReactNode } from "react";
 import type { LiveBtcMarketSnapshot } from "../../features/predict/live-market";
 import type { LiveBtcMarketStatus } from "../../features/predict/use-live-btc-market";
 
+const utcDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  day: "2-digit",
+  hour: "2-digit",
+  hourCycle: "h23",
+  minute: "2-digit",
+  month: "2-digit",
+  second: "2-digit",
+  timeZone: "UTC",
+  timeZoneName: "short",
+  year: "numeric"
+});
+
 interface ArenaPriceChartProps {
   error: string | null;
   snapshot: LiveBtcMarketSnapshot | null;
@@ -121,13 +133,61 @@ function formatDuration(totalSeconds: number): string {
 }
 
 function formatUtc(value: string): string {
-  return `${value.slice(0, 19).replace("T", " ")} UTC`;
+  const parts = readUtcDateTimeParts(value);
+  return parts ? `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} ${parts.timeZoneName}` : "Time unavailable";
 }
 
 function formatUtcWithMs(value: string): string {
-  return `${value.slice(0, 23).replace("T", " ")} UTC`;
+  const parts = readUtcDateTimeParts(value);
+  return parts
+    ? `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}.${parts.millisecond} ${parts.timeZoneName}`
+    : "Time unavailable";
 }
 
 function formatTimeUtc(value: string): string {
-  return `${value.slice(11, 19)} UTC`;
+  const parts = readUtcDateTimeParts(value);
+  return parts ? `${parts.hour}:${parts.minute}:${parts.second} ${parts.timeZoneName}` : "Time unavailable";
+}
+
+function readUtcDateTimeParts(value: string | null | undefined): {
+  day: string;
+  hour: string;
+  millisecond: string;
+  minute: string;
+  month: string;
+  second: string;
+  timeZoneName: string;
+  year: string;
+} | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const parts = utcDateTimeFormatter.formatToParts(date).reduce<Record<string, string>>((result, part) => {
+    if (part.type !== "literal") {
+      result[part.type] = part.value;
+    }
+
+    return result;
+  }, {});
+
+  if (!parts.day || !parts.hour || !parts.minute || !parts.month || !parts.second || !parts.year) {
+    return null;
+  }
+
+  return {
+    day: parts.day,
+    hour: parts.hour,
+    millisecond: String(date.getUTCMilliseconds()).padStart(3, "0"),
+    minute: parts.minute,
+    month: parts.month,
+    second: parts.second,
+    timeZoneName: parts.timeZoneName ?? "UTC",
+    year: parts.year
+  };
 }
