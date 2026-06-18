@@ -77,6 +77,10 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
   });
 
   function navigate(view: PlatformView) {
+    if (claimRegistrationCode && typeof window !== "undefined") {
+      window.history.pushState({}, "", "/");
+    }
+
     setState((currentState) => selectPlatformView(currentState, view));
   }
 

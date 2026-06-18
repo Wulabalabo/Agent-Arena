@@ -43,7 +43,9 @@ describe("App", () => {
   });
 
   it("navigates between Lobby, Arena, and Leaderboard only", async () => {
-    render(<App liveMarketLoader={async () => appLiveMarketSnapshot} />);
+    const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
+
+    render(<App liveMarketLoader={liveMarketLoader} />);
 
     expect(screen.getByRole("button", { name: /^Lobby$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Arena$/i })).toBeInTheDocument();
@@ -52,9 +54,12 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: /^Wallet$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Replay$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Skills$/i })).not.toBeInTheDocument();
+    expect(liveMarketLoader).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: /^Arena$/i }));
     expect(await screen.findByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
+    expect(liveMarketLoader).toHaveBeenCalled();
+    expect(await screen.findByText("$65,611.52")).toBeInTheDocument();
     expect(screen.getByText(/Binance BTCUSDT reference display/i)).toBeInTheDocument();
     expect(screen.getByText(/Predict oracle drives arena settlement/i)).toBeInTheDocument();
 
@@ -64,6 +69,20 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^Lobby$/i }));
     expect(screen.getByRole("button", { name: /copy prompt/i })).toBeInTheDocument();
+  });
+
+  it("clears the hidden claim URL when primary nav is used", () => {
+    window.history.pushState({}, "", "/agent-arena/claim/PAIR-2050");
+
+    render(<App />);
+
+    expect(screen.getByLabelText(/Registration code/i)).toHaveValue("PAIR-2050");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Arena$/i }));
+
+    expect(window.location.pathname).toBe("/");
+    expect(screen.getByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Registration code/i)).not.toBeInTheDocument();
   });
 
   it("claims an Agent from the owner-facing claim URL", async () => {
