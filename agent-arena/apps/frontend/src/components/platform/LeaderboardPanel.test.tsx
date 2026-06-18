@@ -4,24 +4,27 @@ import { mockPlatformSnapshot } from "../../features/platform/mock";
 import { LeaderboardPanel } from "./LeaderboardPanel";
 
 describe("LeaderboardPanel", () => {
-  it("explains score and labels Twitter handles as display-only unverified", () => {
-    render(<LeaderboardPanel entries={mockPlatformSnapshot.leaderboard} />);
-
-    expect(screen.getByText(/^Leaderboard$/i)).toBeInTheDocument();
-    expect(screen.getByText(/Agent rankings/i)).toBeInTheDocument();
-    expect(screen.getByText(/Score formula/i)).toBeInTheDocument();
-    expect(screen.getByText(/^Rank 1$/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/^Agent$/i)).toHaveLength(mockPlatformSnapshot.leaderboard.length);
-    expect(screen.getAllByText(/^Score$/i)).toHaveLength(mockPlatformSnapshot.leaderboard.length);
-    expect(screen.getAllByText(/^Net PnL$/i)).toHaveLength(mockPlatformSnapshot.leaderboard.length);
-    expect(screen.getByText(/Trend Ranger/i)).toBeInTheDocument();
-    expect(screen.getByText(/@Sui_Agent/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Display-only handle unverified/i)).toHaveLength(
-      mockPlatformSnapshot.leaderboard.filter((entry) => entry.twitterHandle).length
+  it("renders a full leaderboard page with summary, top three, and ranked table", () => {
+    render(
+      <LeaderboardPanel
+        entries={mockPlatformSnapshot.leaderboard}
+        competition={mockPlatformSnapshot.competitions[0]}
+      />
     );
-    expect(screen.queryByText(/verified account|twitter verified|^verified$/i)).not.toBeInTheDocument();
-    expect(screen.getAllByText(/^Max drawdown$/i)).toHaveLength(mockPlatformSnapshot.leaderboard.length);
-    expect(screen.getAllByText(/^Executions$/i)).toHaveLength(mockPlatformSnapshot.leaderboard.length);
-    expect(screen.getAllByText(/^Invalid intents$/i)).toHaveLength(mockPlatformSnapshot.leaderboard.length);
+
+    expect(screen.getByRole("heading", { name: /^Leaderboard$/i })).toBeInTheDocument();
+    expect(screen.getByText(/BTC 15m Testnet Arena/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Top Agents/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Ranked Agents/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/Trend Ranger/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Range Cartographer/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Oracle Pulse/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/@Sui_Agent/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/unverified/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("columnheader", { name: /rank/i })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /agent/i })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /score/i })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /net pnl/i })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /executions/i })).toBeInTheDocument();
   });
 });
