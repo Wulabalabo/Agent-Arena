@@ -1,0 +1,268 @@
+import type {
+  AgentAction,
+  AgentIntent,
+  AgentPositionSnapshot,
+  AgentProfile,
+  ExecutionRecord,
+  LeaderboardEntry,
+  TradingWallet
+} from "./types";
+
+export const agentArenaJoinPrompt =
+  "Read http://127.0.0.1:8787/skills/agent-arena.md and follow the instructions to join the BTC 15m Agent Arena.";
+
+export type UserAgentArenaAccountState =
+  | "no_owner_wallet"
+  | "no_claimed_agent"
+  | "claimed_no_runtime"
+  | "flat"
+  | "open_exposure"
+  | "attention";
+
+export interface PublicActionFeedItem {
+  id: string;
+  timestamp: string;
+  agentId: string;
+  agentDisplayName: string;
+  action:
+    | "hold"
+    | "open_directional"
+    | "open_range"
+    | "reduce"
+    | "close"
+    | "rejected"
+    | "executed"
+    | "pnl_update"
+    | "score_update";
+  status: "accepted" | "queued" | "executed" | "rejected" | "failed" | "info";
+  direction?: "UP" | "DOWN";
+  lowerStrike?: string;
+  higherStrike?: string;
+  confidence?: number;
+  reason?: string;
+  rejectionCode?: string;
+  pnlDeltaPct?: number;
+  scoreDelta?: number;
+  predictTxDigest?: string;
+}
+
+export interface UserAgentArenaProfile {
+  accountState: UserAgentArenaAccountState;
+  agentId: string | null;
+  displayName: string;
+  ownerAddress: string | null;
+  twitterHandle: string | null;
+  twitterVerified: false;
+  tradingWalletAddress: string | null;
+  runtimeStatus: string;
+  exposureStatus: string;
+  positionLabel: string;
+  openQuantityRaw: string | null;
+  submittedBudgetRaw: string | null;
+  realizedPnlPct: number | null;
+  unrealizedPnlPct: number | null;
+  latestIntentId: string | null;
+  latestExecutionId: string | null;
+  latestPredictTxDigest: string | null;
+}
+
+interface CreateUserAgentArenaProfileInput {
+  agent: AgentProfile | null;
+  tradingWallet: TradingWallet | null;
+  positions: AgentPositionSnapshot[];
+  intents: AgentIntent[];
+  executions: ExecutionRecord[];
+  leaderboard: LeaderboardEntry[];
+}
+
+interface CreatePublicActionFeedItemsInput {
+  agents: AgentProfile[];
+  intents: AgentIntent[];
+  executions: ExecutionRecord[];
+  leaderboard: LeaderboardEntry[];
+}
+
+export function createUserAgentArenaProfile(input: CreateUserAgentArenaProfileInput): UserAgentArenaProfile {
+  const { agent, tradingWallet, positions, intents, executions, leaderboard } = input;
+
+  if (!agent) {
+    return {
+      accountState: "no_claimed_agent",
+      agentId: null,
+      displayName: "No claimed Agent",
+      ownerAddress: null,
+      twitterHandle: null,
+      twitterVerified: false,
+      tradingWalletAddress: null,
+      runtimeStatus: "none",
+      exposureStatus: "none",
+      positionLabel: "No active Agent",
+      openQuantityRaw: null,
+      submittedBudgetRaw: null,
+      realizedPnlPct: null,
+      unrealizedPnlPct: null,
+      latestIntentId: null,
+      latestExecutionId: null,
+      latestPredictTxDigest: null
+    };
+  }
+
+  const agentIntents = intents.filter((intent) => intent.agentId === agent.id);
+  const agentExecutions = executions.filter((execution) => execution.agentId === agent.id);
+  const latestIntent = findNewestByCreatedAt(agentIntents);
+  const latestExecution = findNewestByCreatedAt(agentExecutions);
+  const openPosition = positions.find((position) => position.agentId === agent.id && position.status === "open");
+  const leaderboardEntry = leaderboard.find((entry) => entry.agentId === agent.id);
+  const accountState = deriveAccountState({ agent, tradingWallet, openPosition, latestIntent, latestExecution });
+
+  return {
+    accountState,
+    agentId: agent.id,
+    displayName: agent.displayName,
+    ownerAddress: agent.ownerAddress || null,
+    twitterHandle: agent.twitterHandle,
+    twitterVerified: false,
+    tradingWalletAddress: tradingWallet?.address ?? agent.tradingWalletAddress ?? null,
+    runtimeStatus: agent.runtimeStatus,
+    exposureStatus: agent.exposureStatus,
+    positionLabel: formatPositionLabel(openPosition),
+    openQuantityRaw: openPosition?.quantityRaw ?? null,
+    submittedBudgetRaw: latestIntent?.budgetRaw ?? null,
+    realizedPnlPct: leaderboardEntry?.netPnlPct ?? null,
+    unrealizedPnlPct: null,
+    latestIntentId: latestIntent?.id ?? null,
+    latestExecutionId: latestExecution?.id ?? null,
+    latestPredictTxDigest: latestExecution?.predictTxDigest ?? null
+  };
+}
+
+export function createPublicActionFeedItems(input: CreatePublicActionFeedItemsInput): PublicActionFeedItem[] {
+  const agentDisplayNames = createAgentDisplayNameLookup(input.agents, input.leaderboard);
+  const intentItems = input.intents.map((intent): PublicActionFeedItem => ({
+    id: intent.id,
+    timestamp: intent.createdAt,
+    agentId: intent.agentId,
+    agentDisplayName: agentDisplayNames.get(intent.agentId) ?? intent.agentId,
+    action: intent.status === "rejected" ? "rejected" : normalizeAction(intent.action),
+    status: statusFromIntent(intent),
+    confidence: intent.confidence,
+    reason: intent.reason,
+    rejectionCode: intent.rejectionCode ?? undefined,
+    ...marketFields(intent)
+  }));
+  const executionItems = input.executions.map((execution): PublicActionFeedItem => ({
+    id: execution.id,
+    timestamp: execution.createdAt,
+    agentId: execution.agentId,
+    agentDisplayName: agentDisplayNames.get(execution.agentId) ?? execution.agentId,
+    action: "executed",
+    status: execution.status === "failed" ? "failed" : "executed",
+    predictTxDigest: execution.predictTxDigest ?? undefined
+  }));
+
+  return [...intentItems, ...executionItems].sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+}
+
+function deriveAccountState(input: {
+  agent: AgentProfile;
+  tradingWallet: TradingWallet | null;
+  openPosition?: AgentPositionSnapshot;
+  latestIntent?: AgentIntent;
+  latestExecution?: ExecutionRecord;
+}): UserAgentArenaAccountState {
+  const { agent, tradingWallet, openPosition, latestIntent, latestExecution } = input;
+
+  if (!agent.ownerAddress) {
+    return "no_owner_wallet";
+  }
+
+  if (agent.runtimeStatus === "waiting") {
+    return "claimed_no_runtime";
+  }
+
+  if (latestIntent?.status === "rejected" || latestExecution?.status === "failed") {
+    return "attention";
+  }
+
+  if (openPosition || agent.exposureStatus === "directional" || agent.exposureStatus === "range") {
+    return "open_exposure";
+  }
+
+  if (!tradingWallet) {
+    return "claimed_no_runtime";
+  }
+
+  return "flat";
+}
+
+function formatPositionLabel(position?: AgentPositionSnapshot): string {
+  if (!position) {
+    return "Flat";
+  }
+
+  if (position.positionRef.kind === "directional" && position.strikeRaw && position.direction) {
+    return `${position.direction.toUpperCase()} ${position.strikeRaw}`;
+  }
+
+  if (position.positionRef.kind === "range" && position.lowerStrikeRaw && position.higherStrikeRaw) {
+    return `Range ${position.lowerStrikeRaw}-${position.higherStrikeRaw}`;
+  }
+
+  return "Flat";
+}
+
+function findNewestByCreatedAt<T extends { createdAt: string }>(items: T[]): T | undefined {
+  return [...items].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+}
+
+function createAgentDisplayNameLookup(
+  agents: AgentProfile[],
+  leaderboard: LeaderboardEntry[]
+): Map<string, string> {
+  return new Map([
+    ...leaderboard.map((entry): [string, string] => [entry.agentId, entry.displayName]),
+    ...agents.map((agent): [string, string] => [agent.id, agent.displayName])
+  ]);
+}
+
+function normalizeAction(action: AgentAction): PublicActionFeedItem["action"] {
+  switch (action) {
+    case "hold":
+    case "open_directional":
+    case "open_range":
+    case "reduce":
+    case "close":
+      return action;
+    case "add":
+    case "switch_direction":
+    case "adjust_range":
+      return "hold";
+  }
+}
+
+function statusFromIntent(intent: AgentIntent): PublicActionFeedItem["status"] {
+  if (intent.status === "rejected") {
+    return "rejected";
+  }
+
+  if (intent.status === "executed") {
+    return "executed";
+  }
+
+  return "accepted";
+}
+
+function marketFields(intent: AgentIntent): Partial<PublicActionFeedItem> {
+  if (intent.market?.kind === "directional") {
+    return { direction: intent.market.isUp ? "UP" : "DOWN" };
+  }
+
+  if (intent.market?.kind === "range") {
+    return {
+      lowerStrike: intent.market.lowerStrike,
+      higherStrike: intent.market.higherStrike
+    };
+  }
+
+  return {};
+}

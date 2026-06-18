@@ -199,6 +199,7 @@ export interface LeaderboardEntry {
   executionCount: number;
   invalidIntentCount: number;
   finalExecutionAt: string;
+  currentExposureStatus?: ExposureStatus;
 }
 
 export interface ReplayEvent {

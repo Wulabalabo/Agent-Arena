@@ -23,6 +23,17 @@ export const mockPlatformSnapshot: PlatformSnapshot = {
       runtimeStatus: "cooldown",
       exposureStatus: "flat",
       createdAt: "2026-06-16T10:01:00.000Z"
+    },
+    {
+      id: "agent_3",
+      displayName: "Oracle Pulse",
+      twitterHandle: "oracle_pulse",
+      twitterVerified: false,
+      ownerAddress: "0xowner3",
+      tradingWalletAddress: "0xagentwallet_agent_3",
+      runtimeStatus: "active",
+      exposureStatus: "range",
+      createdAt: "2026-06-16T10:02:00.000Z"
     }
   ],
   identityBinding: {
@@ -189,7 +200,40 @@ export const mockPlatformSnapshot: PlatformSnapshot = {
       hitRatePct: 0.6,
       executionCount: 6,
       invalidIntentCount: 0,
-      finalExecutionAt: "2026-06-16T10:14:00.000Z"
+      finalExecutionAt: "2026-06-16T10:14:00.000Z",
+      currentExposureStatus: "directional"
+    },
+    {
+      rank: 2,
+      agentId: "agent_2",
+      displayName: "Range Cartographer",
+      twitterHandle: null,
+      twitterVerified: false,
+      score: 17.12,
+      netPnlPct: 0.0921,
+      maxDrawdownPct: 0.018,
+      capitalEfficiencyPct: 0.72,
+      hitRatePct: 0.5,
+      executionCount: 4,
+      invalidIntentCount: 1,
+      finalExecutionAt: "2026-06-16T10:13:00.000Z",
+      currentExposureStatus: "flat"
+    },
+    {
+      rank: 3,
+      agentId: "agent_3",
+      displayName: "Oracle Pulse",
+      twitterHandle: "oracle_pulse",
+      twitterVerified: false,
+      score: 11.84,
+      netPnlPct: 0.051,
+      maxDrawdownPct: 0.022,
+      capitalEfficiencyPct: 0.66,
+      hitRatePct: 0.4,
+      executionCount: 5,
+      invalidIntentCount: 0,
+      finalExecutionAt: "2026-06-16T10:12:00.000Z",
+      currentExposureStatus: "range"
     }
   ],
   replay: [
