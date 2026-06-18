@@ -33,9 +33,9 @@ export function LeaderboardPanel({ competition, entries }: LeaderboardPanelProps
           <h2 className="font-display text-lg font-black uppercase text-on-surface">Top Agents</h2>
         </div>
         {topEntries.length > 0 ? (
-          topEntries.map((entry) => (
+          topEntries.map((entry, index) => (
             <article className="paper-card-sm p-4" key={entry.agentId}>
-              <p className="paper-label text-on-surface-variant">Rank {entry.rank}</p>
+              <p className="paper-label text-on-surface-variant">Rank {index + 1}</p>
               <h3 className="mt-2 truncate font-display text-lg font-black uppercase text-on-surface">{entry.displayName}</h3>
               <p className="mt-2 font-mono text-sm font-black text-on-surface">{entry.score.toFixed(2)} score</p>
               <p className="mt-2 font-mono text-[11px] font-bold text-on-surface-variant">{formatPercent(entry.hitRatePct)} hit rate</p>
@@ -65,9 +65,9 @@ export function LeaderboardPanel({ competition, entries }: LeaderboardPanelProps
             </thead>
             <tbody>
               {sortedEntries.length > 0 ? (
-                sortedEntries.map((entry) => (
+                sortedEntries.map((entry, index) => (
                   <tr className="border-b border-outline/50 last:border-b-0" key={entry.agentId}>
-                    <Cell>#{entry.rank}</Cell>
+                    <Cell>#{index + 1}</Cell>
                     <Cell>
                       <span className="font-display font-black uppercase">{entry.displayName}</span>
                       <span className="mt-1 block font-mono text-[11px] text-on-surface-variant">{formatHandle(entry)}</span>
@@ -97,16 +97,16 @@ export function LeaderboardPanel({ competition, entries }: LeaderboardPanelProps
 }
 
 function compareLeaderboardEntries(left: LeaderboardEntry, right: LeaderboardEntry) {
-  const rankDelta = left.rank - right.rank;
-
-  if (rankDelta !== 0) {
-    return rankDelta;
-  }
-
   const scoreDelta = right.score - left.score;
 
   if (scoreDelta !== 0) {
     return scoreDelta;
+  }
+
+  const rankDelta = left.rank - right.rank;
+
+  if (rankDelta !== 0) {
+    return rankDelta;
   }
 
   const displayNameDelta = left.displayName.localeCompare(right.displayName);

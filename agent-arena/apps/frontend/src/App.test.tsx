@@ -63,9 +63,13 @@ describe("App", () => {
     expect(screen.getByText(/Binance BTCUSDT reference display/i)).toBeInTheDocument();
     expect(screen.getByText(/Predict oracle drives arena settlement/i)).toBeInTheDocument();
     const myAgentProfile = screen.getByRole("region", { name: /My Agent profile/i });
-    expect(within(myAgentProfile).getAllByText(/No claimed Agent/i).length).toBeGreaterThan(0);
-    expect(within(myAgentProfile).getByText(/No active Agent/i)).toBeInTheDocument();
-    expect(within(myAgentProfile).queryByText(/Trend Ranger/i)).not.toBeInTheDocument();
+    expect(within(myAgentProfile).getByText(/Trend Ranger/i)).toBeInTheDocument();
+    expect(within(myAgentProfile).getByText(/UP 65000000000000/i)).toBeInTheDocument();
+    expect(within(myAgentProfile).getByText(/18.42%/i)).toBeInTheDocument();
+    expect(within(myAgentProfile).getByText("intent_1")).toBeInTheDocument();
+    expect(within(myAgentProfile).getByText("exec_1")).toBeInTheDocument();
+    expect(within(myAgentProfile).getByText("0xmock_exec_1")).toBeInTheDocument();
+    expect(within(myAgentProfile).getByText("0xagentwallet_agent_1")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Public action feed/i })).toBeInTheDocument();
     expect(screen.getByText(/open directional/i)).toBeInTheDocument();
 

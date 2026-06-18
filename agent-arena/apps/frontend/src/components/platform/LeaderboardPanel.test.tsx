@@ -53,7 +53,7 @@ describe("LeaderboardPanel", () => {
     expect(within(rankedTable).getByText("No public handle")).toBeInTheDocument();
   });
 
-  it("orders top cards and rows by rank before score and stable agent identity", () => {
+  it("orders top cards and rows by score before rank and stable agent identity", () => {
     const unsortedEntries: LeaderboardEntry[] = [
       { ...mockPlatformSnapshot.leaderboard[0], rank: 3, score: 99 },
       { ...mockPlatformSnapshot.leaderboard[1], agentId: "agent_alpha", displayName: "Alpha Range", rank: 2, score: 50 },
@@ -68,22 +68,22 @@ describe("LeaderboardPanel", () => {
     expect(within(topAgents).getAllByText(/^Rank \d$/i).map((label) => label.textContent)).toEqual([
       "Rank 1",
       "Rank 2",
-      "Rank 2"
+      "Rank 3"
     ]);
     expect(within(topAgents).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
-      "Range Cartographer",
+      "Trend Ranger",
       "Oracle Pulse",
       "Alpha Range"
     ]);
 
     const rankedTable = screen.getByRole("table", { name: /Ranked Agents/i });
     const rows = within(rankedTable).getAllByRole("row").slice(1);
-    expect(rows.map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual(["#1", "#2", "#2", "#2", "#3"]);
-    expect(within(rows[0]).getAllByRole("cell")[1]).toHaveTextContent(/^Range Cartographer/);
+    expect(rows.map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual(["#1", "#2", "#3", "#4", "#5"]);
+    expect(within(rows[0]).getAllByRole("cell")[1]).toHaveTextContent(/^Trend Ranger/);
     expect(within(rows[1]).getAllByRole("cell")[1]).toHaveTextContent(/^Oracle Pulse/);
     expect(within(rows[2]).getAllByRole("cell")[1]).toHaveTextContent(/^Alpha Range/);
     expect(within(rows[3]).getAllByRole("cell")[1]).toHaveTextContent(/^Zulu Range/);
-    expect(within(rows[4]).getAllByRole("cell")[1]).toHaveTextContent(/^Trend Ranger/);
+    expect(within(rows[4]).getAllByRole("cell")[1]).toHaveTextContent(/^Range Cartographer/);
   });
 
   it("shows empty states in the top area and ranked table", () => {

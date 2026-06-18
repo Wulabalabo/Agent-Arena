@@ -16,15 +16,17 @@ import {
   createPublicActionFeedItems,
   createUserAgentArenaProfile
 } from "./features/platform/arena-ui";
+import { platformConfig } from "./features/platform/config";
 import { mockPlatformSnapshot } from "./features/platform/mock";
 import {
   createInitialPlatformState,
+  getSelectedAgent,
   getSelectedCompetition,
   selectPlatformView,
   type PlatformView
 } from "./state/platform";
 
-const apiBaseUrl = "http://127.0.0.1:8787/api/arena";
+const apiBaseUrl = platformConfig.apiBaseUrl;
 
 interface AppProps {
   liveMarketLoader?: () => Promise<LiveBtcMarketSnapshot>;
@@ -33,19 +35,20 @@ interface AppProps {
 
 export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}) {
   const [state, setState] = useState(() => createInitialPlatformState(mockPlatformSnapshot));
+  const selectedAgent = useMemo(() => getSelectedAgent(state), [state]);
   const selectedCompetition = useMemo(() => getSelectedCompetition(state), [state]);
   const claimRegistrationCode = getClaimRegistrationCode();
   const userAgentProfile = useMemo(
     () =>
       createUserAgentArenaProfile({
-        agent: null,
-        tradingWallet: null,
-        positions: [],
-        intents: [],
-        executions: [],
-        leaderboard: []
+        agent: selectedAgent,
+        tradingWallet: state.tradingWallet,
+        positions: state.positions,
+        intents: state.intents,
+        executions: state.executions,
+        leaderboard: state.leaderboard
       }),
-    []
+    [selectedAgent, state.tradingWallet, state.positions, state.intents, state.executions, state.leaderboard]
   );
   const publicActionFeedItems = useMemo(
     () =>

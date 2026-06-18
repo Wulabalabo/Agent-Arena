@@ -161,9 +161,12 @@ export function AgentClaimPanel({
         <label className="grid gap-1">
           <span className="paper-label text-on-surface-variant">Registration code</span>
           <input
+            autoComplete="off"
             className="min-h-10 rounded-[3px] border-2 border-outline-variant bg-surface-container-lowest px-3 py-2 font-mono text-sm font-bold text-on-surface"
+            name="registrationCode"
             onChange={(event) => setCode(event.target.value)}
             required
+            spellCheck={false}
             type="text"
             value={code}
           />
@@ -182,10 +185,13 @@ export function AgentClaimPanel({
           <label className="grid gap-1">
             <span className="paper-label text-on-surface-variant">Owner wallet address</span>
             <input
+              autoComplete="off"
               className="min-h-10 rounded-[3px] border-2 border-outline-variant bg-surface-container-lowest px-3 py-2 font-mono text-sm font-bold text-on-surface"
+              name="ownerAddress"
               onChange={(event) => setOwnerAddress(event.target.value)}
-              placeholder="0x..."
+              placeholder="0x…"
               required
+              spellCheck={false}
               type="text"
               value={ownerAddress}
             />
@@ -195,9 +201,12 @@ export function AgentClaimPanel({
         <label className="grid gap-1">
           <span className="paper-label text-on-surface-variant">Twitter handle</span>
           <input
+            autoComplete="off"
             className="min-h-10 rounded-[3px] border-2 border-outline-variant bg-surface-container-lowest px-3 py-2 font-mono text-sm font-bold text-on-surface"
+            name="twitterHandle"
             onChange={(event) => setTwitterHandle(event.target.value)}
-            placeholder="@handle"
+            placeholder="@handle…"
+            spellCheck={false}
             type="text"
             value={twitterHandle}
           />
@@ -211,7 +220,7 @@ export function AgentClaimPanel({
         >
           <Wallet aria-hidden="true" size={14} />
           {status === "claiming"
-            ? "Claiming"
+            ? "Claiming…"
             : claimButtonLabel
               ? claimButtonLabel
               : !canClaim
