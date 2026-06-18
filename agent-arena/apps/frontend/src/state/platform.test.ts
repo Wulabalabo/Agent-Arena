@@ -9,12 +9,12 @@ import {
 } from "./platform";
 
 describe("platform state", () => {
-  it("starts on the live competition view with the first competition and Agent selected", () => {
+  it("starts on the Lobby view with the first competition and Agent selected", () => {
     const firstAgent = mockPlatformSnapshot.agents[0];
     const firstCompetition = mockPlatformSnapshot.competitions[0];
     const state = createInitialPlatformState(mockPlatformSnapshot);
 
-    expect(state.activeView).toBe("competition");
+    expect(state.activeView).toBe("lobby");
     expect(getSelectedCompetition(state).id).toBe(firstCompetition.id);
     expect(getSelectedAgent(state).id).toBe(firstAgent.id);
   });
@@ -32,13 +32,18 @@ describe("platform state", () => {
     expect(state.replay).not.toBe(mockPlatformSnapshot.replay);
   });
 
-  it("switches platform views without clearing selected Agent", () => {
+  it("switches between the three primary platform views without clearing selected Agent", () => {
     const secondAgent = mockPlatformSnapshot.agents[1];
     const state = createInitialPlatformState(mockPlatformSnapshot);
-    const next = selectPlatformView(selectAgent(state, secondAgent.id), "leaderboard");
 
-    expect(next.activeView).toBe("leaderboard");
-    expect(next.selectedAgentId).toBe(secondAgent.id);
+    const arena = selectPlatformView(selectAgent(state, secondAgent.id), "arena");
+    const leaderboard = selectPlatformView(arena, "leaderboard");
+    const lobby = selectPlatformView(leaderboard, "lobby");
+
+    expect(arena.activeView).toBe("arena");
+    expect(leaderboard.activeView).toBe("leaderboard");
+    expect(lobby.activeView).toBe("lobby");
+    expect(lobby.selectedAgentId).toBe(secondAgent.id);
   });
 
   it("rejects selecting an unknown Agent", () => {

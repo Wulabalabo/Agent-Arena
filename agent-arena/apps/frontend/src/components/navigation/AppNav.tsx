@@ -8,12 +8,8 @@ interface AppNavProps {
 
 const navItems: Array<{ id: PlatformView; label: string }> = [
   { id: "lobby", label: "Lobby" },
-  { id: "setup", label: "Pair Agent" },
-  { id: "wallet", label: "Wallet" },
-  { id: "competition", label: "Competition" },
-  { id: "leaderboard", label: "Leaderboard" },
-  { id: "replay", label: "Replay" },
-  { id: "skills", label: "Skills" }
+  { id: "arena", label: "Arena" },
+  { id: "leaderboard", label: "Leaderboard" }
 ];
 
 export function AppNav({ activeView, onNavigate }: AppNavProps) {

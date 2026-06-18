@@ -2,6 +2,7 @@ import type { AgentProfile, Competition, PlatformSnapshot } from "../features/pl
 
 export type PlatformView =
   | "lobby"
+  | "arena"
   | "setup"
   | "wallet"
   | "competition"
@@ -32,7 +33,7 @@ export function createInitialPlatformState(snapshot: PlatformSnapshot): Platform
     positions: [...snapshot.positions],
     leaderboard: [...snapshot.leaderboard],
     replay: [...snapshot.replay],
-    activeView: "competition",
+    activeView: "lobby",
     selectedAgentId: firstAgent.id,
     selectedCompetitionId: firstCompetition.id
   };
