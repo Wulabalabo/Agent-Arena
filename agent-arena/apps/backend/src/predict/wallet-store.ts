@@ -1,4 +1,6 @@
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { Database } from "bun:sqlite";
+import { mkdirSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type {
@@ -16,6 +18,10 @@ interface CreateMemoryWalletStoreOptions {
 
 interface CreateJsonWalletStoreOptions extends CreateMemoryWalletStoreOptions {
   storePath: string;
+}
+
+interface CreateSqliteWalletStoreOptions extends CreateMemoryWalletStoreOptions {
+  dbPath: string;
 }
 
 interface CreateWalletInput {
@@ -214,6 +220,137 @@ export function createJsonWalletStore(options: CreateJsonWalletStoreOptions): Me
   };
 }
 
+export function createSqliteWalletStore(options: CreateSqliteWalletStoreOptions): MemoryWalletStore {
+  const walletSecret = options.walletSecret.trim();
+  if (!walletSecret) {
+    throw new Error("MISSING_WALLET_SECRET");
+  }
+  if (!options.dbPath.trim()) {
+    throw new Error("MISSING_WALLET_STORE_PATH");
+  }
+
+  const quoteAssetType = options.quoteAssetType ?? defaultQuoteAssetType;
+  mkdirSync(dirname(options.dbPath), { recursive: true });
+  const db = new Database(options.dbPath);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS internal_wallets (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      binding_mode TEXT NOT NULL,
+      label TEXT,
+      address TEXT NOT NULL UNIQUE,
+      public_key TEXT NOT NULL,
+      key_scheme TEXT NOT NULL,
+      status TEXT NOT NULL,
+      testnet_only INTEGER NOT NULL,
+      quote_asset_type TEXT NOT NULL,
+      encrypted_private_key TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS internal_wallet_store_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  return {
+    async createWallet(input) {
+      const nextWalletNumber = readNextSqliteWalletNumber(db);
+      const keypair = new Ed25519Keypair();
+      const walletId = `wallet_internal_${String(nextWalletNumber).padStart(3, "0")}`;
+      const wallet: InternalTradingWallet = {
+        id: walletId,
+        agentId: input.agentId,
+        bindingMode: input.bindingMode,
+        label: input.label,
+        address: keypair.getPublicKey().toSuiAddress(),
+        publicKey: keypair.getPublicKey().toBase64(),
+        keyScheme: "ed25519",
+        status: "active",
+        testnetOnly: true,
+        createdAt: new Date().toISOString()
+      };
+
+      db.query(`
+        INSERT INTO internal_wallets (
+          id,
+          agent_id,
+          binding_mode,
+          label,
+          address,
+          public_key,
+          key_scheme,
+          status,
+          testnet_only,
+          quote_asset_type,
+          encrypted_private_key,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        wallet.id,
+        wallet.agentId,
+        wallet.bindingMode,
+        wallet.label ?? null,
+        wallet.address,
+        wallet.publicKey,
+        wallet.keyScheme,
+        wallet.status,
+        wallet.testnetOnly ? 1 : 0,
+        quoteAssetType,
+        sealPrivateKey(keypair.getSecretKey(), walletSecret),
+        wallet.createdAt
+      );
+      writeNextSqliteWalletNumber(db, nextWalletNumber + 1);
+
+      return copyWallet(wallet);
+    },
+
+    async getWallet(walletId) {
+      const record = readSqliteWalletRecord(db, walletId);
+      return record ? copyWallet(record.wallet) : null;
+    },
+
+    async listWallets() {
+      return db.query("SELECT * FROM internal_wallets ORDER BY id")
+        .all()
+        .map((row) => copyWallet(sqliteRowToWalletRecord(row).wallet));
+    },
+
+    async getBalances(walletId) {
+      const record = readSqliteWalletRecord(db, walletId);
+      if (!record) {
+        throw new Error("WALLET_NOT_FOUND");
+      }
+      if (!options.balanceReader) {
+        throw new Error("BALANCE_READER_NOT_CONFIGURED");
+      }
+
+      const address = record.wallet.address;
+      const [suiBalanceRaw, dusdcBalanceRaw] = await Promise.all([
+        options.balanceReader.getSuiBalance(address),
+        options.balanceReader.getCoinBalance(address, quoteAssetType)
+      ]);
+
+      return {
+        walletId,
+        address,
+        suiBalanceRaw,
+        quoteAssetType,
+        dusdcBalanceRaw
+      };
+    },
+
+    async getSigner(walletId) {
+      const record = readSqliteWalletRecord(db, walletId);
+      if (!record) {
+        throw new Error("WALLET_NOT_FOUND");
+      }
+
+      return restoreSigner(record, walletSecret);
+    }
+  };
+}
+
 function copyWallet(wallet: InternalTradingWallet): InternalTradingWallet {
   return { ...wallet };
 }
@@ -302,6 +439,52 @@ function normalizeWalletRecord(record: InternalWalletRecord): InternalWalletReco
   return {
     wallet: copyWallet(record.wallet),
     encryptedPrivateKey: record.encryptedPrivateKey
+  };
+}
+
+function readNextSqliteWalletNumber(db: Database): number {
+  const row = db.query("SELECT value FROM internal_wallet_store_meta WHERE key = 'next_wallet_number'")
+    .get() as { value: string } | null;
+  if (row && /^\d+$/.test(row.value)) {
+    return Number(row.value);
+  }
+
+  const ids = db.query("SELECT id FROM internal_wallets").all() as Array<{ id: string }>;
+  return ids.reduce((next, row) => {
+    const match = row.id.match(/^wallet_internal_(\d+)$/);
+    return match ? Math.max(next, Number(match[1]) + 1) : next;
+  }, 1);
+}
+
+function writeNextSqliteWalletNumber(db: Database, nextWalletNumber: number): void {
+  db.query(`
+    INSERT INTO internal_wallet_store_meta (key, value)
+    VALUES ('next_wallet_number', ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(String(nextWalletNumber));
+}
+
+function readSqliteWalletRecord(db: Database, walletId: string): InternalWalletRecord | null {
+  const row = db.query("SELECT * FROM internal_wallets WHERE id = ?").get(walletId);
+  return row ? sqliteRowToWalletRecord(row) : null;
+}
+
+function sqliteRowToWalletRecord(row: unknown): InternalWalletRecord {
+  const record = row as Record<string, unknown>;
+  return {
+    wallet: {
+      id: String(record.id),
+      agentId: String(record.agent_id),
+      bindingMode: String(record.binding_mode) as InternalWalletBindingMode,
+      label: typeof record.label === "string" ? record.label : undefined,
+      address: String(record.address),
+      publicKey: String(record.public_key),
+      keyScheme: String(record.key_scheme) as "ed25519",
+      status: String(record.status) as InternalTradingWallet["status"],
+      testnetOnly: true,
+      createdAt: String(record.created_at)
+    },
+    encryptedPrivateKey: String(record.encrypted_private_key)
   };
 }
 

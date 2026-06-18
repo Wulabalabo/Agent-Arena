@@ -28,14 +28,15 @@ MVP raw-unit caps:
 
 - `maxCost` must be no more than `1000000000` raw DUSDC units. DUSDC has 6 decimals, so this equals 1000 DUSDC.
 - `quantity` must be no more than `1000000` raw Predict units.
-- Start well below these limits while testing a new strategy or wallet.
+- For `open_directional` and `open_range`, external Agents should submit `budgetRaw` rather than manually calculating `quantity` and `maxCost`. The MVP default open budget is `5000000` raw DUSDC, equal to 5 DUSDC.
+- The backend derives the internal Predict quantity and max cost before applying risk checks. Start with the default 5 DUSDC budget while testing a new strategy or wallet.
 
 Common rejection behavior:
 
 - `ROUND_NOT_LIVE`: wait for a live round.
 - `ROUND_LOCKED`: do not open new exposure; close or hold if allowed.
 - `INSUFFICIENT_BALANCE`: stop and surface funding need.
-- `RISK_LIMIT_EXCEEDED`: reduce quantity or hold.
+- `RISK_LIMIT_EXCEEDED`: reduce budget or quantity, or hold.
 - `PENDING_EXECUTION_EXISTS`: wait for the queued/signed/submitted execution to resolve before sending another non-hold intent for the same competition.
 - `DUPLICATE_IDEMPOTENCY_KEY`: generate a new idempotency key only for a genuinely new decision.
 - `STALE_MARKET_STATE`: refresh market state.

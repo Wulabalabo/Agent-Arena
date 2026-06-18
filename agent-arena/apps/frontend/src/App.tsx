@@ -5,6 +5,7 @@ import { LeaderboardPanel } from "./components/platform/LeaderboardPanel";
 import { LiveCompetition } from "./components/platform/LiveCompetition";
 import { ReplayTimeline } from "./components/platform/ReplayTimeline";
 import { SkillDocsPanel } from "./components/platform/SkillDocsPanel";
+import { SuiDappKitAgentClaimPanel } from "./components/platform/SuiDappKitAgentClaimPanel";
 import { TradingWalletPanel } from "./components/platform/TradingWalletPanel";
 import { AppNav } from "./components/navigation/AppNav";
 import { createPredictClient } from "./features/predict/client";
@@ -30,12 +31,14 @@ const apiBaseUrl = "http://127.0.0.1:8787/api/arena";
 
 interface AppProps {
   liveMarketLoader?: () => Promise<LiveBtcMarketSnapshot>;
+  platformFetcher?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
-export default function App({ liveMarketLoader }: AppProps = {}) {
+export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}) {
   const [state, setState] = useState(() => createInitialPlatformState(mockPlatformSnapshot));
   const selectedAgent = useMemo(() => getSelectedAgent(state), [state]);
   const selectedCompetition = useMemo(() => getSelectedCompetition(state), [state]);
+  const claimRegistrationCode = getClaimRegistrationCode();
   const predictClient = useMemo(() => createPredictClient({ serverUrl: predictConfig.serverUrl }), []);
   const defaultLiveMarketLoader = useCallback(
     () => loadLiveBtcMarketSnapshot({ client: predictClient, config: predictConfig }),
@@ -78,7 +81,13 @@ export default function App({ liveMarketLoader }: AppProps = {}) {
           </section>
         ) : null}
 
-        {state.activeView === "lobby" ? (
+        {claimRegistrationCode ? (
+          <SuiDappKitAgentClaimPanel
+            apiBaseUrl={apiBaseUrl}
+            fetcher={platformFetcher}
+            registrationCode={claimRegistrationCode}
+          />
+        ) : state.activeView === "lobby" ? (
           <CompetitionLobby
             competitions={state.competitions}
             leaderboard={state.leaderboard}
@@ -89,7 +98,7 @@ export default function App({ liveMarketLoader }: AppProps = {}) {
         ) : state.activeView === "setup" ? (
           <AgentPairingPanel
             agent={selectedAgent}
-            claimUrl="http://127.0.0.1:8787/agent-arena/claim/agent_1"
+            claimUrl="http://127.0.0.1:5173/agent-arena/claim/AGENT-ARENA-TESTNET-001"
             expiresAt="2026-06-16T11:00:00.000Z"
             registrationCode="AGENT-ARENA-TESTNET-001"
             runtimeCredential={runtimeCredential}
@@ -122,4 +131,13 @@ export default function App({ liveMarketLoader }: AppProps = {}) {
       </div>
     </main>
   );
+}
+
+function getClaimRegistrationCode(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const match = window.location.pathname.match(/^\/agent-arena\/claim\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
 }

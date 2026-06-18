@@ -36,12 +36,14 @@ export type PredictIntentExecutionPayload =
   | {
     operation: "mint_directional";
     market: DirectionalMarket;
+    budgetRaw?: string;
     quantity: string;
     maxCost: string;
   }
   | {
     operation: "mint_range";
     market: RangeMarket;
+    budgetRaw?: string;
     quantity: string;
     maxCost: string;
   }
@@ -60,6 +62,8 @@ export type PredictIntentExecutionPayload =
 export interface PredictIntentExecutionAdapterResult {
   status: ExecutionRecord["status"];
   predictTxDigest?: string | null;
+  actualCostRaw?: string | null;
+  actualProceedsRaw?: string | null;
   errorCode?: string;
   errorMessage?: string;
 }
@@ -224,10 +228,16 @@ async function executeWithPredictAdapter(input: {
     predictTxDigest: result.predictTxDigest ?? null
   };
   input.store.saveExecution(execution);
-  recordExecutionLedger(input.store, input.intent, execution);
 
   const intentStatus = intentStatusForExecutionStatus(result.status);
-  const rejectionCode = intentStatus === "failed" ? predictExecutionFailedCode : null;
+  const rejectionCode = intentStatus === "failed"
+    ? result.errorCode ?? predictExecutionFailedCode
+    : null;
+  recordExecutionLedger(input.store, input.intent, execution, rejectionCode, {
+    costRaw: result.actualCostRaw,
+    proceedsRaw: result.actualProceedsRaw
+  });
+  recordRealizedPositionLedger(input.store, input.intent, execution, result);
   input.store.saveIntent({
     ...input.intent,
     status: intentStatus,
@@ -319,18 +329,77 @@ function recordRiskLedger(store: PlatformMockStore, intent: AgentIntent, riskDec
   }));
 }
 
-function recordExecutionLedger(store: PlatformMockStore, intent: AgentIntent, execution: ExecutionRecord): void {
+function recordExecutionLedger(
+  store: PlatformMockStore,
+  intent: AgentIntent,
+  execution: ExecutionRecord,
+  errorCode?: string | null,
+  financials: {
+    costRaw?: string | null;
+    proceedsRaw?: string | null;
+  } = {}
+): void {
   const wallet = store.getTradingWalletByAgentId(intent.agentId);
+  const base = createLedgerBase(store, intent, wallet);
   store.recordPerformanceLedger(createPerformanceLedgerRecord({
-    ...createLedgerBase(store, intent, wallet),
+    ...base,
     kind: "execution",
     riskDecisionId: execution.riskDecisionId,
     executionId: execution.id,
     txDigest: execution.predictTxDigest,
     status: execution.status,
-    errorCode: execution.status === "failed" ? predictExecutionFailedCode : null,
+    errorCode: execution.status === "failed" ? errorCode ?? predictExecutionFailedCode : null,
+    costRaw: financials.costRaw === undefined ? base.costRaw : financials.costRaw,
+    proceedsRaw: financials.proceedsRaw === undefined ? base.proceedsRaw : financials.proceedsRaw,
     policyDrift: "none"
   }));
+}
+
+function recordRealizedPositionLedger(
+  store: PlatformMockStore,
+  intent: AgentIntent,
+  execution: ExecutionRecord,
+  result: PredictIntentExecutionAdapterResult
+): void {
+  if (
+    intent.action !== "close" ||
+    (execution.status !== "confirmed" && execution.status !== "partial") ||
+    !intent.positionRef?.openExecutionId ||
+    !result.actualProceedsRaw
+  ) {
+    return;
+  }
+
+  const openExecution = findOpenExecutionLedgerRow(store, intent.agentId, intent.positionRef.openExecutionId);
+  if (!openExecution?.costRaw || !isRawInteger(openExecution.costRaw) || !isRawInteger(result.actualProceedsRaw)) {
+    return;
+  }
+
+  const wallet = store.getTradingWalletByAgentId(intent.agentId);
+  const base = createLedgerBase(store, intent, wallet);
+  store.recordPerformanceLedger(createPerformanceLedgerRecord({
+    ...base,
+    kind: "position",
+    riskDecisionId: execution.riskDecisionId,
+    executionId: execution.id,
+    txDigest: execution.predictTxDigest,
+    positionKind: intent.positionRef.kind,
+    quantityRaw: intent.quantity ?? intent.positionRef.quantity ?? openExecution.quantityRaw,
+    costRaw: openExecution.costRaw,
+    proceedsRaw: result.actualProceedsRaw,
+    realizedPnlRaw: subtractRawAmounts(result.actualProceedsRaw, openExecution.costRaw),
+    status: "realized",
+    errorCode: null,
+    policyDrift: "none"
+  }));
+}
+
+function findOpenExecutionLedgerRow(store: PlatformMockStore, agentId: string, executionId: string) {
+  return store.listPerformanceLedger({ agentId }).find((row) => (
+    row.kind === "execution" &&
+    row.executionId === executionId &&
+    row.status === "confirmed"
+  ));
 }
 
 function createLedgerBase(
@@ -374,6 +443,7 @@ function predictPayloadForIntent(intent: AgentIntent): PredictIntentExecutionPay
     return {
       operation: "mint_directional",
       market: intent.market,
+      ...(intent.budgetRaw ? { budgetRaw: intent.budgetRaw } : {}),
       quantity: intent.quantity,
       maxCost: intent.maxCost
     };
@@ -387,6 +457,7 @@ function predictPayloadForIntent(intent: AgentIntent): PredictIntentExecutionPay
     return {
       operation: "mint_range",
       market: intent.market,
+      ...(intent.budgetRaw ? { budgetRaw: intent.budgetRaw } : {}),
       quantity: intent.quantity,
       maxCost: intent.maxCost
     };
@@ -434,6 +505,7 @@ function createIntent(
     action: payload.action,
     market: payload.market,
     positionRef: payload.positionRef,
+    budgetRaw: payload.budgetRaw,
     quantity: payload.quantity,
     maxCost: payload.maxCost,
     minProceeds: payload.minProceeds,
@@ -516,6 +588,7 @@ function serializeIntentInput(intent: AgentIntent): string {
     action: intent.action,
     market: intent.market,
     positionRef: intent.positionRef,
+    budgetRaw: intent.budgetRaw,
     quantity: intent.quantity,
     maxCost: intent.maxCost,
     minProceeds: intent.minProceeds,
@@ -523,4 +596,12 @@ function serializeIntentInput(intent: AgentIntent): string {
     reason: intent.reason,
     createdAt: intent.createdAt
   });
+}
+
+function isRawInteger(value: string): boolean {
+  return /^\d+$/.test(value);
+}
+
+function subtractRawAmounts(left: string, right: string): string {
+  return (BigInt(left) - BigInt(right)).toString();
 }

@@ -87,9 +87,10 @@ export function createLedgerLeaderboardEntries(input: {
         .map((row) => row.createdAt)
         .sort()
         .at(-1) ?? agent.createdAt;
-      const hitRatePct = executionCount === 0 ? 0 : 1;
-      const netPnlPct = executionCount * 0.01;
-      const maxDrawdownPct = invalidIntentCount * 0.005;
+      const realizedMetrics = createRealizedPositionMetrics(rows);
+      const hitRatePct = realizedMetrics?.hitRatePct ?? (executionCount === 0 ? 0 : 1);
+      const netPnlPct = realizedMetrics?.netPnlPct ?? (executionCount * 0.01);
+      const maxDrawdownPct = realizedMetrics?.maxDrawdownPct ?? (invalidIntentCount * 0.005);
       const capitalEfficiencyPct = Math.min(1, executionCount / 6);
 
       return {
@@ -141,4 +142,84 @@ function compareAscendingString(left: string, right: string): number {
   }
 
   return 0;
+}
+
+function createRealizedPositionMetrics(rows: readonly PerformanceLedgerRecord[]): {
+  hitRatePct: number;
+  netPnlPct: number;
+  maxDrawdownPct: number;
+} | null {
+  const realizedRows = rows
+    .filter((row) => (
+      row.kind === "position" &&
+      row.status === "realized" &&
+      isRawInteger(row.costRaw) &&
+      isRawInteger(row.proceedsRaw)
+    ))
+    .sort((left, right) => compareAscendingString(left.createdAt, right.createdAt));
+
+  if (realizedRows.length === 0) {
+    return null;
+  }
+
+  let totalCostRaw = 0n;
+  let totalPnlRaw = 0n;
+  let winningRows = 0;
+  let cumulativePnlRaw = 0n;
+  let peakPnlRaw = 0n;
+  let maxDrawdownRaw = 0n;
+
+  for (const row of realizedRows) {
+    const costRaw = BigInt(row.costRaw!);
+    const pnlRaw = getRealizedPnlRaw(row);
+    if (pnlRaw === null) {
+      continue;
+    }
+
+    totalCostRaw += costRaw;
+    totalPnlRaw += pnlRaw;
+    if (pnlRaw > 0n) {
+      winningRows += 1;
+    }
+
+    cumulativePnlRaw += pnlRaw;
+    if (cumulativePnlRaw > peakPnlRaw) {
+      peakPnlRaw = cumulativePnlRaw;
+    }
+
+    const drawdownRaw = peakPnlRaw - cumulativePnlRaw;
+    if (drawdownRaw > maxDrawdownRaw) {
+      maxDrawdownRaw = drawdownRaw;
+    }
+  }
+
+  if (totalCostRaw <= 0n) {
+    return null;
+  }
+
+  return {
+    hitRatePct: winningRows / realizedRows.length,
+    netPnlPct: toRatio(totalPnlRaw, totalCostRaw),
+    maxDrawdownPct: toRatio(maxDrawdownRaw, totalCostRaw)
+  };
+}
+
+function getRealizedPnlRaw(row: PerformanceLedgerRecord): bigint | null {
+  if (isRawInteger(row.realizedPnlRaw)) {
+    return BigInt(row.realizedPnlRaw);
+  }
+
+  if (!isRawInteger(row.proceedsRaw) || !isRawInteger(row.costRaw)) {
+    return null;
+  }
+
+  return BigInt(row.proceedsRaw) - BigInt(row.costRaw);
+}
+
+function isRawInteger(value: string | null | undefined): value is string {
+  return typeof value === "string" && /^-?\d+$/.test(value);
+}
+
+function toRatio(numerator: bigint, denominator: bigint): number {
+  return Number(numerator) / Number(denominator);
 }

@@ -189,6 +189,118 @@ describe("mock intent execution", () => {
     });
   });
 
+  it("records actual Predict execution cost and proceeds in the performance ledger", async () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store, "Actual Cost Agent");
+    const wallet = store.bindTradingWallet(agent.id, "0xagentwallet");
+    store.seedCompetition();
+
+    await submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-actual-cost",
+      action: "open_directional",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "1781701200000",
+        strike: "65000000000000",
+        isUp: true
+      },
+      quantity: "10",
+      maxCost: "9000",
+      confidence: 0.72,
+      reason: "Actual cost should come from Predict events.",
+      createdAt: "2026-06-15T10:03:12.000Z"
+    }, {
+      predictExecutionAdapter: async () => ({
+        status: "confirmed",
+        predictTxDigest: "0xdigest_actual_cost",
+        actualCostRaw: "8006"
+      })
+    });
+
+    expect(store.listPerformanceLedger({ agentId: agent.id })).toContainEqual(expect.objectContaining({
+      kind: "execution",
+      tradingWalletId: wallet.id,
+      executionId: "exec_1",
+      txDigest: "0xdigest_actual_cost",
+      action: "open_directional",
+      costRaw: "8006",
+      proceedsRaw: null,
+      status: "confirmed"
+    }));
+  });
+
+  it("records position-level realized PnL when a close execution returns actual proceeds", async () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store, "Realized PnL Agent");
+    const wallet = store.bindTradingWallet(agent.id, "0xagentwallet");
+    store.seedCompetition();
+
+    await submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-open-for-pnl",
+      action: "open_directional",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "1781701200000",
+        strike: "65000000000000",
+        isUp: true
+      },
+      quantity: "10",
+      maxCost: "100",
+      confidence: 0.72,
+      reason: "Open a position.",
+      createdAt: "2026-06-15T10:03:12.000Z"
+    }, {
+      predictExecutionAdapter: async () => ({
+        status: "confirmed",
+        predictTxDigest: "0xdigest_open",
+        actualCostRaw: "100"
+      })
+    });
+
+    await submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-close-for-pnl",
+      action: "close",
+      positionRef: {
+        kind: "directional",
+        marketKey: "btc-up-65000000000000-1781701200000",
+        openExecutionId: "exec_1"
+      },
+      minProceeds: "1",
+      confidence: 0.64,
+      reason: "Close the position.",
+      createdAt: "2026-06-15T10:10:12.000Z"
+    }, {
+      predictExecutionAdapter: async () => ({
+        status: "confirmed",
+        predictTxDigest: "0xdigest_close",
+        actualProceedsRaw: "120"
+      })
+    });
+
+    expect(store.listPerformanceLedger({ agentId: agent.id })).toContainEqual(expect.objectContaining({
+      kind: "position",
+      tradingWalletId: wallet.id,
+      intentId: "intent_2",
+      executionId: "exec_2",
+      txDigest: "0xdigest_close",
+      action: "close",
+      positionKind: "directional",
+      quantityRaw: "10",
+      costRaw: "100",
+      proceedsRaw: "120",
+      realizedPnlRaw: "20",
+      status: "realized"
+    }));
+  });
+
   it("maps accepted range open intents to typed Predict adapter payloads", async () => {
     const store = new PlatformMockStore();
     const agent = createClaimedTestAgent(store, "Range Adapter");
@@ -248,6 +360,123 @@ describe("mock intent execution", () => {
     ]);
   });
 
+  it("maps Agent budgetRaw directional opens to backend-sized Predict adapter payloads", async () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store, "Budget Directional Adapter");
+    const wallet = store.bindTradingWallet(agent.id, "0xagentwallet");
+    store.seedCompetition();
+    const adapterCalls: unknown[] = [];
+
+    const result = await submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-budget-directional",
+      action: "open_directional",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "2026-06-15T10:15:00.000Z",
+        strike: "65000",
+        isUp: true
+      },
+      budgetRaw: "5000000",
+      confidence: 0.72,
+      reason: "Agent supplies a DUSDC budget, not Predict quantity.",
+      createdAt: "2026-06-15T10:03:12.000Z"
+    }, {
+      predictExecutionAdapter: async (input: unknown) => {
+        adapterCalls.push(input);
+        return {
+          status: "confirmed",
+          predictTxDigest: "0xbudget_directional_digest"
+        };
+      }
+    });
+
+    expect(result.status).toBe("executed");
+    expect(adapterCalls).toEqual([
+      {
+        intentId: "intent_1",
+        riskDecisionId: "risk_1",
+        executionId: "exec_1",
+        agentId: agent.id,
+        walletId: wallet.id,
+        predictOperation: "mint_directional",
+        predictPayload: {
+          operation: "mint_directional",
+          market: {
+            kind: "directional",
+            oracleId: "0xbtc15m",
+            expiry: "2026-06-15T10:15:00.000Z",
+            strike: "65000",
+            isUp: true
+          },
+          quantity: "500000",
+          maxCost: "5000000",
+          budgetRaw: "5000000"
+        }
+      }
+    ]);
+  });
+
+  it("defaults Agent range opens to a 5 DUSDC budget when sizing is omitted", async () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store, "Default Budget Range Adapter");
+    const wallet = store.bindTradingWallet(agent.id, "0xagentwallet");
+    store.seedCompetition();
+    const adapterCalls: unknown[] = [];
+
+    const result = await submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-default-budget-range",
+      action: "open_range",
+      market: {
+        kind: "range",
+        oracleId: "0xbtc15m",
+        expiry: "2026-06-15T10:15:00.000Z",
+        lowerStrike: "64000000000000",
+        higherStrike: "66000000000000"
+      },
+      confidence: 0.62,
+      reason: "Agent leaves sizing to the platform default budget.",
+      createdAt: "2026-06-15T10:03:12.000Z"
+    }, {
+      predictExecutionAdapter: async (input: unknown) => {
+        adapterCalls.push(input);
+        return {
+          status: "confirmed",
+          predictTxDigest: "0xdefault_budget_range_digest"
+        };
+      }
+    });
+
+    expect(result.status).toBe("executed");
+    expect(adapterCalls).toEqual([
+      {
+        intentId: "intent_1",
+        riskDecisionId: "risk_1",
+        executionId: "exec_1",
+        agentId: agent.id,
+        walletId: wallet.id,
+        predictOperation: "mint_range",
+        predictPayload: {
+          operation: "mint_range",
+          market: {
+            kind: "range",
+            oracleId: "0xbtc15m",
+            expiry: "2026-06-15T10:15:00.000Z",
+            lowerStrike: "64000000000000",
+            higherStrike: "66000000000000"
+          },
+          quantity: "500000",
+          maxCost: "5000000",
+          budgetRaw: "5000000"
+        }
+      }
+    ]);
+  });
+
   it("records a failed Predict adapter result without marking the intent executed", async () => {
     const store = new PlatformMockStore();
     const agent = createClaimedTestAgent(store, "Failed Adapter");
@@ -274,7 +503,9 @@ describe("mock intent execution", () => {
     }, {
       predictExecutionAdapter: async () => ({
         status: "failed",
-        predictTxDigest: "0xfailed_digest"
+        predictTxDigest: "0xfailed_digest",
+        errorCode: "PREDICT_MANAGER_NOT_READY",
+        errorMessage: "PredictManager is missing for the Agent trading wallet"
       })
     });
 
@@ -287,11 +518,11 @@ describe("mock intent execution", () => {
       riskDecisionId: "risk_1",
       executionId: "exec_1",
       predictTxDigest: "0xfailed_digest",
-      rejectionCode: "PREDICT_EXECUTION_FAILED"
+      rejectionCode: "PREDICT_MANAGER_NOT_READY"
     });
     expect(intent).toMatchObject({
       status: "failed",
-      rejectionCode: "PREDICT_EXECUTION_FAILED"
+      rejectionCode: "PREDICT_MANAGER_NOT_READY"
     });
     expect(execution).toMatchObject({
       status: "failed",

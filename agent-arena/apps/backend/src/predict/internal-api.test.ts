@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createInternalPredictFetchHandler } from "./internal-api";
 import { createMemoryExecutionStore } from "./execution-store";
+import { PredictOracleError } from "./oracle";
 import { createMemoryWalletStore } from "./wallet-store";
 import type { CoinBalanceReader } from "./types";
 
@@ -815,6 +816,68 @@ describe("createInternalPredictFetchHandler", () => {
         txDigest: "dry-run-digest"
       }
     ]);
+  });
+
+  it("rejects directional mint before dry-run when manager DUSDC balance is below max cost", async () => {
+    const executionStore = createMemoryExecutionStore({
+      now: () => "2026-06-17T00:00:00.000Z"
+    });
+    const dryRuns: unknown[] = [];
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      executionStore,
+      quoteAssetType,
+      tradeExecutor: {
+        async resolveManagerBalance(input) {
+          return {
+            ...input,
+            balanceRaw: "0"
+          };
+        },
+        async dryRunMintDirectional(input) {
+          dryRuns.push(input);
+          return {
+            operation: "mint_directional",
+            mode: "dry_run",
+            status: "dry_run_ok",
+            txDigest: "dry-run-digest",
+            managerId: input.managerId
+          };
+        }
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "mint_directional",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        strikeRaw: "65000000000000",
+        direction: "up",
+        quantityRaw: "100000",
+        maxCostRaw: "1000000",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "INSUFFICIENT_MANAGER_BALANCE"
+      },
+      execution: {
+        id: "exec_internal_001",
+        status: "failed",
+        errorCode: "INSUFFICIENT_MANAGER_BALANCE"
+      }
+    });
+    expect(dryRuns).toEqual([]);
   });
 
   it("submits a directional mint execution only when Predict submit is enabled", async () => {
@@ -2157,6 +2220,43 @@ describe("createInternalPredictFetchHandler", () => {
     });
   });
 
+  it("returns stable oracle errors from execute confirmation instead of generic internal errors", async () => {
+    const fetch = createInternalPredictFetchHandler({
+      internalToken,
+      walletStore: createMemoryWalletStore({ walletSecret: "wallet-secret", quoteAssetType }),
+      quoteAssetType,
+      confirmOracleForExecution: async () => {
+        throw new PredictOracleError("ORACLE_NOT_TRADEABLE");
+      }
+    });
+    const created = await createWallet(fetch);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/predict/execute", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        walletId: created.wallet.id,
+        operation: "mint_directional",
+        managerId: "0xmanager",
+        oracleId: "0xoracle",
+        expiryMs: "1780000000000",
+        strikeRaw: "65000000000000",
+        isUp: true,
+        quantityRaw: "100000",
+        maxCostRaw: "1000000",
+        dryRunOnly: true
+      })
+    }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "ORACLE_NOT_TRADEABLE",
+        message: "ORACLE_NOT_TRADEABLE"
+      }
+    });
+  });
+
   it("lists executions filtered by wallet id", async () => {
     const executionStore = createMemoryExecutionStore({
       now: () => "2026-06-17T00:00:00.000Z"
@@ -2238,7 +2338,7 @@ describe("createInternalPredictFetchHandler", () => {
 
   it("keeps public platform introspection free of internal endpoints", async () => {
     const { createAgentArenaFetchHandler } = await import("../server");
-    const fetch = createAgentArenaFetchHandler({ internalToken });
+    const fetch = createAgentArenaFetchHandler({ internalToken, runtimeMode: "mock" });
     const response = await fetch(new Request("http://localhost/api/arena/__introspection"));
 
     expect(response.status).toBe(200);
@@ -2249,7 +2349,7 @@ describe("createInternalPredictFetchHandler", () => {
 
   it("does not let an Agent runtime token proxy manager withdrawals through public intent routes", async () => {
     const { createAgentArenaFetchHandler } = await import("../server");
-    const fetch = createAgentArenaFetchHandler({ internalToken });
+    const fetch = createAgentArenaFetchHandler({ internalToken, runtimeMode: "mock" });
     const draft = await (await fetch(new Request("http://localhost/api/arena/agent/init", {
       method: "POST",
       body: JSON.stringify({ displayName: "Withdrawal Proxy Probe" })

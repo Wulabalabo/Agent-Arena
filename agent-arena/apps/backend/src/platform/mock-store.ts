@@ -29,6 +29,34 @@ export interface CreateClaimedAgentInput {
   twitterHandle?: string | null;
 }
 
+export interface CreatePairingDraftOptions {
+  claimBaseUrl?: string;
+  nowMs?: number;
+  ttlMs?: number;
+}
+
+export interface PlatformStoreSnapshot {
+  agents: AgentProfile[];
+  runtimeCredentials: AgentRuntimeCredential[];
+  pairingDrafts: AgentPairingDraft[];
+  tradingWallets: TradingWallet[];
+  identityBindings: AgentIdentityBinding[];
+  performanceLedger: PerformanceLedgerRecord[];
+  positionSnapshots: AgentPositionSnapshot[];
+  competitions: Competition[];
+  intents: AgentIntent[];
+  riskDecisions: RiskDecision[];
+  executions: ExecutionRecord[];
+  ownerWithdrawals: OwnerWithdrawalRecord[];
+  nextAgentNumber: number;
+  nextDraftNumber: number;
+  nextWalletNumber: number;
+  nextOwnerWithdrawalNumber: number;
+}
+
+const defaultPairingClaimBaseUrl = "http://127.0.0.1:5173/agent-arena/claim";
+const defaultPairingTtlMs = 15 * 60 * 1000;
+
 export class PlatformMockStore {
   private readonly agents = new Map<string, AgentProfile>();
   private readonly credentialsByRuntimeToken = new Map<string, AgentRuntimeCredential>();
@@ -50,18 +78,26 @@ export class PlatformMockStore {
   private nextWalletNumber = 1;
   private nextOwnerWithdrawalNumber = 1;
 
-  createPairingDraft(displayName: string): AgentPairingDraft {
+  constructor(snapshot?: PlatformStoreSnapshot) {
+    if (snapshot) {
+      this.restoreSnapshot(snapshot);
+    }
+  }
+
+  createPairingDraft(displayName: string, options: CreatePairingDraftOptions = {}): AgentPairingDraft {
     const id = `draft_${this.nextDraftNumber}`;
     this.nextDraftNumber += 1;
     const registrationCode = `PAIR-${String(this.nextDraftNumber + 2047)}`;
+    const nowMs = options.nowMs ?? Date.now();
+    const claimBaseUrl = normalizeClaimBaseUrl(options.claimBaseUrl ?? defaultPairingClaimBaseUrl);
     const draft: AgentPairingDraft = {
       id,
       displayName,
       registrationCode,
-      claimUrl: `http://127.0.0.1:8787/agent-arena/claim/${registrationCode}`,
-      expiresAt: "2026-06-15T00:15:00.000Z",
+      claimUrl: `${claimBaseUrl}/${encodeURIComponent(registrationCode)}`,
+      expiresAt: new Date(nowMs + (options.ttlMs ?? defaultPairingTtlMs)).toISOString(),
       status: "pending",
-      createdAt: "2026-06-15T00:00:00.000Z"
+      createdAt: new Date(nowMs).toISOString()
     };
 
     this.pairingDrafts.set(id, clonePairingDraft(draft));
@@ -204,12 +240,32 @@ export class PlatformMockStore {
     }
 
     const wallet = this.tradingWallets.get(walletId);
-    return wallet ? cloneTradingWallet(wallet) : undefined;
+    return wallet?.agentId === agentId ? cloneTradingWallet(wallet) : undefined;
   }
 
   getTradingWalletById(walletId: string): TradingWallet | undefined {
     const wallet = this.tradingWallets.get(walletId);
     return wallet ? cloneTradingWallet(wallet) : undefined;
+  }
+
+  updateTradingWallet(
+    walletId: string,
+    updates: Partial<Pick<
+      TradingWallet,
+      "testnetSuiBalance" | "quoteBalance" | "predictManagerStatus" | "predictManagerId"
+    >>
+  ): TradingWallet {
+    const wallet = this.tradingWallets.get(walletId);
+    if (!wallet) {
+      throw new Error("WALLET_NOT_FOUND");
+    }
+
+    const updated = {
+      ...wallet,
+      ...updates
+    };
+    this.tradingWallets.set(walletId, cloneTradingWallet(updated));
+    return cloneTradingWallet(updated);
   }
 
   saveIdentityBinding(binding: AgentIdentityBinding): AgentIdentityBinding {
@@ -338,6 +394,88 @@ export class PlatformMockStore {
     const credential = this.credentialsByRuntimeToken.get(token);
     return credential ? cloneRuntimeCredential(credential) : undefined;
   }
+
+  exportSnapshot(): PlatformStoreSnapshot {
+    return {
+      agents: [...this.agents.values()].map(cloneAgent),
+      runtimeCredentials: [...this.credentialsByRuntimeToken.values()].map(cloneRuntimeCredential),
+      pairingDrafts: [...this.pairingDrafts.values()].map(clonePairingDraft),
+      tradingWallets: [...this.tradingWallets.values()].map(cloneTradingWallet),
+      identityBindings: [...this.identityBindingsByAgentId.values()].map(cloneIdentityBinding),
+      performanceLedger: this.performanceLedger.map(clonePerformanceLedgerRecord),
+      positionSnapshots: this.positionSnapshots.map(clonePositionSnapshot),
+      competitions: [...this.competitions.values()].map(cloneCompetition),
+      intents: [...this.intents.values()].map(cloneIntent),
+      riskDecisions: [...this.riskDecisions.values()].map(cloneRiskDecision),
+      executions: [...this.executions.values()].map(cloneExecution),
+      ownerWithdrawals: [...this.ownerWithdrawals.values()].map(cloneOwnerWithdrawal),
+      nextAgentNumber: this.nextAgentNumber,
+      nextDraftNumber: this.nextDraftNumber,
+      nextWalletNumber: this.nextWalletNumber,
+      nextOwnerWithdrawalNumber: this.nextOwnerWithdrawalNumber
+    };
+  }
+
+  private restoreSnapshot(snapshot: PlatformStoreSnapshot): void {
+    this.agents.clear();
+    this.credentialsByRuntimeToken.clear();
+    this.pairingDrafts.clear();
+    this.pairingDraftIdsByCode.clear();
+    this.tradingWallets.clear();
+    this.tradingWalletIdsByAgentId.clear();
+    this.identityBindingsByAgentId.clear();
+    this.performanceLedger.length = 0;
+    this.positionSnapshots.length = 0;
+    this.competitions.clear();
+    this.intents.clear();
+    this.intentIdsByIdempotencyKey.clear();
+    this.riskDecisions.clear();
+    this.executions.clear();
+    this.ownerWithdrawals.clear();
+
+    for (const agent of snapshot.agents) {
+      this.agents.set(agent.id, cloneAgent(agent));
+    }
+    for (const credential of snapshot.runtimeCredentials) {
+      this.credentialsByRuntimeToken.set(credential.token, cloneRuntimeCredential(credential));
+    }
+    for (const draft of snapshot.pairingDrafts) {
+      this.pairingDrafts.set(draft.id, clonePairingDraft(draft));
+      this.pairingDraftIdsByCode.set(draft.registrationCode, draft.id);
+    }
+    for (const wallet of snapshot.tradingWallets) {
+      this.tradingWallets.set(wallet.id, cloneTradingWallet(wallet));
+      if (wallet.status === "active" || !this.tradingWalletIdsByAgentId.has(wallet.agentId)) {
+        this.tradingWalletIdsByAgentId.set(wallet.agentId, wallet.id);
+      }
+    }
+    for (const binding of snapshot.identityBindings) {
+      this.identityBindingsByAgentId.set(binding.agentId, cloneIdentityBinding(binding));
+    }
+    this.performanceLedger.push(...snapshot.performanceLedger.map(clonePerformanceLedgerRecord));
+    this.positionSnapshots.push(...snapshot.positionSnapshots.map(clonePositionSnapshot));
+    for (const competition of snapshot.competitions) {
+      this.competitions.set(competition.id, cloneCompetition(competition));
+    }
+    for (const intent of snapshot.intents) {
+      this.intents.set(intent.id, cloneIntent(intent));
+      this.intentIdsByIdempotencyKey.set(createIntentKey(intent), intent.id);
+    }
+    for (const riskDecision of snapshot.riskDecisions) {
+      this.riskDecisions.set(riskDecision.id, cloneRiskDecision(riskDecision));
+    }
+    for (const execution of snapshot.executions) {
+      this.executions.set(execution.id, cloneExecution(execution));
+    }
+    for (const withdrawal of snapshot.ownerWithdrawals) {
+      this.ownerWithdrawals.set(withdrawal.id, cloneOwnerWithdrawal(withdrawal));
+    }
+
+    this.nextAgentNumber = snapshot.nextAgentNumber;
+    this.nextDraftNumber = snapshot.nextDraftNumber;
+    this.nextWalletNumber = snapshot.nextWalletNumber;
+    this.nextOwnerWithdrawalNumber = snapshot.nextOwnerWithdrawalNumber;
+  }
 }
 
 function cloneAgent(agent: AgentProfile): AgentProfile {
@@ -357,6 +495,10 @@ function clonePairingDraft(draft: AgentPairingDraft): AgentPairingDraft {
 
 function cloneTradingWallet(wallet: TradingWallet): TradingWallet {
   return { ...wallet };
+}
+
+function normalizeClaimBaseUrl(value: string): string {
+  return value.replace(/\/+$/, "");
 }
 
 function cloneIdentityBinding(binding: AgentIdentityBinding): AgentIdentityBinding {

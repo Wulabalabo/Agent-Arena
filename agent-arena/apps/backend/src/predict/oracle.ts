@@ -12,6 +12,7 @@ export interface NormalizedPredictOracle {
   status: string;
   version?: string;
   predictId?: string;
+  strikeRaw?: string;
   strikeGrid?: PredictStrikeGrid;
 }
 
@@ -135,6 +136,13 @@ export function normalizePredictOracle(raw: unknown): NormalizedPredictOracle | 
       "predict_id",
       "predictObjectId",
       "predict_object_id"
+    ])) ?? undefined,
+    strikeRaw: toRawIntegerString(readAlias(source, [
+      "strikeRaw",
+      "strike_raw",
+      "strike",
+      "marketStrike",
+      "market_strike"
     ])) ?? undefined,
     strikeGrid: normalizeStrikeGrid(source)
   };
@@ -325,11 +333,10 @@ function isStrikeOnGrid(value: unknown, grid: PredictStrikeGrid | undefined): bo
   return (
     strike !== null &&
     min !== null &&
-    max !== null &&
     step !== null &&
     step > 0n &&
     strike >= min &&
-    strike <= max &&
+    (max === null || strike <= max) &&
     (strike - min) % step === 0n
   );
 }
@@ -352,10 +359,11 @@ function unwrapOracleRecord(raw: unknown): Record<string, unknown> | null {
     return null;
   }
 
-  const data = getRecord(root.data) ?? root;
+  const source = getRecord(root.oracle) ?? root;
+  const data = getRecord(source.data) ?? source;
   const content = getRecord(data.content);
   const contentFields = getRecord(content?.fields);
-  const fields = contentFields ?? getRecord(data.fields) ?? getRecord(root.fields);
+  const fields = contentFields ?? getRecord(data.fields) ?? getRecord(source.fields) ?? getRecord(root.fields);
 
   if (!fields) {
     return data;
@@ -364,9 +372,9 @@ function unwrapOracleRecord(raw: unknown): Record<string, unknown> | null {
   return {
     ...data,
     ...fields,
-    objectId: data.objectId ?? root.objectId ?? fields.objectId,
-    object_id: data.object_id ?? root.object_id ?? fields.object_id,
-    version: data.version ?? root.version ?? fields.version
+    objectId: data.objectId ?? source.objectId ?? root.objectId ?? fields.objectId,
+    object_id: data.object_id ?? source.object_id ?? root.object_id ?? fields.object_id,
+    version: data.version ?? source.version ?? root.version ?? fields.version
   };
 }
 

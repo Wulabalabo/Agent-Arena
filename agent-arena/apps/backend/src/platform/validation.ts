@@ -11,6 +11,8 @@ const decimalStringPattern = /^\d+(\.\d+)?$/;
 const rawIntegerStringPattern = /^\d+$/;
 const suiAddressPattern = /^0x[0-9a-fA-F]{64}$/;
 const twitterHandlePattern = /^[A-Za-z0-9_]+$/;
+export const defaultAgentOpenBudgetRaw = "5000000";
+const mvpBudgetToQuantityDivisor = 10n;
 
 export class PlatformInputError extends Error {
   constructor(message: string) {
@@ -31,6 +33,7 @@ export interface ValidatedIntentPayload {
   action: AgentAction;
   market?: IntentMarket;
   positionRef?: PositionRef;
+  budgetRaw?: string;
   quantity?: string;
   maxCost?: string;
   minProceeds?: string;
@@ -135,6 +138,7 @@ export function validateIntentPayload(payload: unknown): ValidatedIntentPayload 
     "action",
     "market",
     "positionRef",
+    "budgetRaw",
     "quantity",
     "maxCost",
     "minProceeds",
@@ -156,17 +160,15 @@ export function validateIntentPayload(payload: unknown): ValidatedIntentPayload 
     case "open_directional":
       rejectFields(record, ["positionRef", "minProceeds"], action);
       validated.market = validateDirectionalMarket(record.market);
-      validated.quantity = validateRawIntegerString(record.quantity, "quantity");
-      validated.maxCost = validateDecimalString(record.maxCost, "maxCost");
+      Object.assign(validated, validateOpenSizing(record, action));
       break;
     case "open_range":
       rejectFields(record, ["positionRef", "minProceeds"], action);
       validated.market = validateRangeMarket(record.market);
-      validated.quantity = validateRawIntegerString(record.quantity, "quantity");
-      validated.maxCost = validateDecimalString(record.maxCost, "maxCost");
+      Object.assign(validated, validateOpenSizing(record, action));
       break;
     case "reduce":
-      rejectFields(record, ["market", "maxCost"], action);
+      rejectFields(record, ["market", "budgetRaw", "maxCost"], action);
       validated.positionRef = validatePositionRef(record.positionRef, { allowQuantity: true });
       validated.quantity = validateRawIntegerString(record.quantity, "quantity");
       if (record.minProceeds !== undefined) {
@@ -174,14 +176,14 @@ export function validateIntentPayload(payload: unknown): ValidatedIntentPayload 
       }
       break;
     case "close":
-      rejectFields(record, ["market", "quantity", "maxCost"], action);
+      rejectFields(record, ["market", "budgetRaw", "quantity", "maxCost"], action);
       validated.positionRef = validatePositionRef(record.positionRef, { allowQuantity: false });
       if (record.minProceeds !== undefined) {
         validated.minProceeds = validateDecimalString(record.minProceeds, "minProceeds");
       }
       break;
     case "hold":
-      rejectFields(record, ["market", "positionRef", "quantity", "maxCost", "minProceeds"], action);
+      rejectFields(record, ["market", "positionRef", "budgetRaw", "quantity", "maxCost", "minProceeds"], action);
       break;
     default:
       throw new PlatformInputError(`${action} validation is not implemented`);
@@ -272,6 +274,39 @@ function validateDirectionalMarket(value: unknown): DirectionalMarket {
     strike: validateRawIntegerString(market.strike, "market.strike"),
     isUp: validateBoolean(market.isUp, "market.isUp")
   };
+}
+
+function validateOpenSizing(
+  record: Record<string, unknown>,
+  action: Extract<AgentAction, "open_directional" | "open_range">
+): Pick<ValidatedIntentPayload, "budgetRaw" | "quantity" | "maxCost"> {
+  if (record.budgetRaw !== undefined) {
+    rejectFields(record, ["quantity", "maxCost"], action);
+    const budgetRaw = validateRawIntegerString(record.budgetRaw, "budgetRaw");
+    return {
+      budgetRaw,
+      quantity: estimateMvpQuantityFromBudgetRaw(budgetRaw),
+      maxCost: budgetRaw
+    };
+  }
+
+  if (record.quantity !== undefined || record.maxCost !== undefined) {
+    return {
+      quantity: validateRawIntegerString(record.quantity, "quantity"),
+      maxCost: validateDecimalString(record.maxCost, "maxCost")
+    };
+  }
+
+  return {
+    budgetRaw: defaultAgentOpenBudgetRaw,
+    quantity: estimateMvpQuantityFromBudgetRaw(defaultAgentOpenBudgetRaw),
+    maxCost: defaultAgentOpenBudgetRaw
+  };
+}
+
+function estimateMvpQuantityFromBudgetRaw(budgetRaw: string): string {
+  const quantity = BigInt(budgetRaw) / mvpBudgetToQuantityDivisor;
+  return (quantity > 0n ? quantity : 1n).toString();
 }
 
 function validateRangeMarket(value: unknown): RangeMarket {

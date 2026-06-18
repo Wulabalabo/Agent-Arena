@@ -28,7 +28,9 @@ import {
   type AgentIntent,
   type Competition,
   type ExecutionRecord,
-  type OwnerWithdrawalStatus
+  type MarketSnapshot,
+  type OwnerWithdrawalStatus,
+  type TradingWallet
 } from "./types";
 import { PlatformInputError } from "./validation";
 import {
@@ -41,6 +43,8 @@ const defaultCompetitionId = "btc-15m-001";
 const mockNow = "2026-06-15T00:00:00.000Z";
 const arenaPrefix = "/api/arena";
 const btc15mDurationMs = 15 * 60 * 1000;
+const defaultFrontendBaseUrl = "http://127.0.0.1:5173";
+const pairingDraftTtlMs = 15 * 60 * 1000;
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -77,8 +81,17 @@ export interface AgentWalletServiceResult {
   predictManagerId?: string | null;
 }
 
+export interface AgentMarketDataResult {
+  competition: Competition;
+  marketState: MarketSnapshot;
+}
+
 export interface CreatePlatformFetchHandlerOptions {
   agentWalletService?: (input: AgentWalletServiceInput) => Promise<AgentWalletServiceResult>;
+  agentWalletReader?: (wallet: TradingWallet) => Promise<Partial<AgentWalletServiceResult>>;
+  frontendBaseUrl?: string;
+  marketDataProvider?: () => Promise<AgentMarketDataResult>;
+  now?: () => number;
   ownerWithdrawalService?: (input: OwnerWithdrawalServiceInput) => Promise<OwnerWithdrawalServiceResult>;
   predictExecutionAdapter?: SubmitIntentExecutionOptions["predictExecutionAdapter"];
 }
@@ -136,7 +149,7 @@ export function createPlatformFetchHandler(
       }
 
       if (request.method === "POST" && matchesRoute(route, ["agent", "init"])) {
-        return await initAgentPairing(request, store);
+        return await initAgentPairing(request, store, options);
       }
 
       if (request.method === "POST" && matchesRoute(route, ["owner", "agents", "claim"])) {
@@ -169,8 +182,9 @@ export function createPlatformFetchHandler(
 
       if (request.method === "GET" && matchesRoute(route, ["agent", "wallet"])) {
         const auth = authenticateAgentRuntimeRequest(request, store);
+        const wallet = store.getTradingWalletByAgentId(auth.agentId);
         return jsonResponse({
-          wallet: store.getTradingWalletByAgentId(auth.agentId) ?? null
+          wallet: wallet ? await refreshTradingWallet(store, wallet, options.agentWalletReader) : null
         });
       }
 
@@ -190,6 +204,13 @@ export function createPlatformFetchHandler(
       }
 
       if (request.method === "GET" && matchesRoute(route, ["competition", "list-active"])) {
+        if (options.marketDataProvider) {
+          const { competition } = await options.marketDataProvider();
+          return jsonResponse({
+            competitions: competition.status === "live" ? [competition] : []
+          });
+        }
+
         ensureCurrentDefaultCompetition(store);
         const competition = store.getCompetition(defaultCompetitionId);
         return jsonResponse({
@@ -198,6 +219,11 @@ export function createPlatformFetchHandler(
       }
 
       if (request.method === "GET" && route.length === 2 && route[0] === "competition") {
+        if (options.marketDataProvider && route[1] === defaultCompetitionId) {
+          const { competition } = await options.marketDataProvider();
+          return jsonResponse({ competition });
+        }
+
         ensureCurrentDefaultCompetition(store);
         const competition = store.getCompetition(route[1]);
         if (!competition) {
@@ -213,6 +239,11 @@ export function createPlatformFetchHandler(
         route[0] === "competition" &&
         route[2] === "market-state"
       ) {
+        if (options.marketDataProvider && route[1] === defaultCompetitionId) {
+          const { marketState } = await options.marketDataProvider();
+          return jsonResponse({ marketState });
+        }
+
         ensureCurrentDefaultCompetition(store);
         const competition = store.getCompetition(route[1]);
         if (!competition) {
@@ -223,7 +254,10 @@ export function createPlatformFetchHandler(
       }
 
       if (request.method === "POST" && matchesRoute(route, ["intents"])) {
-        return await submitIntent(request, store, options.predictExecutionAdapter);
+        return await submitIntent(request, store, {
+          agentWalletReader: options.agentWalletReader,
+          predictExecutionAdapter: options.predictExecutionAdapter
+        });
       }
 
       if (request.method === "GET" && route.length === 2 && route[0] === "intents") {
@@ -291,10 +325,38 @@ function createRollingBtc15mCompetition(id: string, nowMs = Date.now()): Competi
   };
 }
 
-async function initAgentPairing(request: Request, store: PlatformMockStore): Promise<Response> {
+async function refreshTradingWallet(
+  store: PlatformMockStore,
+  wallet: TradingWallet,
+  agentWalletReader: CreatePlatformFetchHandlerOptions["agentWalletReader"]
+): Promise<TradingWallet> {
+  if (!agentWalletReader) {
+    return wallet;
+  }
+
+  const refreshed = await agentWalletReader(wallet);
+  return store.updateTradingWallet(wallet.id, {
+    testnetSuiBalance: refreshed.testnetSuiBalance ?? wallet.testnetSuiBalance,
+    quoteBalance: refreshed.quoteBalance ?? wallet.quoteBalance,
+    predictManagerStatus: refreshed.predictManagerStatus ?? wallet.predictManagerStatus,
+    predictManagerId: refreshed.predictManagerId === undefined
+      ? wallet.predictManagerId
+      : refreshed.predictManagerId
+  });
+}
+
+async function initAgentPairing(
+  request: Request,
+  store: PlatformMockStore,
+  options: Pick<CreatePlatformFetchHandlerOptions, "frontendBaseUrl" | "now">
+): Promise<Response> {
   const body = await readJsonObject(request);
   const displayName = validateDisplayName(body.displayName);
-  const draft = store.createPairingDraft(displayName);
+  const draft = store.createPairingDraft(displayName, {
+    claimBaseUrl: `${normalizeBaseUrl(options.frontendBaseUrl ?? Bun.env.AGENT_ARENA_FRONTEND_BASE_URL ?? defaultFrontendBaseUrl)}/agent-arena/claim`,
+    nowMs: options.now?.() ?? Date.now(),
+    ttlMs: pairingDraftTtlMs
+  });
 
   return jsonResponse({
     agentDraftId: draft.id,
@@ -490,9 +552,14 @@ async function withdrawTradingWallet(
 async function submitIntent(
   request: Request,
   store: PlatformMockStore,
-  predictExecutionAdapter: CreatePlatformFetchHandlerOptions["predictExecutionAdapter"]
+  options: Pick<CreatePlatformFetchHandlerOptions, "agentWalletReader" | "predictExecutionAdapter">
 ): Promise<Response> {
   const auth = authenticateAgentRuntimeRequest(request, store);
+  const wallet = store.getTradingWalletByAgentId(auth.agentId);
+  if (wallet) {
+    await refreshTradingWallet(store, wallet, options.agentWalletReader);
+  }
+
   const body = await readJsonObject(request);
   const bodyAgentId = validateNonEmptyString(body.agentId, "agentId");
   if (bodyAgentId !== auth.agentId) {
@@ -502,7 +569,7 @@ async function submitIntent(
   const result = await submitIntentWithMockExecution(
     store,
     body,
-    predictExecutionAdapter ? { predictExecutionAdapter } : {}
+    options.predictExecutionAdapter ? { predictExecutionAdapter: options.predictExecutionAdapter } : {}
   );
   if (result.status === "rejected") {
     return errorResponse(
@@ -741,6 +808,10 @@ function getArenaRoute(pathname: string): string[] | null {
 
 function matchesRoute(route: readonly string[], expected: readonly string[]): boolean {
   return route.length === expected.length && expected.every((segment, index) => route[index] === segment);
+}
+
+function normalizeBaseUrl(value: string): string {
+  return value.replace(/\/+$/, "");
 }
 
 function jsonResponse(body: unknown, status = 200): Response {

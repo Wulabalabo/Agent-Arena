@@ -10,7 +10,8 @@ import {
 import { createPredictServerClient } from "./predict/predict-server-client";
 import { createPredictSetupExecutor } from "./predict/setup-executor";
 import { createPredictTradeExecutor } from "./predict/trade-executor";
-import type { CoinBalanceReader, PredictConfig } from "./predict/types";
+import { createJsonRpcBalanceReader } from "./predict/balance-reader";
+import type { PredictConfig } from "./predict/types";
 import { createJsonWalletStore } from "./predict/wallet-store";
 
 export type CliMode =
@@ -44,17 +45,6 @@ const privateMaterialKeys = new Set([
 
 export function redactSmokeOutput<T>(value: T): T {
   return redactValue(value) as T;
-}
-
-export function createJsonRpcBalanceReader(config: PredictConfig): CoinBalanceReader {
-  return {
-    async getSuiBalance(address) {
-      return await getBalanceRaw(config.suiRpcUrl, [address]);
-    },
-    async getCoinBalance(address, coinType) {
-      return await getBalanceRaw(config.suiRpcUrl, [address, coinType]);
-    }
-  };
 }
 
 export function buildDirectionalRedeemExecuteBody(input: {
@@ -568,33 +558,6 @@ function requiredArgOrEnv(parsed: ParsedArgs, key: string, envKey: string): stri
 function resolveStorePath(envPath: string | undefined, fallback: string): string {
   const trimmed = envPath?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : fallback;
-}
-
-async function getBalanceRaw(rpcUrl: string, params: string[]): Promise<string> {
-  const response = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "suix_getBalance",
-      params
-    })
-  });
-  const payload = await response.json() as {
-    result?: { totalBalance?: unknown };
-    error?: { message?: string };
-  };
-
-  if (!response.ok || payload.error) {
-    throw new Error(`SUI_BALANCE_RPC_FAILED${payload.error?.message ? `: ${payload.error.message}` : ""}`);
-  }
-
-  if (typeof payload.result?.totalBalance !== "string") {
-    throw new Error("SUI_BALANCE_RPC_INVALID_RESPONSE");
-  }
-
-  return payload.result.totalBalance;
 }
 
 function printJson(value: unknown): void {

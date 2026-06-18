@@ -297,6 +297,46 @@ describe("confirmOracleForExecution", () => {
     });
   });
 
+  it("confirms Predict server state responses wrapped under an oracle field", async () => {
+    const confirmed = await confirmOracleForExecution({
+      request: {
+        operation: "mint_directional",
+        oracleId: "0xbtc-nearest",
+        expiryMs: 1781622900000,
+        predictObjectId: "0xpredict",
+        strikeRaw: "65600000000000",
+        serverTimeMs: 1781622000000
+      },
+      readOracle: async () => ({
+        oracle: {
+          predict_id: "0xpredict",
+          oracle_id: "0xbtc-nearest",
+          underlying_asset: "BTC",
+          expiry: 1781622900000,
+          min_strike: 65500000000000,
+          tick_size: 100000000000,
+          status: "active"
+        },
+        latest_price: {
+          spot: 65600000000000,
+          forward: 65600000000000
+        }
+      })
+    });
+
+    expect(confirmed).toMatchObject({
+      oracleId: "0xbtc-nearest",
+      predictId: "0xpredict",
+      underlyingAsset: "BTC",
+      expiryMs: 1781622900000,
+      status: "active",
+      strikeGrid: {
+        minStrikeRaw: "65500000000000",
+        strikeStepRaw: "100000000000"
+      }
+    });
+  });
+
   it("rejects mint or preview with expired active oracle using ORACLE_NOT_TRADEABLE", async () => {
     await expect(confirmOracleForExecution({
       request: {

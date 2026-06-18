@@ -1,5 +1,5 @@
-import { useState } from "react";
 import type { PlatformView } from "../../state/platform";
+import { SuiWalletConnectButton } from "./SuiWalletConnectButton";
 
 interface AppNavProps {
   activeView: PlatformView;
@@ -17,8 +17,6 @@ const navItems: Array<{ id: PlatformView; label: string }> = [
 ];
 
 export function AppNav({ activeView, onNavigate }: AppNavProps) {
-  const [walletConnected, setWalletConnected] = useState(false);
-
   return (
     <header className="border-b-2 border-outline-variant bg-surface-container-lowest">
       <div className="paper-frame mx-auto flex h-11 max-w-[1440px] items-center justify-between px-4">
@@ -52,13 +50,7 @@ export function AppNav({ activeView, onNavigate }: AppNavProps) {
           <span className="paper-chip paper-chip-green hidden px-2 py-1 md:inline-flex">
             Testnet
           </span>
-          <button
-            className="paper-button paper-button-primary px-3 py-1.5 font-display text-xs font-black uppercase"
-            type="button"
-            onClick={() => setWalletConnected((connected) => !connected)}
-          >
-            {walletConnected ? "Owner Connected" : "Connect Owner"}
-          </button>
+          <SuiWalletConnectButton />
         </div>
       </div>
     </header>

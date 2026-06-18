@@ -18,6 +18,13 @@ describe("market snapshot", () => {
       expiryMs: String(Date.parse("2026-06-15T10:15:00.000Z")),
       underlyingAsset: "BTC",
       priceDecimals: 9,
+      executableMarkets: {
+        directional: {
+          oracleId: "0xbtc15m",
+          expiry: String(Date.parse("2026-06-15T10:15:00.000Z")),
+          strike: "65000000000000"
+        }
+      },
       allowedActions: [
         "hold",
         "open_directional",

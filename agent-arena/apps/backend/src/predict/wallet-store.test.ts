@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createJsonWalletStore, createMemoryWalletStore } from "./wallet-store";
+import { createJsonWalletStore, createMemoryWalletStore, createSqliteWalletStore } from "./wallet-store";
 import type { CoinBalanceReader } from "./types";
 
 const quoteAssetType = "0xquote::dusdc::DUSDC";
@@ -200,6 +200,31 @@ describe("internal wallet store", () => {
     await expect(secondStore.getSigner(wallet.id)).resolves.toMatchObject({
       toSuiAddress: expect.any(Function)
     });
+    expect((await secondStore.getSigner(wallet.id)).toSuiAddress()).toBe(wallet.address);
+    expect(JSON.stringify(await secondStore.getWallet(wallet.id))).not.toContain("encryptedPrivateKey");
+    expect(JSON.stringify(await secondStore.listWallets())).not.toContain("encryptedPrivateKey");
+  });
+
+  it("persists wallets and encrypted private keys to SQLite without exposing private material", async () => {
+    const dbPath = await makeTempStorePath("wallets-sqlite");
+    const firstStore = createSqliteWalletStore({
+      walletSecret: "secret",
+      quoteAssetType,
+      dbPath
+    });
+    const wallet = await firstStore.createWallet({
+      agentId: "agent_1",
+      bindingMode: "claimed_agent",
+      label: "sqlite-persisted"
+    });
+
+    const secondStore = createSqliteWalletStore({
+      walletSecret: "secret",
+      quoteAssetType,
+      dbPath
+    });
+
+    await expect(secondStore.getWallet(wallet.id)).resolves.toEqual(wallet);
     expect((await secondStore.getSigner(wallet.id)).toSuiAddress()).toBe(wallet.address);
     expect(JSON.stringify(await secondStore.getWallet(wallet.id))).not.toContain("encryptedPrivateKey");
     expect(JSON.stringify(await secondStore.listWallets())).not.toContain("encryptedPrivateKey");

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { createAgentArenaFetchHandler } from "../server";
 import { createPlatformFetchHandler } from "./api";
 import { createPerformanceLedgerRecord, createRegistrationCodeHash } from "./performance-ledger";
+import { createMockCompetition } from "./types";
 
 async function claimTestAgent(
   fetch: ReturnType<typeof createPlatformFetchHandler>,
@@ -31,6 +32,7 @@ async function claimTestAgent(
 describe("Agent Arena platform API", () => {
   it("initializes an Agent pairing without issuing runtime credentials", async () => {
     const fetch = createPlatformFetchHandler();
+    const beforeMs = Date.now();
     const response = await fetch(new Request("http://localhost/api/arena/agent/init", {
       method: "POST",
       body: JSON.stringify({ displayName: "Trend Ranger" })
@@ -43,10 +45,27 @@ describe("Agent Arena platform API", () => {
     });
     expect(body.agentDraftId).toStartWith("draft_");
     expect(body.registrationCode).toMatch(/^PAIR-/);
-    expect(body.claimUrl).toContain(body.registrationCode);
-    expect(body.expiresAt).toBe("2026-06-15T00:15:00.000Z");
+    expect(body.claimUrl).toBe(`http://127.0.0.1:5173/agent-arena/claim/${body.registrationCode}`);
+    expect(Date.parse(body.expiresAt)).toBeGreaterThanOrEqual(beforeMs + 15 * 60 * 1000);
+    expect(Date.parse(body.expiresAt)).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000);
     expect(body).not.toHaveProperty("apiKey");
     expect(body).not.toHaveProperty("runtimeCredential");
+  });
+
+  it("uses a configured owner frontend URL and clock for pairing links", async () => {
+    const fetch = createPlatformFetchHandler(undefined, {
+      frontendBaseUrl: "https://arena.test",
+      now: () => Date.parse("2026-06-18T02:00:00.000Z")
+    });
+    const response = await fetch(new Request("http://localhost/api/arena/agent/init", {
+      method: "POST",
+      body: JSON.stringify({ displayName: "Clock Agent" })
+    }));
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.claimUrl).toBe(`https://arena.test/agent-arena/claim/${body.registrationCode}`);
+    expect(body.expiresAt).toBe("2026-06-18T02:15:00.000Z");
   });
 
   it("claims a pairing code and returns the runtime credential once", async () => {
@@ -341,6 +360,65 @@ describe("Agent Arena platform API", () => {
     expect(body.status).toBe("accepted");
   });
 
+  it("refreshes Agent wallet state before wallet reads and exposure intents", async () => {
+    const fetch = createPlatformFetchHandler(undefined, {
+      agentWalletReader: async (wallet) => ({
+        id: wallet.id,
+        address: wallet.address,
+        testnetSuiBalance: "0.715524060",
+        quoteBalance: "3000602",
+        predictManagerStatus: "ready",
+        predictManagerId: "0xmanager_real"
+      }),
+      predictExecutionAdapter: async () => ({
+        status: "confirmed",
+        predictTxDigest: "0xreal_digest"
+      })
+    });
+    const claimed = await claimTestAgent(fetch);
+    const headers = { "x-agent-arena-agent-token": claimed.runtimeCredential.token };
+
+    const walletResponse = await fetch(new Request("http://localhost/api/arena/agent/wallet", { headers }));
+    expect(walletResponse.status).toBe(200);
+    await expect(walletResponse.json()).resolves.toMatchObject({
+      wallet: {
+        testnetSuiBalance: "0.715524060",
+        quoteBalance: "3000602",
+        predictManagerStatus: "ready",
+        predictManagerId: "0xmanager_real"
+      }
+    });
+
+    const intentResponse = await fetch(new Request("http://localhost/api/arena/intents", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        competitionId: "btc-15m-001",
+        agentId: claimed.agent.id,
+        idempotencyKey: "intent-real-wallet-refresh",
+        action: "open_directional",
+        market: {
+          kind: "directional",
+          oracleId: "0xbtc15m",
+          expiry: "1781701200000",
+          strike: "65000000000000",
+          isUp: true
+        },
+        quantity: "200000",
+        maxCost: "20000000",
+        confidence: 0.71,
+        reason: "Uses refreshed wallet before execution.",
+        createdAt: "2026-06-15T10:04:12.000Z"
+      })
+    }));
+
+    expect(intentResponse.status).toBe(201);
+    await expect(intentResponse.json()).resolves.toMatchObject({
+      status: "executed",
+      predictTxDigest: "0xreal_digest"
+    });
+  });
+
   it("serves authenticated Agent positions and execution details without cross-Agent access", async () => {
     const store = new (await import("./mock-store")).PlatformMockStore();
     const fetch = createPlatformFetchHandler(store);
@@ -522,12 +600,70 @@ describe("Agent Arena platform API", () => {
     ]);
   });
 
+  it("submits Agent budgetRaw open intents through the public API without caller quantity", async () => {
+    const store = new (await import("./mock-store")).PlatformMockStore();
+    const adapterCalls: unknown[] = [];
+    const fetch = createPlatformFetchHandler(store, {
+      predictExecutionAdapter: async (input) => {
+        adapterCalls.push(input);
+        return {
+          status: "confirmed",
+          predictTxDigest: "0xbudget_intent_digest"
+        };
+      }
+    });
+    const claimed = await claimTestAgent(fetch, { displayName: "Budget API Agent" });
+
+    const response = await fetch(new Request("http://localhost/api/arena/intents", {
+      method: "POST",
+      headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token },
+      body: JSON.stringify({
+        competitionId: "btc-15m-001",
+        agentId: claimed.agent.id,
+        idempotencyKey: "intent-api-budget",
+        action: "open_directional",
+        market: {
+          kind: "directional",
+          oracleId: "0xbtc15m",
+          expiry: "2026-06-15T10:15:00.000Z",
+          strike: "65000000000000",
+          isUp: true
+        },
+        budgetRaw: "5000000",
+        confidence: 0.64,
+        reason: "Budget API execution.",
+        createdAt: "2026-06-15T10:04:12.000Z"
+      })
+    }));
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "executed",
+      predictTxDigest: "0xbudget_intent_digest"
+    });
+    expect(adapterCalls).toMatchObject([
+      {
+        agentId: claimed.agent.id,
+        walletId: claimed.tradingWallet.id,
+        predictOperation: "mint_directional",
+        predictPayload: {
+          operation: "mint_directional",
+          quantity: "500000",
+          maxCost: "5000000",
+          budgetRaw: "5000000"
+        }
+      }
+    ]);
+  });
+
   it("returns a Predict execution error when the configured adapter fails", async () => {
     const store = new (await import("./mock-store")).PlatformMockStore();
     const fetch = createPlatformFetchHandler(store, {
       predictExecutionAdapter: async () => ({
         status: "failed",
-        predictTxDigest: "0xfailed_digest"
+        predictTxDigest: "0xfailed_digest",
+        errorCode: "PREDICT_MANAGER_NOT_READY",
+        errorMessage: "PredictManager is missing for the Agent trading wallet"
       })
     });
     const claimed = await claimTestAgent(fetch, { displayName: "Failed API Agent" });
@@ -558,7 +694,7 @@ describe("Agent Arena platform API", () => {
     expect(response.status).toBe(502);
     await expect(response.json()).resolves.toMatchObject({
       error: {
-        code: "PREDICT_EXECUTION_FAILED",
+        code: "PREDICT_MANAGER_NOT_READY",
         details: {
           status: "failed",
           intentId: "intent_1",
@@ -570,7 +706,7 @@ describe("Agent Arena platform API", () => {
     });
     expect(store.findIntentById("intent_1")).toMatchObject({
       status: "failed",
-      rejectionCode: "PREDICT_EXECUTION_FAILED"
+      rejectionCode: "PREDICT_MANAGER_NOT_READY"
     });
 
     const leaderboard = await fetch(new Request("http://localhost/api/arena/leaderboard?competitionId=btc-15m-001"));
@@ -758,6 +894,68 @@ describe("Agent Arena platform API", () => {
     expect(expiryMs).toBeGreaterThan(afterMs);
     expect(timeToExpiryMs).toBeGreaterThan(0);
     expect(timeToExpiryMs).toBeLessThanOrEqual(900_000);
+  });
+
+  it("uses a configured market data provider instead of mock market fixtures", async () => {
+    const competition = {
+      ...createMockCompetition("btc-15m-001"),
+      oracleId: "0xreal_oracle",
+      startsAt: "2026-06-18T00:00:00.000Z",
+      expiresAt: "2026-06-18T00:15:00.000Z",
+      expiry: "2026-06-18T00:15:00.000Z"
+    };
+    const fetch = createPlatformFetchHandler(undefined, {
+      marketDataProvider: async () => ({
+        competition,
+        marketState: {
+          competitionId: "btc-15m-001",
+          status: "live",
+          serverTimeMs: "1781715000000",
+          oracleId: "0xreal_oracle",
+          oracleStatus: "active",
+          expiryMs: "1781715600000",
+          timeToExpiryMs: "600000",
+          underlyingAsset: "BTC",
+          spotPriceRaw: "65866527537529",
+          forwardPriceRaw: "65867070507763",
+          priceDecimals: 9,
+          strikeGrid: {
+            minStrikeRaw: "50000000000000",
+            maxStrikeRaw: null,
+            strikeStepRaw: "1000000000"
+          },
+          allowedActions: ["hold", "open_directional", "open_range", "reduce", "close"],
+          allowedOperations: {
+            canHold: true,
+            canOpen: true,
+            canReduce: true,
+            canClose: true
+          },
+          lateWindow: {
+            isFinalMinute: false,
+            openAllowedByPlatform: true,
+            openMayFailOnPredictQuote: true
+          },
+          fetchedAt: "2026-06-18T00:00:00.000Z"
+        }
+      })
+    });
+
+    const active = await fetch(new Request("http://localhost/api/arena/competition/list-active"));
+    const marketState = await fetch(new Request("http://localhost/api/arena/competition/btc-15m-001/market-state"));
+
+    await expect(active.json()).resolves.toMatchObject({
+      competitions: [{ oracleId: "0xreal_oracle" }]
+    });
+    await expect(marketState.json()).resolves.toMatchObject({
+      marketState: {
+        oracleId: "0xreal_oracle",
+        spotPriceRaw: "65866527537529",
+        strikeGrid: {
+          maxStrikeRaw: null
+        }
+      }
+    });
   });
 
   it("serves leaderboard entries aggregated from the performance ledger by Agent identity", async () => {

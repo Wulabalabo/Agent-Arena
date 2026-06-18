@@ -110,6 +110,8 @@ export type InternalPredictExecutionResponse =
       status: string;
       txDigest?: string | null;
       predictTxDigest?: string | null;
+      actualCostRaw?: string | null;
+      actualProceedsRaw?: string | null;
     };
   }
   | {
@@ -136,7 +138,9 @@ export function createPredictExecutionAdapter(options: CreatePredictExecutionAda
 
     return {
       status: executionStatusFromInternal(response.execution.status),
-      predictTxDigest: response.execution.predictTxDigest ?? response.execution.txDigest ?? null
+      predictTxDigest: response.execution.predictTxDigest ?? response.execution.txDigest ?? null,
+      actualCostRaw: response.execution.actualCostRaw ?? null,
+      actualProceedsRaw: response.execution.actualProceedsRaw ?? null
     };
   };
 }

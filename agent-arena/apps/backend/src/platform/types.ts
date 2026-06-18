@@ -115,6 +115,7 @@ export interface PerformanceLedgerRecord {
   quantityRaw: string | null;
   costRaw: string | null;
   proceedsRaw: string | null;
+  realizedPnlRaw?: string | null;
   status: string;
   errorCode: string | null;
   policyDrift: PolicyDrift;
@@ -151,8 +152,15 @@ export interface MarketSnapshot {
   priceDecimals: 9;
   strikeGrid: {
     minStrikeRaw: string;
-    maxStrikeRaw: string;
+    maxStrikeRaw: string | null;
     strikeStepRaw: string;
+  };
+  executableMarkets?: {
+    directional?: {
+      oracleId: string;
+      expiry: string;
+      strike: string;
+    };
   };
   allowedActions: AgentAction[];
   allowedOperations: {
@@ -216,6 +224,7 @@ export interface AgentIntent {
   action: AgentAction;
   market?: IntentMarket;
   positionRef?: PositionRef;
+  budgetRaw?: string;
   quantity?: string;
   maxCost?: string;
   minProceeds?: string;

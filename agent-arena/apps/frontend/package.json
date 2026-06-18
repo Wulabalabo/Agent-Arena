@@ -12,6 +12,8 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
+    "@mysten/dapp-kit-react": "latest",
+    "@mysten/sui": "latest",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest"
@@ -30,4 +32,3 @@
     "vitest": "latest"
   }
 }
-

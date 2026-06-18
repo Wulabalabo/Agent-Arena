@@ -43,7 +43,7 @@ Current backend scope:
 
 Remaining production hardening:
 
-- Durable DB-backed ledger and queue instead of in-memory test store.
+- Durable execution queue and operational retry handling beyond the local SQLite platform store.
 - Operational scheduler for settled claim jobs.
 - Registry transaction write path for `agent_arena::registry` proof records.
 - Real Twitter verification if needed beyond display-only handles.
@@ -68,7 +68,9 @@ Optional overrides:
 ```powershell
 $env:AGENT_ARENA_BACKEND_PORT="8787"
 $env:AGENT_ARENA_FRONTEND_PORT="5173"
+$env:AGENT_ARENA_FRONTEND_BASE_URL="http://127.0.0.1:5173"
 $env:AGENT_ARENA_DB_PATH="$PWD\apps\backend\data\agent-arena.sqlite"
+$env:AGENT_ARENA_PLATFORM_DB_PATH="$PWD\apps\backend\data\agent-arena.sqlite"
 $env:VITE_AGENT_ARENA_API_URL="http://127.0.0.1:8787"
 bun run dev
 ```
@@ -87,11 +89,19 @@ Backend only:
 ```powershell
 cd apps/backend
 $env:AGENT_ARENA_DB_PATH="$PWD\data\agent-arena.sqlite"
+$env:AGENT_ARENA_PLATFORM_DB_PATH="$PWD\data\agent-arena.sqlite"
 bun run dev
 ```
 
-The backend stores Agent attribution in SQLite at `apps/backend/data/agent-arena.sqlite` by default.
-Override this with `AGENT_ARENA_DB_PATH` when you want a different local database path.
+Backend runtime mode:
+
+- `AGENT_ARENA_RUNTIME_MODE=real` uses Testnet Predict server market data, Testnet RPC wallet balances, the shared platform wallet store, and the internal Predict execution adapter. This is the expected local integration mode.
+- `AGENT_ARENA_RUNTIME_MODE=mock` is only for isolated UI/API tests and demos. In mock mode, public intents can still produce local mock execution records.
+- Real mode is not the same as transaction submit. Testnet transaction submit still requires `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true`; otherwise the backend reads real state and fails closed before signing or submitting live Predict transactions.
+
+The backend stores Agent attribution plus platform state in SQLite at `apps/backend/data/agent-arena.sqlite` by default.
+`AGENT_ARENA_PLATFORM_DB_PATH` stores Agent profiles, pairing drafts, runtime credential hashes, wallet bindings, performance state, and platform-managed trading-wallet encrypted private keys. `AGENT_ARENA_DB_PATH` controls the attribution store and can point at the same SQLite file.
+The backend pairing API uses `AGENT_ARENA_FRONTEND_BASE_URL` for owner claim links and defaults to `http://127.0.0.1:5173`.
 The frontend attribution client reads `VITE_AGENT_ARENA_API_URL` and defaults to `http://127.0.0.1:8787`.
 
 Backend attribution smoke:

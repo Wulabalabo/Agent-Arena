@@ -11,7 +11,7 @@ import {
 } from "./guardrails";
 import { assertInternalRequest } from "./internal-auth";
 import { type DiscoveredPredictManager, PredictManagerError, planManagerSetup } from "./manager";
-import type { ConfirmOracleExecutionRequest } from "./oracle";
+import { PredictOracleError, type ConfirmOracleExecutionRequest } from "./oracle";
 import type { PredictSetupExecutor } from "./setup-executor";
 import type { PredictTradeExecutor, PredictTradeTransactionSummary } from "./trade-executor";
 import {
@@ -820,6 +820,19 @@ async function executePredictTrade(input: {
   }
 
   try {
+    const managerBalanceFailure = await rejectInsufficientManagerBalanceBeforeMint({
+      wallet,
+      operation,
+      operationPlan,
+      executionId,
+      executionStore,
+      tradeExecutor,
+      transactionKind: tradeTransactionKind(operation, mode)
+    });
+    if (managerBalanceFailure) {
+      return managerBalanceFailure;
+    }
+
     const transaction = mode === "dry_run"
       ? await dryRunPredictTrade(tradeExecutor, wallet, operation, operationPlan)
       : await submitPredictTrade(tradeExecutor, wallet, operation, operationPlan);
@@ -854,6 +867,67 @@ async function executePredictTrade(input: {
       tradeTransactionKind(operation, mode)
     );
   }
+}
+
+async function rejectInsufficientManagerBalanceBeforeMint(input: {
+  wallet: InternalTradingWallet;
+  operation: PredictOperation;
+  operationPlan: PredictOperationPlan;
+  executionId: string;
+  executionStore: MemoryExecutionStore;
+  tradeExecutor: PredictTradeExecutor | undefined;
+  transactionKind: string;
+}): Promise<Response | null> {
+  const {
+    wallet,
+    operation,
+    operationPlan,
+    executionId,
+    executionStore,
+    tradeExecutor,
+    transactionKind
+  } = input;
+
+  if (!isMintTradeOperation(operation) || !tradeExecutor?.resolveManagerBalance) {
+    return null;
+  }
+
+  const managerId = requiredPlanObjectId(operationPlan, "managerId");
+  const maxCostRaw = requiredPlanValue(operationPlan.maxCostRaw, "maxCostRaw");
+  const balance = await tradeExecutor.resolveManagerBalance({
+    wallet,
+    managerId
+  });
+  if (compareRawStrings(balance.balanceRaw, maxCostRaw) >= 0) {
+    return null;
+  }
+
+  const message = `PredictManager DUSDC balance ${balance.balanceRaw} is below required maxCostRaw ${maxCostRaw}`;
+  const failedExecution = await executionStore.updateExecution(executionId, {
+    status: "failed",
+    errorCode: "INSUFFICIENT_MANAGER_BALANCE",
+    errorMessage: message
+  });
+  await executionStore.recordSigningAudit({
+    walletId: wallet.id,
+    agentId: wallet.agentId,
+    executionId,
+    operation,
+    transactionKind,
+    status: "failed",
+    errorCode: "INSUFFICIENT_MANAGER_BALANCE"
+  });
+
+  return errorResponseWithDetails(
+    409,
+    "INSUFFICIENT_MANAGER_BALANCE",
+    message,
+    {
+      execution: failedExecution,
+      managerBalanceRaw: balance.balanceRaw,
+      requiredManagerBalanceRaw: maxCostRaw
+    }
+  );
 }
 
 async function dryRunPredictTrade(
@@ -1208,6 +1282,10 @@ function isRangeTradeOperation(operation: PredictOperation): boolean {
     operation === "claim_settled_range";
 }
 
+function isMintTradeOperation(operation: PredictOperation): boolean {
+  return operation === "mint_directional" || operation === "mint_range";
+}
+
 function requiresBackendResolvedPosition(operation: PredictOperation): boolean {
   return operation === "close_directional" ||
     operation === "close_range" ||
@@ -1313,6 +1391,11 @@ function internalErrorToResponse(error: unknown): Response {
 
   if (error instanceof PredictManagerError) {
     return errorResponse(400, error.code, error.message);
+  }
+
+  if (error instanceof PredictOracleError) {
+    const status = error.code === "ORACLE_NOT_FOUND" ? 404 : 409;
+    return errorResponse(status, error.code, error.message);
   }
 
   if (error instanceof InternalApiError) {

@@ -29,6 +29,13 @@ export function createMarketSnapshot(
       maxStrikeRaw: "80000000000000",
       strikeStepRaw: "1000000000"
     },
+    executableMarkets: {
+      directional: {
+        oracleId: competition.oracleId,
+        expiry: String(expiryMs),
+        strike: mockSpotPriceRaw
+      }
+    },
     allowedActions: [...competition.allowedActions],
     allowedOperations,
     lateWindow: {

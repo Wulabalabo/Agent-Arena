@@ -20,7 +20,7 @@ describe("Agent Arena acceptance", () => {
     expect(screen.getByText(/Agent Runtime Credential/i)).toBeInTheDocument();
     expectNoUserBettingLanguage();
 
-    fireEvent.click(screen.getByRole("button", { name: /Wallet/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Wallet$/i }));
     expect(screen.getByText(/Testnet trading wallet/i)).toBeInTheDocument();
     expectNoUserBettingLanguage();
 
