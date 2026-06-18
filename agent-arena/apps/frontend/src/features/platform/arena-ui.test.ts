@@ -68,6 +68,28 @@ describe("arena UI contracts", () => {
     expect(profile.tradingWalletAddress).not.toBe(mockPlatformSnapshot.tradingWallet.address);
   });
 
+  it("marks the selected Agent profile as attention when its latest intent failed", () => {
+    const failedIntent: AgentIntent = {
+      ...mockPlatformSnapshot.intents[0],
+      id: "intent_failed_latest",
+      agentId: "agent_2",
+      status: "failed",
+      createdAt: "2026-06-16T10:20:00.000Z"
+    };
+
+    const profile = createUserAgentArenaProfile({
+      agent: mockPlatformSnapshot.agents[1],
+      tradingWallet: null,
+      positions: [],
+      intents: [failedIntent],
+      executions: [],
+      leaderboard: mockPlatformSnapshot.leaderboard
+    });
+
+    expect(profile.accountState).toBe("attention");
+    expect(profile.latestIntentId).toBe("intent_failed_latest");
+  });
+
   it("derives public action feed items from intents and executions", () => {
     const items = createPublicActionFeedItems({
       agents: mockPlatformSnapshot.agents,
@@ -136,7 +158,7 @@ describe("arena UI contracts", () => {
     expect(items.map((item) => [item.id, item.status])).toEqual([
       ["execution:exec_failed", "failed"],
       ["execution:exec_confirmed", "executed"],
-      ["execution:exec_partial", "info"],
+      ["execution:exec_partial", "partial"],
       ["execution:exec_submitted", "queued"],
       ["execution:exec_signed", "queued"],
       ["execution:exec_queued", "queued"]
@@ -144,11 +166,11 @@ describe("arena UI contracts", () => {
   });
 
   it("maps every intent feed status explicitly", () => {
-    const expectedStatuses: Array<[IntentStatus, "accepted" | "rejected" | "executed" | "failed" | "info"]> = [
+    const expectedStatuses: Array<[IntentStatus, "accepted" | "rejected" | "executed" | "failed" | "partial"]> = [
       ["accepted", "accepted"],
       ["rejected", "rejected"],
       ["executed", "executed"],
-      ["partial", "info"],
+      ["partial", "partial"],
       ["failed", "failed"]
     ];
     const intents: AgentIntent[] = expectedStatuses.map(([status], index) => ({
@@ -168,7 +190,7 @@ describe("arena UI contracts", () => {
 
     expect(items.map((item) => [item.id, item.status])).toEqual([
       ["intent:intent_status_failed", "failed"],
-      ["intent:intent_status_partial", "info"],
+      ["intent:intent_status_partial", "partial"],
       ["intent:intent_status_executed", "executed"],
       ["intent:intent_status_rejected", "rejected"],
       ["intent:intent_status_accepted", "accepted"]

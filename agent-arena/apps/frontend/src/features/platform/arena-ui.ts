@@ -36,7 +36,7 @@ export interface PublicActionFeedItem {
     | "executed"
     | "pnl_update"
     | "score_update";
-  status: "accepted" | "queued" | "executed" | "rejected" | "failed" | "info";
+  status: "accepted" | "queued" | "executed" | "rejected" | "failed" | "partial" | "info";
   direction?: "UP" | "DOWN";
   lowerStrike?: string;
   higherStrike?: string;
@@ -201,7 +201,7 @@ function deriveAccountState(input: {
     return "claimed_no_runtime";
   }
 
-  if (latestIntent?.status === "rejected" || latestExecution?.status === "failed") {
+  if (latestIntent?.status === "rejected" || latestIntent?.status === "failed" || latestExecution?.status === "failed") {
     return "attention";
   }
 
@@ -270,7 +270,7 @@ function statusFromIntent(intent: AgentIntent): PublicActionFeedItem["status"] {
     case "executed":
       return "executed";
     case "partial":
-      return "info";
+      return "partial";
     case "failed":
       return "failed";
   }
@@ -287,7 +287,7 @@ function statusFromExecution(execution: ExecutionRecord): PublicActionFeedItem["
     case "failed":
       return "failed";
     case "partial":
-      return "info";
+      return "partial";
   }
 }
 
