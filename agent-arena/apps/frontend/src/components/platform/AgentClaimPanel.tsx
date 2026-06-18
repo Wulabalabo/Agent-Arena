@@ -1,4 +1,4 @@
-import { ShieldCheck, Wallet } from "lucide-react";
+import { Copy, ShieldCheck, Wallet } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { createPlatformClient, PlatformClientError } from "../../features/platform/client";
 import type { AgentProfile, RuntimeCredential, TradingWallet } from "../../features/platform/types";
@@ -57,6 +57,7 @@ export function AgentClaimPanel({
   const [twitterHandle, setTwitterHandle] = useState("");
   const [status, setStatus] = useState<"idle" | "claiming" | "claimed" | "failed">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [claimResult, setClaimResult] = useState<ClaimResult | null>(null);
   const [walletDialogOpen, setWalletDialogOpen] = useState(false);
   const client = useMemo(() => createPlatformClient({ baseUrl: apiBaseUrl, fetcher }), [apiBaseUrl, fetcher]);
@@ -114,6 +115,7 @@ export function AgentClaimPanel({
       ...(twitterHandle.trim() ? { twitterHandle: twitterHandle.trim() } : {})
     });
     setClaimResult(result);
+    setCopyStatus("idle");
     setStatus("claimed");
   }
 
@@ -122,6 +124,27 @@ export function AgentClaimPanel({
     setError(claimError instanceof PlatformClientError || claimError instanceof Error
       ? claimError.message
       : "Claim failed");
+  }
+
+  async function handleCopyHandoff() {
+    if (!claimResult) {
+      return;
+    }
+
+    if (!navigator.clipboard?.writeText) {
+      setCopyStatus("failed");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(createAgentRuntimeHandoff({
+        apiBaseUrl,
+        claimResult
+      }), null, 2));
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
   }
 
   return (
@@ -251,10 +274,48 @@ export function AgentClaimPanel({
             <p>Trading wallet {claimResult.tradingWallet.address}</p>
             <p>PredictManager {claimResult.tradingWallet.predictManagerStatus}</p>
           </div>
+          <button
+            className="paper-button paper-button-primary inline-flex items-center justify-center gap-2 px-3 py-2 font-display text-xs font-black uppercase"
+            onClick={() => void handleCopyHandoff()}
+            type="button"
+          >
+            <Copy aria-hidden="true" size={14} />
+            Copy Agent handoff
+          </button>
+          {copyStatus === "copied" ? (
+            <p className="text-xs font-bold text-on-surface-variant">Runtime handoff copied.</p>
+          ) : null}
+          {copyStatus === "failed" ? (
+            <p className="text-xs font-bold text-error">Copy failed. Select the credential text manually.</p>
+          ) : null}
         </div>
       ) : null}
     </section>
   );
+}
+
+function createAgentRuntimeHandoff({
+  apiBaseUrl,
+  claimResult
+}: {
+  apiBaseUrl: string;
+  claimResult: ClaimResult;
+}) {
+  return {
+    baseUrl: apiBaseUrl,
+    agentId: claimResult.agent.id,
+    token: claimResult.runtimeCredential.token,
+    scopes: claimResult.runtimeCredential.scopes,
+    tradingWalletId: claimResult.tradingWallet.id,
+    walletAddress: claimResult.tradingWallet.address,
+    predictManagerId: claimResult.tradingWallet.predictManagerId,
+    savedAt: new Date().toISOString(),
+    funding: {
+      minimumDusdcRaw: "10000000",
+      hardGasFloorSui: "0.1",
+      recommendedGasSui: "1"
+    }
+  };
 }
 
 async function signClaimWithWallet(

@@ -131,6 +131,54 @@ describe("createPlatformClient", () => {
     });
   });
 
+  it("preserves budgetRaw when submitting Agent open intents", async () => {
+    const fetcher = vi.fn(async () =>
+      new Response(JSON.stringify({ ...mockPlatformSnapshot.latestIntent, budgetRaw: "5000000" }), {
+        status: 201,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
+
+    await client.submitIntent("agent_runtime_test_token", {
+      competitionId: "btc-15m-001",
+      agentId: "agent_1",
+      idempotencyKey: "budget-client-open",
+      action: "open_directional",
+      confidence: 0.72,
+      reason: "Budget controlled open.",
+      createdAt: "2026-06-16T10:03:12.000Z",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "1781701200000",
+        strike: "65000000000000",
+        isUp: true
+      },
+      budgetRaw: "5000000"
+    } as Parameters<typeof client.submitIntent>[1]);
+
+    expect(fetcher).toHaveBeenCalledWith("https://platform.test/api/arena/intents", expect.objectContaining({
+      body: JSON.stringify({
+        competitionId: "btc-15m-001",
+        agentId: "agent_1",
+        idempotencyKey: "budget-client-open",
+        action: "open_directional",
+        confidence: 0.72,
+        reason: "Budget controlled open.",
+        createdAt: "2026-06-16T10:03:12.000Z",
+        market: {
+          kind: "directional",
+          oracleId: "0xbtc15m",
+          expiry: "1781701200000",
+          strike: "65000000000000",
+          isUp: true
+        },
+        budgetRaw: "5000000"
+      })
+    }));
+  });
+
   it("reads positions and execution records with the runtime credential header", async () => {
     const fetcher = vi.fn(async (url: string) => {
       if (url.includes("/agent/positions")) {

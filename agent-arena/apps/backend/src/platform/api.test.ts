@@ -639,7 +639,8 @@ describe("Agent Arena platform API", () => {
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toMatchObject({
       status: "executed",
-      predictTxDigest: "0xbudget_intent_digest"
+      predictTxDigest: "0xbudget_intent_digest",
+      predictTxUrl: "https://testnet.suivision.xyz/txblock/0xbudget_intent_digest"
     });
     expect(adapterCalls).toMatchObject([
       {
@@ -654,6 +655,35 @@ describe("Agent Arena platform API", () => {
         }
       }
     ]);
+
+    const positions = await fetch(new Request(
+      "http://localhost/api/arena/agent/positions?competitionId=btc-15m-001",
+      { headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token } }
+    ));
+    await expect(positions.json()).resolves.toMatchObject({
+      positions: [{
+        agentId: claimed.agent.id,
+        competitionId: "btc-15m-001",
+        positionRef: {
+          kind: "directional",
+          openExecutionId: "exec_1"
+        },
+        quantityRaw: "500000",
+        status: "open"
+      }]
+    });
+
+    const execution = await fetch(new Request(
+      "http://localhost/api/arena/executions/exec_1",
+      { headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token } }
+    ));
+    await expect(execution.json()).resolves.toMatchObject({
+      execution: {
+        id: "exec_1",
+        predictTxDigest: "0xbudget_intent_digest",
+        predictTxUrl: "https://testnet.suivision.xyz/txblock/0xbudget_intent_digest"
+      }
+    });
   });
 
   it("returns a Predict execution error when the configured adapter fails", async () => {

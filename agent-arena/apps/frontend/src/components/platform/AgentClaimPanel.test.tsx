@@ -4,6 +4,11 @@ import { AgentClaimPanel, type ClaimWalletProvider } from "./AgentClaimPanel";
 
 describe("AgentClaimPanel", () => {
   it("claims with the connected owner wallet address and signed claim message", async () => {
+    const writeText = vi.fn(async (_text: string) => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
     const platformFetcher = vi.fn(async () => new Response(JSON.stringify({
       agent: {
         id: "agent_2050",
@@ -52,6 +57,25 @@ describe("AgentClaimPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Connect wallet and claim/i }));
 
     expect(await screen.findByText("agent_runtime_claimed")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Copy Agent handoff/i }));
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledTimes(1);
+    });
+    const handoff = JSON.parse(writeText.mock.calls[0]?.[0] ?? "{}");
+    expect(handoff).toMatchObject({
+      baseUrl: "http://127.0.0.1:8787/api/arena",
+      agentId: "agent_2050",
+      token: "agent_runtime_claimed",
+      scopes: ["competition:read"],
+      tradingWalletId: "wallet_2050",
+      walletAddress: "0xwallet",
+      predictManagerId: null,
+      funding: {
+        minimumDusdcRaw: "10000000",
+        hardGasFloorSui: "0.1",
+        recommendedGasSui: "1"
+      }
+    });
     expect(walletProvider.connect).toHaveBeenCalled();
     expect(walletProvider.signPersonalMessage).toHaveBeenCalled();
     await waitFor(() => {

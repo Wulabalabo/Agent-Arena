@@ -19,6 +19,7 @@ export interface MockExecutionResponse {
   riskDecisionId: string;
   executionId?: string;
   predictTxDigest?: string;
+  predictTxUrl?: string;
   rejectionCode?: string;
 }
 
@@ -171,6 +172,7 @@ export function submitIntentWithMockExecution(
   const execution = createMockExecution(executionId, draftIntent, riskDecisionId);
   store.saveExecution(execution);
   recordExecutionLedger(store, draftIntent, execution);
+  projectExecutionPosition(store, draftIntent, execution);
   const executedIntent = createIntent(intentId, validated, "executed", null);
   store.saveIntent(executedIntent);
 
@@ -179,7 +181,8 @@ export function submitIntentWithMockExecution(
     intentId,
     riskDecisionId,
     executionId,
-    predictTxDigest: execution.predictTxDigest ?? undefined
+    predictTxDigest: execution.predictTxDigest ?? undefined,
+    predictTxUrl: createPredictTxUrl(execution.predictTxDigest)
   };
 }
 
@@ -237,6 +240,7 @@ async function executeWithPredictAdapter(input: {
     costRaw: result.actualCostRaw,
     proceedsRaw: result.actualProceedsRaw
   });
+  projectExecutionPosition(input.store, input.intent, execution);
   recordRealizedPositionLedger(input.store, input.intent, execution, result);
   input.store.saveIntent({
     ...input.intent,
@@ -250,6 +254,7 @@ async function executeWithPredictAdapter(input: {
     riskDecisionId: input.riskDecisionId,
     executionId: input.executionId,
     predictTxDigest: execution.predictTxDigest ?? undefined,
+    predictTxUrl: createPredictTxUrl(execution.predictTxDigest),
     rejectionCode: rejectionCode ?? undefined
   };
 }
@@ -392,6 +397,86 @@ function recordRealizedPositionLedger(
     errorCode: null,
     policyDrift: "none"
   }));
+}
+
+function projectExecutionPosition(store: PlatformMockStore, intent: AgentIntent, execution: ExecutionRecord): void {
+  if (execution.status !== "confirmed" && execution.status !== "partial") {
+    return;
+  }
+
+  if (intent.action === "open_directional" && intent.market?.kind === "directional" && intent.quantity) {
+    store.savePositionSnapshot({
+      agentId: intent.agentId,
+      competitionId: intent.competitionId,
+      positionRef: {
+        kind: "directional",
+        marketKey: createDirectionalMarketKey(intent.market),
+        openExecutionId: execution.id,
+        quantity: intent.quantity
+      },
+      oracleId: intent.market.oracleId,
+      expiryMs: intent.market.expiry,
+      strikeRaw: intent.market.strike,
+      direction: intent.market.isUp ? "up" : "down",
+      quantityRaw: intent.quantity,
+      status: "open",
+      updatedAt: execution.createdAt
+    });
+    store.updateAgentExposureStatus(intent.agentId, "directional");
+    return;
+  }
+
+  if (intent.action === "open_range" && intent.market?.kind === "range" && intent.quantity) {
+    store.savePositionSnapshot({
+      agentId: intent.agentId,
+      competitionId: intent.competitionId,
+      positionRef: {
+        kind: "range",
+        rangeKey: createRangeMarketKey(intent.market),
+        openExecutionId: execution.id,
+        quantity: intent.quantity
+      },
+      oracleId: intent.market.oracleId,
+      expiryMs: intent.market.expiry,
+      lowerStrikeRaw: intent.market.lowerStrike,
+      higherStrikeRaw: intent.market.higherStrike,
+      quantityRaw: intent.quantity,
+      status: "open",
+      updatedAt: execution.createdAt
+    });
+    store.updateAgentExposureStatus(intent.agentId, "range");
+    return;
+  }
+
+  if ((intent.action === "reduce" || intent.action === "close") && intent.positionRef?.openExecutionId) {
+    const existing = store.listPositionSnapshots({
+      agentId: intent.agentId,
+      competitionId: intent.competitionId
+    }).find((snapshot) => snapshot.positionRef.openExecutionId === intent.positionRef?.openExecutionId);
+    if (!existing) {
+      return;
+    }
+
+    store.savePositionSnapshot({
+      ...existing,
+      quantityRaw: intent.action === "reduce"
+        ? intent.quantity ?? intent.positionRef.quantity ?? existing.quantityRaw
+        : intent.positionRef.quantity ?? existing.quantityRaw,
+      status: intent.action === "reduce" ? "reduced" : "closed",
+      updatedAt: execution.createdAt
+    });
+    if (intent.action === "close") {
+      store.updateAgentExposureStatus(intent.agentId, "flat");
+    }
+  }
+}
+
+function createDirectionalMarketKey(market: DirectionalMarket): string {
+  return `btc-${market.isUp ? "up" : "down"}-${market.strike}-${market.expiry}`;
+}
+
+function createRangeMarketKey(market: RangeMarket): string {
+  return `btc-range-${market.lowerStrike}-${market.higherStrike}-${market.expiry}`;
 }
 
 function findOpenExecutionLedgerRow(store: PlatformMockStore, agentId: string, executionId: string) {
@@ -572,6 +657,7 @@ function createStoredResponse(store: PlatformMockStore, intent: AgentIntent): Mo
     riskDecisionId: riskDecision.id,
     executionId: execution.id,
     predictTxDigest: execution.predictTxDigest ?? undefined,
+    predictTxUrl: createPredictTxUrl(execution.predictTxDigest),
     rejectionCode: intent.status === "failed" ? intent.rejectionCode ?? predictExecutionFailedCode : undefined
   };
 }
@@ -604,4 +690,8 @@ function isRawInteger(value: string): boolean {
 
 function subtractRawAmounts(left: string, right: string): string {
   return (BigInt(left) - BigInt(right)).toString();
+}
+
+export function createPredictTxUrl(txDigest: string | null | undefined): string | undefined {
+  return txDigest ? `https://testnet.suivision.xyz/txblock/${encodeURIComponent(txDigest)}` : undefined;
 }

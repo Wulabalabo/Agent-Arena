@@ -5,6 +5,7 @@ import {
   runtimeTokenHeader
 } from "./auth";
 import {
+  createPredictTxUrl,
   PlatformExecutionError,
   type SubmitIntentExecutionOptions,
   submitIntentWithMockExecution
@@ -594,6 +595,7 @@ async function submitIntent(
         riskDecisionId: result.riskDecisionId,
         executionId: result.executionId,
         predictTxDigest: result.predictTxDigest,
+        predictTxUrl: result.predictTxUrl,
         status: result.status
       }
     );
@@ -739,7 +741,12 @@ function getExecution(executionId: string, store: PlatformMockStore, agentId: st
     return errorResponse(404, "EXECUTION_NOT_FOUND", "Execution not found");
   }
 
-  return jsonResponse({ execution });
+  return jsonResponse({
+    execution: {
+      ...execution,
+      predictTxUrl: createPredictTxUrl(execution.predictTxDigest) ?? null
+    }
+  });
 }
 
 function getAgentReplay(agentId: string, store: PlatformMockStore): Response {

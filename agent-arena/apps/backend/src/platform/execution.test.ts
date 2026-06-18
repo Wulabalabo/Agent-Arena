@@ -232,6 +232,58 @@ describe("mock intent execution", () => {
     }));
   });
 
+  it("projects confirmed directional opens into runtime positions and exposure status", async () => {
+    const store = new PlatformMockStore();
+    const agent = createClaimedTestAgent(store, "Position Projection Agent");
+    store.bindTradingWallet(agent.id, "0xagentwallet");
+    store.seedCompetition();
+
+    const result = await submitIntentWithMockExecution(store, {
+      competitionId: "btc-15m-001",
+      agentId: agent.id,
+      idempotencyKey: "intent-position-projection",
+      action: "open_directional",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "1781701200000",
+        strike: "65000000000000",
+        isUp: true
+      },
+      budgetRaw: "5000000",
+      confidence: 0.72,
+      reason: "Confirmed execution should become queryable exposure.",
+      createdAt: "2026-06-15T10:03:12.000Z"
+    }, {
+      predictExecutionAdapter: async () => ({
+        status: "confirmed",
+        predictTxDigest: "0xdigest_position_projection",
+        actualCostRaw: "4888000"
+      })
+    });
+
+    expect(result.status).toBe("executed");
+    expect(store.getAgent(agent.id)?.exposureStatus).toBe("directional");
+    expect(store.listPositionSnapshots({ agentId: agent.id, competitionId: "btc-15m-001" })).toMatchObject([
+      {
+        agentId: agent.id,
+        competitionId: "btc-15m-001",
+        positionRef: {
+          kind: "directional",
+          marketKey: "btc-up-65000000000000-1781701200000",
+          openExecutionId: "exec_1",
+          quantity: "500000"
+        },
+        oracleId: "0xbtc15m",
+        expiryMs: "1781701200000",
+        strikeRaw: "65000000000000",
+        direction: "up",
+        quantityRaw: "500000",
+        status: "open"
+      }
+    ]);
+  });
+
   it("records position-level realized PnL when a close execution returns actual proceeds", async () => {
     const store = new PlatformMockStore();
     const agent = createClaimedTestAgent(store, "Realized PnL Agent");

@@ -208,6 +208,10 @@ function createSubmitIntentBody(intent: SubmitIntentInput): SubmitIntentInput {
     body.positionRef = intent.positionRef;
   }
 
+  if (intent.budgetRaw !== undefined) {
+    body.budgetRaw = intent.budgetRaw;
+  }
+
   if (intent.quantity !== undefined) {
     body.quantity = intent.quantity;
   }

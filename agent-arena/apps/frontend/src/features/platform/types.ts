@@ -142,6 +142,7 @@ export interface AgentIntent {
   createdAt: string;
   market?: IntentMarket;
   positionRef?: PositionRef;
+  budgetRaw?: string;
   quantity?: string;
   maxCost?: string;
   minProceeds?: string;
@@ -157,6 +158,7 @@ export interface SubmitIntentInput {
   createdAt: string;
   market?: IntentMarket;
   positionRef?: PositionRef;
+  budgetRaw?: string;
   quantity?: string;
   maxCost?: string;
   minProceeds?: string;
@@ -178,6 +180,7 @@ export interface ExecutionRecord {
   competitionId: string;
   status: ExecutionStatus;
   predictTxDigest: string | null;
+  predictTxUrl?: string | null;
   action: AgentAction;
   createdAt: string;
 }

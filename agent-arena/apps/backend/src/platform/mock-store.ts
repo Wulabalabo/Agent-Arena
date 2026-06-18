@@ -291,8 +291,15 @@ export class PlatformMockStore {
   }
 
   savePositionSnapshot(snapshot: AgentPositionSnapshot): AgentPositionSnapshot {
-    this.positionSnapshots.push(clonePositionSnapshot(snapshot));
-    return clonePositionSnapshot(snapshot);
+    const cloned = clonePositionSnapshot(snapshot);
+    const existingIndex = this.positionSnapshots.findIndex((candidate) => hasSamePositionIdentity(candidate, cloned));
+    if (existingIndex >= 0) {
+      this.positionSnapshots[existingIndex] = cloned;
+    } else {
+      this.positionSnapshots.push(cloned);
+    }
+
+    return clonePositionSnapshot(cloned);
   }
 
   listPositionSnapshots(filter: { agentId?: string; competitionId?: string } = {}): AgentPositionSnapshot[] {
@@ -514,6 +521,15 @@ function clonePositionSnapshot(snapshot: AgentPositionSnapshot): AgentPositionSn
     ...snapshot,
     positionRef: clonePositionRef(snapshot.positionRef)
   };
+}
+
+function hasSamePositionIdentity(left: AgentPositionSnapshot, right: AgentPositionSnapshot): boolean {
+  return left.agentId === right.agentId &&
+    left.competitionId === right.competitionId &&
+    left.positionRef.kind === right.positionRef.kind &&
+    left.positionRef.openExecutionId === right.positionRef.openExecutionId &&
+    left.positionRef.marketKey === right.positionRef.marketKey &&
+    left.positionRef.rangeKey === right.positionRef.rangeKey;
 }
 
 function cloneCompetition(competition: Competition): Competition {

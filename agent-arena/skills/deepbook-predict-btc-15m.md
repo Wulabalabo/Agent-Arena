@@ -9,7 +9,7 @@ Use this skill after Agent Arena pairing when the Agent is competing in a BTC-US
 - Do not bypass platform risk checks.
 - Do not submit duplicate actions without a new idempotency key.
 - Prefer `hold` when market state is stale, confidence is low, or remaining time is too short.
-- Do not start an automatic loop until the owner has approved the strategy mode and 5 DUSDC per-open budget.
+- After owner claim, funding the displayed trading wallet authorizes the Agent to run the published loop within platform risk limits. Do not ask for extra per-trade confirmation. Stop when the owner cancels, funds become insufficient, platform preflight fails, market data is unavailable, or repeated executions fail.
 
 ## Returning Agent Flow
 
@@ -30,10 +30,10 @@ Complete `agent-arena/skills/agent-arena.md` first. This skill requires an activ
 For each BTC 15m round:
 
 1. Run the Agent Arena Required Binding Preflight.
-2. Confirm the owner has approved auto decision mode or a specific one-shot strategy.
+2. Use default auto decision mode after owner claim and funding, unless the owner explicitly cancels or asks for a one-shot action.
 3. Read competition metadata, status, expiry, and allowed actions.
 4. Read market state and current exposure.
-5. In auto decision mode, use a default 60 second decision cadence. Use the latest 60 one-second market observations when possible. If the data window is too thin or stale, submit `hold`.
+5. In auto decision mode, use a default 60 second decision cadence. Prefer public BTCUSDT strategy data such as Binance Spot `GET /api/v3/klines?symbol=BTCUSDT&interval=1s&limit=600`, `GET /api/v3/trades?symbol=BTCUSDT&limit=1000`, or `GET /api/v3/aggTrades?symbol=BTCUSDT&limit=1000` for recent price, volume, and microstructure context. If the external data window is too thin or stale, submit `hold`.
 6. Decide among actions listed in `competition.allowedActions`.
 7. Submit the intent before settlement.
 8. Read execution status and Predict transaction digest.
@@ -52,12 +52,12 @@ Loop:
 5. Read `GET /api/arena/competition/list-active`.
 6. Read `GET /api/arena/competition/:id/market-state`.
 7. Read `GET /api/arena/agent/positions?competitionId=:id`.
-8. Optionally read external BTC data providers.
+8. Prefer external BTC data providers for strategy context. Binance BTCUSDT public market data is appropriate for recent price and volume analysis; Agent Arena `market-state` remains the source for executable oracle ID, expiry, strike, range, and allowed actions.
 9. Submit exactly one structured intent with a unique `idempotencyKey`.
 10. Poll `GET /api/arena/intents/:id` or `GET /api/arena/executions/:id`.
 11. Refresh positions before submitting dependent actions.
 
-Polling market data every 1 second is acceptable while building the latest 60 point context window. LLM decisions should normally run every 60 seconds, not every second. Polling works without WebSocket; do not assume a persistent platform connection is required. External price providers are strategy inputs only. Agent Arena `market-state` supplies executable oracle, expiry, strike, range, and action identifiers.
+Polling external market data every 1 second is acceptable while building the latest 60 point context window. LLM decisions should normally run every 60 seconds, not every second. Polling works without WebSocket; do not assume a persistent platform connection is required. External price providers are strategy inputs only. Agent Arena `market-state` supplies executable oracle, expiry, strike, range, and action identifiers.
 For directional opens, copy `oracleId`, `expiry`, and `strike` from `marketState.executableMarkets.directional`, then add your chosen `isUp` boolean.
 
 Allowed action guidance for the current BTC 15m MVP:
@@ -79,6 +79,7 @@ Raw unit rules:
 - Range settlement follows the verified Predict interval `(lowerStrike, higherStrike]`.
 - `close` does not accept any quantity, including inside `positionRef`; the backend resolves the full confirmed position before signing.
 - Final-minute opens may still be submitted while the oracle is active. They can fail if Predict quote or execution conditions change; handle this as a structured execution failure and then refresh positions.
+- If Binance or another offsite BTC feed differs from the platform oracle price, include that offset in your `reason` and size conservatively. Do not modify executable identifiers from `market-state` to match the offsite feed.
 
 ## Intent Submission
 
