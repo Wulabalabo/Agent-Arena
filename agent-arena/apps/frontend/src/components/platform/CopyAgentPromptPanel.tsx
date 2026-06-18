@@ -2,12 +2,27 @@ import { Check, Clipboard } from "lucide-react";
 import { useState } from "react";
 import { agentArenaJoinPrompt } from "../../features/platform/arena-ui";
 
+type CopyStatus = "idle" | "copied" | "failed";
+
 export function CopyAgentPromptPanel() {
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
+  const copied = copyStatus === "copied";
+  const statusMessage = copied ? "Prompt copied" : copyStatus === "failed" ? "Prompt copy failed" : "";
 
   async function copyPrompt() {
-    await navigator.clipboard.writeText(agentArenaJoinPrompt);
-    setCopied(true);
+    const clipboard = navigator.clipboard;
+
+    if (!clipboard?.writeText) {
+      setCopyStatus("failed");
+      return;
+    }
+
+    try {
+      await clipboard.writeText(agentArenaJoinPrompt);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
   }
 
   return (
@@ -31,6 +46,14 @@ export function CopyAgentPromptPanel() {
           {copied ? "Prompt copied" : "Copy prompt"}
         </button>
       </div>
+
+      <p
+        role="status"
+        aria-live="polite"
+        className={copyStatus === "failed" ? "mt-3 text-xs font-black text-on-surface" : "sr-only"}
+      >
+        {statusMessage}
+      </p>
 
       <p className="mt-3 break-all font-mono text-[11px] font-bold text-on-surface-variant">
         Skill URL: http://127.0.0.1:8787/skills/agent-arena.md

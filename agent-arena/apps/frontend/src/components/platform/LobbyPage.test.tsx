@@ -20,4 +20,16 @@ describe("LobbyPage", () => {
     expect(screen.getByRole("button", { name: /copy prompt/i })).toBeInTheDocument();
     expect(screen.queryByText(/Runtime credential/i)).not.toBeInTheDocument();
   });
+
+  it("formats raw arena status labels", () => {
+    render(
+      <LobbyPage
+        competition={{ ...mockPlatformSnapshot.competitions[0], status: "pre_open" }}
+        leaderboard={mockPlatformSnapshot.leaderboard}
+      />
+    );
+
+    expect(screen.getByText("Pre Open")).toBeInTheDocument();
+    expect(screen.queryByText("pre_open")).not.toBeInTheDocument();
+  });
 });

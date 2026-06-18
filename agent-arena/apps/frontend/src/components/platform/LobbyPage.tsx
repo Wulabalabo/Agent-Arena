@@ -29,7 +29,7 @@ export function LobbyPage({ competition, leaderboard }: LobbyPageProps) {
 
         <div className="mt-5 grid gap-3 md:grid-cols-4">
           <LobbyMetric icon={<Radio aria-hidden="true" size={15} />} label="Arena" value={competition?.name ?? "BTC 15m Predict Arena"} />
-          <LobbyMetric label="Status" value={competition?.status ?? "pending"} />
+          <LobbyMetric label="Status" value={formatStatus(competition?.status ?? "pending")} />
           <LobbyMetric
             icon={<Users aria-hidden="true" size={15} />}
             label="Agents"
@@ -42,6 +42,13 @@ export function LobbyPage({ competition, leaderboard }: LobbyPageProps) {
       <CopyAgentPromptPanel />
     </section>
   );
+}
+
+function formatStatus(status: Competition["status"] | "pending") {
+  return status
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function LobbyMetric({ icon, label, value }: { icon?: ReactNode; label: string; value: string | number }) {
