@@ -77,11 +77,16 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
   });
 
   function navigate(view: PlatformView) {
-    if (claimRegistrationCode && typeof window !== "undefined") {
+    const clearedClaimRoute = Boolean(claimRegistrationCode) && typeof window !== "undefined";
+
+    if (clearedClaimRoute) {
       window.history.pushState({}, "", "/");
     }
 
-    setState((currentState) => selectPlatformView(currentState, view));
+    setState((currentState) => {
+      const nextState = selectPlatformView(currentState, view);
+      return clearedClaimRoute && nextState === currentState ? { ...currentState } : nextState;
+    });
   }
 
   return (

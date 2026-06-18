@@ -85,6 +85,21 @@ describe("App", () => {
     expect(screen.queryByLabelText(/Registration code/i)).not.toBeInTheDocument();
   });
 
+  it("clears the hidden claim URL when same-view Lobby nav is used", () => {
+    window.history.pushState({}, "", "/agent-arena/claim/PAIR-2050");
+
+    render(<App />);
+
+    expect(screen.getByLabelText(/Registration code/i)).toHaveValue("PAIR-2050");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Lobby$/i }));
+
+    expect(window.location.pathname).toBe("/");
+    expect(screen.getByRole("heading", { name: /^Agent Arena$/i })).toBeInTheDocument();
+    expect(screen.getByText(/Testnet-only AI Agent competition layer/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Registration code/i)).not.toBeInTheDocument();
+  });
+
   it("claims an Agent from the owner-facing claim URL", async () => {
     window.history.pushState({}, "", "/agent-arena/claim/PAIR-2050");
     const platformFetcher = vi.fn(async () => new Response(JSON.stringify({
