@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mockPlatformSnapshot } from "./mock";
-import type { ExecutionRecord } from "./types";
+import type { AgentIntent, ExecutionRecord, IntentStatus } from "./types";
 import {
   agentArenaJoinPrompt,
   createPublicActionFeedItems,
@@ -63,6 +63,7 @@ describe("arena UI contracts", () => {
 
     expect(profile.accountState).toBe("claimed_no_runtime");
     expect(profile.displayName).toBe("Range Cartographer");
+    expect(profile.tradingWalletAddress).toBe(mockPlatformSnapshot.agents[1].tradingWalletAddress);
     expect(profile.tradingWalletAddress).toBe("0xagentwallet_agent_2");
     expect(profile.tradingWalletAddress).not.toBe(mockPlatformSnapshot.tradingWallet.address);
   });
@@ -78,7 +79,22 @@ describe("arena UI contracts", () => {
     expect(items.map((item) => item.timestamp)).toEqual(
       [...items.map((item) => item.timestamp)].sort((left, right) => right.localeCompare(left))
     );
-    expect(items.map((item) => item.id)).toEqual(["intent:intent_2", "execution:exec_1", "intent:intent_1"]);
+    expect(items.map((item) => item.id)).toEqual([
+      "score:agent_1:2026-06-16T10:14:00.000Z",
+      "score:agent_2:2026-06-16T10:13:00.000Z",
+      "score:agent_3:2026-06-16T10:12:00.000Z",
+      "intent:intent_2",
+      "execution:exec_1",
+      "intent:intent_1"
+    ]);
+
+    expect(items.find((item) => item.id === "score:agent_1:2026-06-16T10:14:00.000Z")).toEqual(expect.objectContaining({
+      action: "score_update",
+      agentDisplayName: "Trend Ranger",
+      pnlDeltaPct: 0.1842,
+      scoreDelta: 28.49,
+      status: "info"
+    }));
 
     expect(items.find((item) => item.id === "intent:intent_1")).toEqual(expect.objectContaining({
       action: "open_directional",
@@ -114,7 +130,7 @@ describe("arena UI contracts", () => {
       agents: mockPlatformSnapshot.agents,
       intents: [],
       executions,
-      leaderboard: mockPlatformSnapshot.leaderboard
+      leaderboard: []
     });
 
     expect(items.map((item) => [item.id, item.status])).toEqual([
@@ -124,6 +140,38 @@ describe("arena UI contracts", () => {
       ["execution:exec_submitted", "queued"],
       ["execution:exec_signed", "queued"],
       ["execution:exec_queued", "queued"]
+    ]);
+  });
+
+  it("maps every intent feed status explicitly", () => {
+    const expectedStatuses: Array<[IntentStatus, "accepted" | "rejected" | "executed" | "failed" | "info"]> = [
+      ["accepted", "accepted"],
+      ["rejected", "rejected"],
+      ["executed", "executed"],
+      ["partial", "info"],
+      ["failed", "failed"]
+    ];
+    const intents: AgentIntent[] = expectedStatuses.map(([status], index) => ({
+      ...mockPlatformSnapshot.intents[0],
+      id: `intent_status_${status}`,
+      status,
+      rejectionCode: status === "rejected" ? "RISK_LIMIT_EXCEEDED" : null,
+      createdAt: `2026-06-16T10:${String(index).padStart(2, "0")}:00.000Z`
+    }));
+
+    const items = createPublicActionFeedItems({
+      agents: mockPlatformSnapshot.agents,
+      intents,
+      executions: [],
+      leaderboard: []
+    });
+
+    expect(items.map((item) => [item.id, item.status])).toEqual([
+      ["intent:intent_status_failed", "failed"],
+      ["intent:intent_status_partial", "info"],
+      ["intent:intent_status_executed", "executed"],
+      ["intent:intent_status_rejected", "rejected"],
+      ["intent:intent_status_accepted", "accepted"]
     ]);
   });
 });

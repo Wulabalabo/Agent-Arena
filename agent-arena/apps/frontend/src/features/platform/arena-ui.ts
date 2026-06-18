@@ -168,8 +168,20 @@ export function createPublicActionFeedItems(input: CreatePublicActionFeedItemsIn
     status: statusFromExecution(execution),
     predictTxDigest: execution.predictTxDigest ?? undefined
   }));
+  const leaderboardItems = input.leaderboard.map((entry): PublicActionFeedItem => ({
+    id: `score:${entry.agentId}:${entry.finalExecutionAt}`,
+    timestamp: entry.finalExecutionAt,
+    agentId: entry.agentId,
+    agentDisplayName: agentDisplayNames.get(entry.agentId) ?? entry.displayName,
+    action: "score_update",
+    status: "info",
+    pnlDeltaPct: entry.netPnlPct,
+    scoreDelta: entry.score
+  }));
 
-  return [...intentItems, ...executionItems].sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+  return [...intentItems, ...executionItems, ...leaderboardItems].sort((left, right) =>
+    right.timestamp.localeCompare(left.timestamp)
+  );
 }
 
 function deriveAccountState(input: {
@@ -250,15 +262,18 @@ function normalizeAction(action: AgentAction): PublicActionFeedItem["action"] {
 }
 
 function statusFromIntent(intent: AgentIntent): PublicActionFeedItem["status"] {
-  if (intent.status === "rejected") {
-    return "rejected";
+  switch (intent.status) {
+    case "accepted":
+      return "accepted";
+    case "rejected":
+      return "rejected";
+    case "executed":
+      return "executed";
+    case "partial":
+      return "info";
+    case "failed":
+      return "failed";
   }
-
-  if (intent.status === "executed") {
-    return "executed";
-  }
-
-  return "accepted";
 }
 
 function statusFromExecution(execution: ExecutionRecord): PublicActionFeedItem["status"] {

@@ -9,7 +9,7 @@ export type AgentAction =
   | "adjust_range";
 
 export type CompetitionStatus = "pre_open" | "live" | "expired" | "settled";
-export type IntentStatus = "accepted" | "rejected" | "executed" | "partial";
+export type IntentStatus = "accepted" | "rejected" | "executed" | "partial" | "failed";
 export type ExecutionStatus = "queued" | "signed" | "submitted" | "confirmed" | "failed" | "partial";
 export type OwnerWithdrawalStatus = "dry_run_ok" | "submitted" | "failed";
 export type AgentRuntimeStatus = "waiting" | "active" | "cooldown" | "rejected" | "offline";
