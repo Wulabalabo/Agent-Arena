@@ -70,7 +70,7 @@ describe("SuiWalletConnectButton", () => {
     expect(dappKitState.connectWallet).toHaveBeenCalledWith({ wallet: dappKitState.wallets[0] });
   });
 
-  it("disconnects through Mysten dApp Kit when already connected", () => {
+  it("opens an account menu when already connected and disconnects only from the menu", () => {
     dappKitState.connection = {
       account: { address: "0x1234567890abcdef" },
       isConnected: true,
@@ -85,6 +85,12 @@ describe("SuiWalletConnectButton", () => {
     render(<SuiWalletConnectButton />);
 
     fireEvent.click(screen.getByRole("button", { name: /Owner 0x1234...cdef/i }));
+
+    expect(dappKitState.disconnectWallet).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: /Owner wallet options/i })).toBeInTheDocument();
+    expect(screen.getByText("0x1234567890abcdef")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Switch wallet/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Disconnect/i }));
 
     expect(dappKitState.disconnectWallet).toHaveBeenCalled();
   });

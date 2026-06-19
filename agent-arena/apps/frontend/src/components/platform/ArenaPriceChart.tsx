@@ -1,7 +1,11 @@
 import { Activity, Radio } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { LiveBtcMarketSnapshot } from "../../features/predict/live-market";
 import type { LiveBtcMarketStatus } from "../../features/predict/use-live-btc-market";
+
+const chartWidth = 640;
+const chartHeight = 176;
+const traceLimit = 36;
 
 const utcDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
   day: "2-digit",
@@ -25,6 +29,31 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
   const price = snapshot?.price;
   const oracle = snapshot?.oracle;
   const hasActiveReferenceTrace = Boolean(price) && status !== "error";
+  const [tracePoints, setTracePoints] = useState<PriceTracePoint[]>([]);
+  const visibleTracePoints = useMemo(() => {
+    if (!hasActiveReferenceTrace || !price) {
+      return [];
+    }
+
+    return tracePoints.length > 0 ? tracePoints : seedTrace(price.spot, price.updatedAt);
+  }, [hasActiveReferenceTrace, price, tracePoints]);
+  const chartGeometry = useMemo(() => createChartGeometry(visibleTracePoints), [visibleTracePoints]);
+
+  useEffect(() => {
+    if (!price || status === "error") {
+      return;
+    }
+
+    setTracePoints((currentPoints) => {
+      const latestPoint = currentPoints[currentPoints.length - 1];
+      if (latestPoint?.spot === price.spot && latestPoint.updatedAt === price.updatedAt) {
+        return currentPoints;
+      }
+
+      const nextPoints = currentPoints.length > 0 ? currentPoints : seedTrace(price.spot, price.updatedAt);
+      return [...nextPoints, { spot: price.spot, updatedAt: price.updatedAt }].slice(-traceLimit);
+    });
+  }, [price, status]);
 
   return (
     <section aria-label="BTC reference chart" className="paper-card-sm p-4">
@@ -66,11 +95,18 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
           <path d="M0 38H640M0 88H640M0 138H640" stroke="#374151" strokeDasharray="6 8" strokeWidth="1" />
           {hasActiveReferenceTrace ? (
             <>
-              <path d="M72 20V78M128 54V124M184 30V92M240 62V146M296 42V112M352 24V86M408 58V132M464 34V102M520 48V118M576 26V92" stroke="#e5e7eb" strokeWidth="4" />
-              <path d="M72 56H128M128 86H184M184 58H240M240 112H296M296 76H352M352 52H408M408 96H464M464 68H520M520 82H576" stroke="#facc15" strokeWidth="3" />
-              <path d="M24 120C62 118 76 66 112 74C151 83 158 130 200 116C239 103 245 38 288 50C332 62 324 119 368 107C412 95 414 40 456 54C494 66 496 124 536 108C570 94 582 48 616 52" fill="none" stroke="#22c55e" strokeLinecap="round" strokeWidth="5" />
-              <path d="M24 120C62 118 76 66 112 74C151 83 158 130 200 116C239 103 245 38 288 50C332 62 324 119 368 107C412 95 414 40 456 54C494 66 496 124 536 108C570 94 582 48 616 52V176H24Z" fill="url(#arena-chart-fill)" />
-              <circle cx="616" cy="52" fill="#ffffff" r="6" />
+              <path d={chartGeometry.candlePath} stroke="#e5e7eb" strokeWidth="4" />
+              <path d={chartGeometry.connectorPath} stroke="#facc15" strokeWidth="3" />
+              <path
+                d={chartGeometry.tracePath}
+                data-testid="btc-reference-trace"
+                fill="none"
+                stroke="#22c55e"
+                strokeLinecap="round"
+                strokeWidth="5"
+              />
+              <path d={chartGeometry.areaPath} fill="url(#arena-chart-fill)" />
+              <circle cx={chartGeometry.lastPoint.x} cy={chartGeometry.lastPoint.y} fill="#ffffff" r="6" />
             </>
           ) : (
             <>
@@ -105,6 +141,126 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
       </div>
     </section>
   );
+}
+
+interface PriceTracePoint {
+  spot: number;
+  updatedAt: string;
+}
+
+interface ChartPoint {
+  x: number;
+  y: number;
+}
+
+function seedTrace(spot: number, updatedAt: string): PriceTracePoint[] {
+  return Array.from({ length: 18 }, (_, index) => {
+    const phase = index / 2.3;
+    const drift = (index - 17) * spot * 0.000003;
+    const pulse = Math.sin(phase) * spot * 0.00024;
+    const pressure = Math.cos(phase * 0.7) * spot * 0.00012;
+
+    return {
+      spot: spot + drift + pulse + pressure,
+      updatedAt
+    };
+  });
+}
+
+function createChartGeometry(points: PriceTracePoint[]) {
+  const scaledPoints = scaleTracePoints(points);
+  const tracePath = createLinePath(scaledPoints);
+
+  return {
+    areaPath: createAreaPath(scaledPoints, tracePath),
+    candlePath: createCandlePath(points, scaledPoints),
+    connectorPath: createConnectorPath(scaledPoints),
+    lastPoint: scaledPoints[scaledPoints.length - 1] ?? { x: 616, y: 88 },
+    tracePath
+  };
+}
+
+function scaleTracePoints(points: PriceTracePoint[]): ChartPoint[] {
+  if (points.length === 0) {
+    return [];
+  }
+
+  const values = points.map((point) => point.spot);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || Math.max(max * 0.0001, 1);
+  const paddedMin = min - range * 0.18;
+  const paddedMax = max + range * 0.18;
+  const paddedRange = paddedMax - paddedMin || 1;
+  const left = 24;
+  const right = chartWidth - 24;
+  const top = 18;
+  const bottom = chartHeight - 24;
+  const xSpan = right - left;
+  const ySpan = bottom - top;
+  const denominator = Math.max(points.length - 1, 1);
+
+  return points.map((point, index) => ({
+    x: round(left + (index / denominator) * xSpan),
+    y: round(bottom - ((point.spot - paddedMin) / paddedRange) * ySpan)
+  }));
+}
+
+function createLinePath(points: ChartPoint[]): string {
+  if (points.length === 0) {
+    return "";
+  }
+
+  return points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x} ${point.y}`).join("");
+}
+
+function createAreaPath(points: ChartPoint[], tracePath: string): string {
+  if (points.length === 0 || !tracePath) {
+    return "";
+  }
+
+  const firstPoint = points[0];
+  return `${tracePath}V${chartHeight}H${firstPoint.x}V${firstPoint.y}Z`;
+}
+
+function createConnectorPath(points: ChartPoint[]): string {
+  if (points.length < 2) {
+    return "";
+  }
+
+  return points
+    .slice(1)
+    .map((point, index) => {
+      const previousPoint = points[index];
+      return `M${previousPoint.x} ${previousPoint.y}H${point.x}`;
+    })
+    .join("");
+}
+
+function createCandlePath(sourcePoints: PriceTracePoint[], scaledPoints: ChartPoint[]): string {
+  if (scaledPoints.length === 0) {
+    return "";
+  }
+
+  const values = sourcePoints.map((point) => point.spot);
+  const range = Math.max(Math.max(...values) - Math.min(...values), values[0] * 0.00012, 1);
+
+  return scaledPoints
+    .map((point, index) => {
+      const amplitude = 7 + Math.abs(Math.sin(index * 1.7)) * 13 + Math.min(range * 0.0002, 8);
+      const high = clamp(point.y - amplitude, 14, chartHeight - 18);
+      const low = clamp(point.y + amplitude, 14, chartHeight - 18);
+      return `M${point.x} ${round(high)}V${round(low)}`;
+    })
+    .join("");
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function round(value: number): number {
+  return Math.round(value * 10) / 10;
 }
 
 function ChartMetric({ detail, label, value }: { detail: string; label: string; value: ReactNode }) {

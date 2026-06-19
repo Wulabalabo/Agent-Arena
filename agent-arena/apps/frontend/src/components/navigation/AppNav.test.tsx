@@ -24,4 +24,13 @@ describe("AppNav", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Arena$/i }));
     expect(onNavigate).toHaveBeenCalledWith("arena");
   });
+
+  it("gives the menu bar enough vertical breathing room", () => {
+    const { container } = render(<AppNav activeView="lobby" onNavigate={vi.fn()} />);
+    const frame = container.querySelector("header > div");
+
+    expect(frame).toHaveClass("min-h-14");
+    expect(frame).toHaveClass("py-2");
+    expect(screen.getByRole("button", { name: /^Lobby$/i })).toHaveClass("py-2");
+  });
 });
