@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LiveBtcMarketSnapshot } from "./features/predict/live-market";
 
@@ -44,8 +44,14 @@ describe("App", () => {
 
   it("navigates between Lobby, Arena, and Leaderboard only", async () => {
     const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
+    const platformFetcher = vi.fn(async () =>
+      new Response(JSON.stringify({ marketState: appMarketState }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
 
-    render(<App liveMarketLoader={liveMarketLoader} />);
+    render(<App liveMarketLoader={liveMarketLoader} platformFetcher={platformFetcher} />);
 
     expect(screen.getByRole("button", { name: /^Lobby$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Arena$/i })).toBeInTheDocument();
@@ -59,7 +65,14 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Arena$/i }));
     expect(await screen.findByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
     expect(liveMarketLoader).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(platformFetcher).toHaveBeenCalledWith(
+        "http://127.0.0.1:8787/api/arena/competition/btc-15m-001/market-state"
+      );
+    });
     expect(await screen.findByTestId("btc-current-price-label")).toHaveTextContent("$65,611.52");
+    expect(screen.getByTestId("btc-strike-line")).toBeInTheDocument();
+    expect(screen.getByText("Strike")).toBeInTheDocument();
     expect(screen.getByText(/Binance BTCUSDT reference display/i)).toBeInTheDocument();
     expect(screen.getByText(/Predict oracle drives arena settlement/i)).toBeInTheDocument();
     const myAgentProfile = screen.getByRole("region", { name: /My Agent profile/i });
@@ -217,4 +230,43 @@ const appLiveMarketSnapshot: LiveBtcMarketSnapshot = {
     }
   ],
   fetchedAt: "2026-06-16T15:00:55.000Z"
+};
+
+const appMarketState = {
+  allowedActions: ["hold", "open_directional"],
+  allowedOperations: {
+    canClose: true,
+    canHold: true,
+    canOpen: true,
+    canReduce: true
+  },
+  competitionId: "btc-15m-001",
+  executableMarkets: {
+    directional: {
+      expiry: "1781622900000",
+      oracleId: "0xfuture-nearest",
+      strike: "65700000000000"
+    }
+  },
+  expiryMs: "1781622900000",
+  fetchedAt: "2026-06-16T15:00:55.000Z",
+  forwardPriceRaw: "65611186326705",
+  lateWindow: {
+    isFinalMinute: false,
+    openAllowedByPlatform: true,
+    openMayFailOnPredictQuote: true
+  },
+  oracleId: "0xfuture-nearest",
+  oracleStatus: "active",
+  priceDecimals: 9,
+  serverTimeMs: "1781622000000",
+  spotPriceRaw: "65611517258518",
+  status: "live",
+  strikeGrid: {
+    maxStrikeRaw: "80000000000000",
+    minStrikeRaw: "50000000000000",
+    strikeStepRaw: "1000000000"
+  },
+  timeToExpiryMs: "900000",
+  underlyingAsset: "BTC"
 };

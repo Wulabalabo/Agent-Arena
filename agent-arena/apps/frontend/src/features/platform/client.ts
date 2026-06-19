@@ -5,6 +5,7 @@ import type {
   Competition,
   ExecutionRecord,
   LeaderboardEntry,
+  MarketSnapshot,
   PairingDraft,
   PlatformErrorBody,
   ReplayEvent,
@@ -45,6 +46,10 @@ interface CompetitionListResponse {
 
 interface CompetitionResponse {
   competition: Competition;
+}
+
+interface MarketStateResponse {
+  marketState: MarketSnapshot;
 }
 
 interface TradingWalletResponse {
@@ -109,6 +114,11 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
       requestJson<CompetitionResponse>(fetcher, `${root}/competition/${encodeURIComponent(competitionId)}`).then(
         (response) => response.competition
       ),
+    getCompetitionMarketState: (competitionId: string) =>
+      requestJson<MarketStateResponse>(
+        fetcher,
+        `${root}/competition/${encodeURIComponent(competitionId)}/market-state`
+      ).then((response) => response.marketState),
     submitIntent: (runtimeCredential: string, intent: SubmitIntentInput) =>
       requestJson<AgentIntent>(
         fetcher,

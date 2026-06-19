@@ -1,5 +1,6 @@
 import { Activity, Radio } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { ArenaChartMarketReference } from "../../features/platform/arena-ui";
 import type { LiveBtcMarketSnapshot } from "../../features/predict/live-market";
 import type { LiveBtcMarketStatus } from "../../features/predict/use-live-btc-market";
 
@@ -27,16 +28,16 @@ const utcDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
 
 interface ArenaPriceChartProps {
   error: string | null;
+  marketReference?: ArenaChartMarketReference | null;
   snapshot: LiveBtcMarketSnapshot | null;
   status: LiveBtcMarketStatus;
 }
 
-export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProps) {
+export function ArenaPriceChart({ error, marketReference = null, snapshot, status }: ArenaPriceChartProps) {
   const price = snapshot?.price;
   const oracle = snapshot?.oracle;
   const spot = price?.spot;
   const priceUpdatedAt = price?.updatedAt;
-  const forwardPrice = price?.forward ?? undefined;
   const hasActiveReferenceTrace = Boolean(price) && status !== "error";
   const [tracePoints, setTracePoints] = useState<PriceTracePoint[]>([]);
   const renderedTracePointsRef = useRef<PriceTracePoint[]>([]);
@@ -53,10 +54,11 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
     return tracePoints.length > 0 ? tracePoints : seedTrace(spot, priceUpdatedAt);
   }, [hasActiveReferenceTrace, priceUpdatedAt, spot, tracePoints]);
   const chartSourcePoints = renderedTracePoints.length > 0 ? renderedTracePoints : visibleTracePoints;
-  const chartPriceRange = useMemo(() => createPriceRange(visibleTracePoints, forwardPrice), [forwardPrice, visibleTracePoints]);
+  const referencePrices = useMemo(() => createReferencePrices(marketReference), [marketReference]);
+  const chartPriceRange = useMemo(() => createPriceRange(visibleTracePoints, referencePrices), [referencePrices, visibleTracePoints]);
   const chartGeometry = useMemo(
-    () => createChartGeometry(chartSourcePoints, chartPriceRange, forwardPrice),
-    [chartPriceRange, chartSourcePoints, forwardPrice]
+    () => createChartGeometry(chartSourcePoints, chartPriceRange, marketReference),
+    [chartPriceRange, chartSourcePoints, marketReference]
   );
 
   useEffect(() => {
@@ -147,18 +149,19 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
           <path d="M22 28H552M22 76H552M22 124H552M22 172H552" stroke="#e5e7eb" strokeWidth="1" />
           {hasActiveReferenceTrace ? (
             <>
-              {chartGeometry.targetY !== null ? (
+              {chartGeometry.referenceLines.map((referenceLine) => (
                 <line
-                  data-testid="btc-target-line"
+                  data-testid={`btc-${referenceLine.id}-line`}
+                  key={referenceLine.id}
                   stroke="#cbd5e1"
                   strokeDasharray="7 8"
                   strokeWidth="1.4"
                   x1={plotBounds.left}
                   x2={plotBounds.right}
-                  y1={chartGeometry.targetY}
-                  y2={chartGeometry.targetY}
+                  y1={referenceLine.y}
+                  y2={referenceLine.y}
                 />
-              ) : null}
+              ))}
               <path
                 d={chartGeometry.tracePath}
                 data-testid="btc-reference-line"
@@ -194,14 +197,15 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
         </svg>
         {hasActiveReferenceTrace ? (
           <>
-            {chartGeometry.targetY !== null ? (
+            {chartGeometry.referenceLines.map((referenceLine) => (
               <span
-                className="pointer-events-none absolute h-5 w-14 -translate-y-1/2 rounded-full bg-[#8b949e] text-center font-mono text-[10px] font-black leading-5 text-white"
-                style={{ left: `${(566 / viewBoxWidth) * 100}%`, top: `${(chartGeometry.targetY / viewBoxHeight) * 100}%` }}
+                className="pointer-events-none absolute h-5 min-w-14 -translate-y-1/2 rounded-full bg-[#8b949e] px-2 text-center font-mono text-[10px] font-black leading-5 text-white"
+                key={referenceLine.id}
+                style={{ left: `${(566 / viewBoxWidth) * 100}%`, top: `${(referenceLine.y / viewBoxHeight) * 100}%` }}
               >
-                Target
+                {referenceLine.label}
               </span>
-            ) : null}
+            ))}
             {chartGeometry.priceTicks.map((tick) => (
               <span
                 className="pointer-events-none absolute right-3 -translate-y-1/2 font-mono text-[11px] font-bold text-slate-500"
@@ -294,6 +298,12 @@ interface TimeTick {
   x: number;
 }
 
+interface ReferenceLine {
+  id: "higher-strike" | "lower-strike" | "strike";
+  label: string;
+  y: number;
+}
+
 function seedTrace(spot: number, updatedAt: string): PriceTracePoint[] {
   const baseTime = new Date(updatedAt).getTime();
   return Array.from({ length: 18 }, (_, index) => {
@@ -310,25 +320,26 @@ function seedTrace(spot: number, updatedAt: string): PriceTracePoint[] {
   });
 }
 
-function createChartGeometry(points: PriceTracePoint[], priceRange: ReturnType<typeof createPriceRange>, targetPrice?: number) {
+function createChartGeometry(
+  points: PriceTracePoint[],
+  priceRange: ReturnType<typeof createPriceRange>,
+  marketReference: ArenaChartMarketReference | null
+) {
   const scaledPoints = scaleTracePoints(points, priceRange);
   const tracePath = createSmoothLinePath(scaledPoints);
-  const hasTargetPrice = typeof targetPrice === "number" && Number.isFinite(targetPrice);
 
   return {
     lastPoint: scaledPoints[scaledPoints.length - 1] ?? { x: plotBounds.right, y: 100 },
     priceTicks: createPriceTicks(priceRange),
-    targetY: hasTargetPrice ? scalePrice(targetPrice, priceRange) : null,
+    referenceLines: createReferenceLines(marketReference, priceRange),
     timeTicks: createTimeTicks(points, scaledPoints),
     tracePath
   };
 }
 
-function createPriceRange(points: PriceTracePoint[], targetPrice?: number) {
+function createPriceRange(points: PriceTracePoint[], referencePrices: number[] = []) {
   const values = points.map((point) => point.spot);
-  if (typeof targetPrice === "number" && Number.isFinite(targetPrice)) {
-    values.push(targetPrice);
-  }
+  values.push(...referencePrices);
 
   if (values.length === 0) {
     return {
@@ -349,6 +360,50 @@ function createPriceRange(points: PriceTracePoint[], targetPrice?: number) {
     mid: (paddedMax + paddedMin) / 2,
     min: paddedMin
   };
+}
+
+function createReferencePrices(marketReference: ArenaChartMarketReference | null): number[] {
+  if (!marketReference) {
+    return [];
+  }
+
+  if (marketReference.kind === "directional") {
+    return [marketReference.strike].filter(Number.isFinite);
+  }
+
+  return [marketReference.lowerStrike, marketReference.higherStrike].filter(Number.isFinite);
+}
+
+function createReferenceLines(
+  marketReference: ArenaChartMarketReference | null,
+  priceRange: ReturnType<typeof createPriceRange>
+): ReferenceLine[] {
+  if (!marketReference) {
+    return [];
+  }
+
+  if (marketReference.kind === "directional") {
+    return [
+      {
+        id: "strike",
+        label: "Strike",
+        y: scalePrice(marketReference.strike, priceRange)
+      }
+    ];
+  }
+
+  return [
+    {
+      id: "lower-strike",
+      label: "Range low",
+      y: scalePrice(marketReference.lowerStrike, priceRange)
+    },
+    {
+      id: "higher-strike",
+      label: "Range high",
+      y: scalePrice(marketReference.higherStrike, priceRange)
+    }
+  ];
 }
 
 function scaleTracePoints(points: PriceTracePoint[], priceRange: ReturnType<typeof createPriceRange>): ChartPoint[] {

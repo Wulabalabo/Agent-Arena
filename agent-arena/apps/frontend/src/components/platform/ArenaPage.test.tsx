@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { mockPlatformSnapshot } from "../../features/platform/mock";
 import {
+  createArenaChartMarketReference,
   createPublicActionFeedItems,
   createUserAgentArenaProfile,
   type PublicActionFeedItem,
@@ -21,6 +22,8 @@ describe("ArenaPage", () => {
     expect(screen.getByText(/Binance BTCUSDT reference display/i)).toBeInTheDocument();
     expect(screen.getByText(/Predict oracle drives arena settlement/i)).toBeInTheDocument();
     expect(screen.getByText(/Active BTC price line/i)).toBeInTheDocument();
+    expect(screen.getByTestId("btc-strike-line")).toBeInTheDocument();
+    expect(screen.getByText("Strike")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /My Agent/i })).toBeInTheDocument();
     expect(screen.getByText(/Trend Ranger/i)).toBeInTheDocument();
     expect(screen.getByText(/UP 65000000000000/i)).toBeInTheDocument();
@@ -160,6 +163,11 @@ function renderArenaPage({
       liveMarketError={liveMarketError}
       userAgentProfile={userAgentProfile}
       actionFeedItems={actionFeedItems}
+      marketReference={createArenaChartMarketReference({
+        competitionId: mockPlatformSnapshot.competitions[0].id,
+        intents: mockPlatformSnapshot.intents,
+        positions: mockPlatformSnapshot.positions
+      })}
     />
   );
 }

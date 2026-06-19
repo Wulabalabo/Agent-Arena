@@ -88,6 +88,45 @@ export interface Competition {
   latestExecutionCount: number;
 }
 
+export interface MarketSnapshot {
+  allowedActions: AgentAction[];
+  allowedOperations: {
+    canClose: boolean;
+    canHold: boolean;
+    canOpen: boolean;
+    canReduce: boolean;
+  };
+  competitionId: string;
+  executableMarkets?: {
+    directional?: {
+      expiry: string;
+      oracleId: string;
+      strike: string;
+    };
+  };
+  expiryMs: string;
+  fetchedAt: string;
+  forwardPriceRaw: string;
+  lateWindow: {
+    isFinalMinute: boolean;
+    openAllowedByPlatform: boolean;
+    openMayFailOnPredictQuote: boolean;
+  };
+  oracleId: string;
+  oracleStatus: "inactive" | "active" | "expired" | "settled";
+  priceDecimals: 9;
+  serverTimeMs: string;
+  spotPriceRaw: string;
+  status: CompetitionStatus;
+  strikeGrid: {
+    maxStrikeRaw: string | null;
+    minStrikeRaw: string;
+    strikeStepRaw: string;
+  };
+  timeToExpiryMs: string;
+  underlyingAsset: "BTC";
+}
+
 export interface DirectionalMarket {
   kind: "directional";
   oracleId: string;

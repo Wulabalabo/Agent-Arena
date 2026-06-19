@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArenaPage } from "./components/platform/ArenaPage";
 import { LeaderboardPanel } from "./components/platform/LeaderboardPanel";
 import { LobbyPage } from "./components/platform/LobbyPage";
@@ -13,11 +13,14 @@ import {
 } from "./features/predict/live-market";
 import { useLiveBtcMarketSnapshot } from "./features/predict/use-live-btc-market";
 import {
+  createArenaChartMarketReference,
   createPublicActionFeedItems,
   createUserAgentArenaProfile
 } from "./features/platform/arena-ui";
+import { createPlatformClient } from "./features/platform/client";
 import { platformConfig } from "./features/platform/config";
 import { mockPlatformSnapshot } from "./features/platform/mock";
+import type { MarketSnapshot } from "./features/platform/types";
 import {
   createInitialPlatformState,
   getSelectedAgent,
@@ -35,6 +38,8 @@ interface AppProps {
 
 export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}) {
   const [state, setState] = useState(() => createInitialPlatformState(mockPlatformSnapshot));
+  const [marketState, setMarketState] = useState<MarketSnapshot | null>(null);
+  const marketStateRequestSequenceRef = useRef(0);
   const selectedAgent = useMemo(() => getSelectedAgent(state), [state]);
   const selectedCompetition = useMemo(() => getSelectedCompetition(state), [state]);
   const claimRegistrationCode = getClaimRegistrationCode();
@@ -60,6 +65,22 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
       }),
     [state.agents, state.intents, state.executions, state.leaderboard]
   );
+  const chartMarketReference = useMemo(
+    () =>
+      selectedCompetition
+        ? createArenaChartMarketReference({
+            competitionId: selectedCompetition.id,
+            intents: state.intents,
+            marketState,
+            positions: state.positions
+          })
+        : null,
+    [marketState, selectedCompetition, state.intents, state.positions]
+  );
+  const platformClient = useMemo(
+    () => createPlatformClient({ baseUrl: apiBaseUrl, fetcher: platformFetcher }),
+    [platformFetcher]
+  );
   const predictClient = useMemo(() => createPredictClient({ serverUrl: predictConfig.serverUrl }), []);
   const defaultLiveMarketLoader = useCallback(
     () => loadLiveBtcMarketSnapshot({ client: predictClient, config: predictConfig }),
@@ -76,6 +97,49 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
     pollIntervalMs: 500,
     refreshLoader: liveMarketLoader ? undefined : defaultLiveMarketRefreshLoader
   });
+
+  useEffect(() => {
+    if (state.activeView !== "arena" || !selectedCompetition) {
+      setMarketState(null);
+      return;
+    }
+
+    let cancelled = false;
+    let requestPending = false;
+
+    const loadMarketState = async () => {
+      if (requestPending) {
+        return;
+      }
+
+      requestPending = true;
+      const requestSequence = marketStateRequestSequenceRef.current + 1;
+      marketStateRequestSequenceRef.current = requestSequence;
+
+      try {
+        const nextMarketState = await platformClient.getCompetitionMarketState(selectedCompetition.id);
+        if (!cancelled && marketStateRequestSequenceRef.current === requestSequence) {
+          setMarketState(nextMarketState);
+        }
+      } catch {
+        if (!cancelled && marketStateRequestSequenceRef.current === requestSequence) {
+          setMarketState(null);
+        }
+      } finally {
+        requestPending = false;
+      }
+    };
+
+    void loadMarketState();
+    const intervalId = window.setInterval(() => {
+      void loadMarketState();
+    }, 5_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [platformClient, selectedCompetition, state.activeView]);
 
   function navigate(view: PlatformView) {
     const clearedClaimRoute = Boolean(claimRegistrationCode) && typeof window !== "undefined";
@@ -110,6 +174,7 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
             liveMarketError={liveMarket.error}
             liveMarketSnapshot={liveMarket.snapshot}
             liveMarketStatus={liveMarket.status}
+            marketReference={chartMarketReference}
             userAgentProfile={userAgentProfile}
           />
         ) : (

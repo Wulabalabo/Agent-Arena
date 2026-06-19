@@ -3,6 +3,7 @@ import { mockPlatformSnapshot } from "./mock";
 import type { AgentAction, AgentIntent, ExecutionRecord, IntentStatus } from "./types";
 import {
   agentArenaJoinPrompt,
+  createArenaChartMarketReference,
   createPublicActionFeedItems,
   createUserAgentArenaProfile
 } from "./arena-ui";
@@ -33,6 +34,145 @@ describe("arena UI contracts", () => {
     expect(profile.latestIntentId).toBe("intent_1");
     expect(profile.latestExecutionId).toBe("exec_1");
     expect(profile.latestPredictTxDigest).toBe("0xmock_exec_1");
+  });
+
+  it("derives the arena chart strike from the latest open position", () => {
+    const marketReference = createArenaChartMarketReference({
+      competitionId: mockPlatformSnapshot.competitions[0].id,
+      intents: mockPlatformSnapshot.intents,
+      positions: mockPlatformSnapshot.positions
+    });
+
+    expect(marketReference).toEqual({
+      kind: "directional",
+      strike: 65_000,
+      strikeRaw: "65000000000000"
+    });
+  });
+
+  it("uses executable market-state strike before position fallbacks", () => {
+    const marketReference = createArenaChartMarketReference({
+      competitionId: mockPlatformSnapshot.competitions[0].id,
+      intents: mockPlatformSnapshot.intents,
+      marketState: {
+        allowedActions: ["hold", "open_directional"],
+        allowedOperations: {
+          canClose: true,
+          canHold: true,
+          canOpen: true,
+          canReduce: true
+        },
+        competitionId: mockPlatformSnapshot.competitions[0].id,
+        executableMarkets: {
+          directional: {
+            expiry: "1781622900000",
+            oracleId: "0xfuture-nearest",
+            strike: "65700000000000"
+          }
+        },
+        expiryMs: "1781622900000",
+        fetchedAt: "2026-06-16T15:00:55.000Z",
+        forwardPriceRaw: "65611186326705",
+        lateWindow: {
+          isFinalMinute: false,
+          openAllowedByPlatform: true,
+          openMayFailOnPredictQuote: true
+        },
+        oracleId: "0xfuture-nearest",
+        oracleStatus: "active",
+        priceDecimals: 9,
+        serverTimeMs: "1781622000000",
+        spotPriceRaw: "65611517258518",
+        status: "live",
+        strikeGrid: {
+          maxStrikeRaw: "80000000000000",
+          minStrikeRaw: "50000000000000",
+          strikeStepRaw: "1000000000"
+        },
+        timeToExpiryMs: "900000",
+        underlyingAsset: "BTC"
+      },
+      positions: mockPlatformSnapshot.positions
+    });
+
+    expect(marketReference).toEqual({
+      kind: "directional",
+      strike: 65_700,
+      strikeRaw: "65700000000000"
+    });
+  });
+
+  it("ignores inactive market-state strikes and keeps the position fallback", () => {
+    const marketReference = createArenaChartMarketReference({
+      competitionId: mockPlatformSnapshot.competitions[0].id,
+      intents: mockPlatformSnapshot.intents,
+      marketState: {
+        allowedActions: ["hold", "open_directional"],
+        allowedOperations: {
+          canClose: true,
+          canHold: true,
+          canOpen: false,
+          canReduce: true
+        },
+        competitionId: mockPlatformSnapshot.competitions[0].id,
+        executableMarkets: {
+          directional: {
+            expiry: "1781622900000",
+            oracleId: "0xfuture-nearest",
+            strike: "65700000000000"
+          }
+        },
+        expiryMs: "1781622900000",
+        fetchedAt: "2026-06-16T15:00:55.000Z",
+        forwardPriceRaw: "65611186326705",
+        lateWindow: {
+          isFinalMinute: false,
+          openAllowedByPlatform: false,
+          openMayFailOnPredictQuote: false
+        },
+        oracleId: "0xfuture-nearest",
+        oracleStatus: "expired",
+        priceDecimals: 9,
+        serverTimeMs: "1781622900000",
+        spotPriceRaw: "65611517258518",
+        status: "expired",
+        strikeGrid: {
+          maxStrikeRaw: "80000000000000",
+          minStrikeRaw: "50000000000000",
+          strikeStepRaw: "1000000000"
+        },
+        timeToExpiryMs: "0",
+        underlyingAsset: "BTC"
+      },
+      positions: mockPlatformSnapshot.positions
+    });
+
+    expect(marketReference).toEqual({
+      kind: "directional",
+      strike: 65_000,
+      strikeRaw: "65000000000000"
+    });
+  });
+
+  it("falls back to executable range intent strikes when there is no open position", () => {
+    const marketReference = createArenaChartMarketReference({
+      competitionId: mockPlatformSnapshot.competitions[0].id,
+      intents: [
+        {
+          ...mockPlatformSnapshot.intents[1],
+          status: "accepted"
+        }
+      ],
+      positions: []
+    });
+
+    expect(marketReference).toEqual({
+      higherStrike: 66_000,
+      higherStrikeRaw: "66000000000000",
+      kind: "range",
+      lowerStrike: 64_000,
+      lowerStrikeRaw: "64000000000000"
+    });
   });
 
   it("derives an explicit no-claimed-Agent profile state", () => {

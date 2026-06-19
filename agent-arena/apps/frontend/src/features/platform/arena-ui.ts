@@ -7,6 +7,7 @@ import type {
   ExposureStatus,
   ExecutionRecord,
   LeaderboardEntry,
+  MarketSnapshot,
   TradingWallet
 } from "./types";
 
@@ -64,6 +65,20 @@ export interface UserAgentArenaProfile {
   latestPredictTxDigest: string | null;
 }
 
+export type ArenaChartMarketReference =
+  | {
+      kind: "directional";
+      strike: number;
+      strikeRaw: string;
+    }
+  | {
+      higherStrike: number;
+      higherStrikeRaw: string;
+      kind: "range";
+      lowerStrike: number;
+      lowerStrikeRaw: string;
+    };
+
 interface CreateUserAgentArenaProfileInput {
   agent: AgentProfile | null;
   tradingWallet: TradingWallet | null;
@@ -78,6 +93,13 @@ interface CreatePublicActionFeedItemsInput {
   intents: AgentIntent[];
   executions: ExecutionRecord[];
   leaderboard: LeaderboardEntry[];
+}
+
+interface CreateArenaChartMarketReferenceInput {
+  competitionId: string;
+  intents: AgentIntent[];
+  marketState?: MarketSnapshot | null;
+  positions: AgentPositionSnapshot[];
 }
 
 export function createUserAgentArenaProfile(input: CreateUserAgentArenaProfileInput): UserAgentArenaProfile {
@@ -180,6 +202,38 @@ export function createPublicActionFeedItems(input: CreatePublicActionFeedItemsIn
   );
 }
 
+export function createArenaChartMarketReference({
+  competitionId,
+  intents,
+  marketState,
+  positions
+}: CreateArenaChartMarketReferenceInput): ArenaChartMarketReference | null {
+  const executableMarketReference =
+    marketState?.competitionId === competitionId ? marketReferenceFromMarketState(marketState) : null;
+  if (executableMarketReference) {
+    return executableMarketReference;
+  }
+
+  const openPosition = findNewestByUpdatedAt(
+    positions.filter((position) => position.competitionId === competitionId && position.status === "open")
+  );
+  const positionReference = openPosition ? marketReferenceFromPosition(openPosition) : null;
+  if (positionReference) {
+    return positionReference;
+  }
+
+  const latestExecutableIntent = findNewestByCreatedAt(
+    intents.filter(
+      (intent) =>
+        intent.competitionId === competitionId &&
+        intent.market &&
+        (intent.status === "accepted" || intent.status === "executed" || intent.status === "partial")
+    )
+  );
+
+  return latestExecutableIntent?.market ? marketReferenceFromIntentMarket(latestExecutableIntent.market) : null;
+}
+
 function deriveAccountState(input: {
   agent: AgentProfile;
   tradingWallet: TradingWallet | null;
@@ -230,6 +284,10 @@ function formatPositionLabel(position?: AgentPositionSnapshot): string {
 
 function findNewestByCreatedAt<T extends { createdAt: string }>(items: T[]): T | undefined {
   return [...items].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+}
+
+function findNewestByUpdatedAt<T extends { updatedAt: string }>(items: T[]): T | undefined {
+  return [...items].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
 }
 
 function createAgentDisplayNameLookup(
@@ -285,4 +343,90 @@ function marketFields(intent: AgentIntent): Partial<PublicActionFeedItem> {
   }
 
   return {};
+}
+
+function marketReferenceFromPosition(position: AgentPositionSnapshot): ArenaChartMarketReference | null {
+  if (position.positionRef.kind === "directional" && position.strikeRaw) {
+    const strike = parseRawStrike(position.strikeRaw);
+    return strike === null ? null : { kind: "directional", strike, strikeRaw: position.strikeRaw };
+  }
+
+  if (position.positionRef.kind === "range" && position.lowerStrikeRaw && position.higherStrikeRaw) {
+    const lowerStrike = parseRawStrike(position.lowerStrikeRaw);
+    const higherStrike = parseRawStrike(position.higherStrikeRaw);
+    return lowerStrike === null || higherStrike === null
+      ? null
+      : {
+          higherStrike,
+          higherStrikeRaw: position.higherStrikeRaw,
+          kind: "range",
+          lowerStrike,
+          lowerStrikeRaw: position.lowerStrikeRaw
+        };
+  }
+
+  return null;
+}
+
+function marketReferenceFromMarketState(marketState: MarketSnapshot): ArenaChartMarketReference | null {
+  const directional = marketState.executableMarkets?.directional;
+  if (
+    marketState.status !== "live" ||
+    marketState.oracleStatus !== "active" ||
+    !directional ||
+    directional.oracleId !== marketState.oracleId ||
+    directional.expiry !== marketState.expiryMs ||
+    !isActiveMarketClock(marketState)
+  ) {
+    return null;
+  }
+
+  const strike = parseRawStrike(directional.strike);
+  return strike === null ? null : { kind: "directional", strike, strikeRaw: directional.strike };
+}
+
+function marketReferenceFromIntentMarket(market: NonNullable<AgentIntent["market"]>): ArenaChartMarketReference | null {
+  if (market.kind === "directional") {
+    const strike = parseRawStrike(market.strike);
+    return strike === null ? null : { kind: "directional", strike, strikeRaw: market.strike };
+  }
+
+  const lowerStrike = parseRawStrike(market.lowerStrike);
+  const higherStrike = parseRawStrike(market.higherStrike);
+  return lowerStrike === null || higherStrike === null
+    ? null
+    : {
+        higherStrike,
+        higherStrikeRaw: market.higherStrike,
+        kind: "range",
+        lowerStrike,
+        lowerStrikeRaw: market.lowerStrike
+      };
+}
+
+function parseRawStrike(rawStrike: string): number | null {
+  const value = Number(rawStrike);
+  return Number.isFinite(value) ? value / 1_000_000_000 : null;
+}
+
+function isActiveMarketClock(marketState: MarketSnapshot): boolean {
+  const expiryMs = readPositiveNumber(marketState.expiryMs);
+  const serverTimeMs = readPositiveNumber(marketState.serverTimeMs);
+  const timeToExpiryMs = readPositiveNumber(marketState.timeToExpiryMs);
+  const fetchedAtMs = Date.parse(marketState.fetchedAt);
+
+  if (expiryMs === null || serverTimeMs === null || timeToExpiryMs === null || Number.isNaN(fetchedAtMs)) {
+    return false;
+  }
+
+  if (timeToExpiryMs <= 0 || serverTimeMs >= expiryMs) {
+    return false;
+  }
+
+  return Math.abs(fetchedAtMs - serverTimeMs) <= 60_000;
+}
+
+function readPositiveNumber(raw: string): number | null {
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : null;
 }

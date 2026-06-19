@@ -212,6 +212,57 @@ describe("createPlatformClient", () => {
     });
   });
 
+  it("reads the executable competition market state", async () => {
+    const marketState = {
+      allowedActions: ["hold", "open_directional"],
+      allowedOperations: {
+        canClose: true,
+        canHold: true,
+        canOpen: true,
+        canReduce: true
+      },
+      competitionId: "btc-15m-001",
+      executableMarkets: {
+        directional: {
+          expiry: "1781622900000",
+          oracleId: "0xfuture-nearest",
+          strike: "65700000000000"
+        }
+      },
+      expiryMs: "1781622900000",
+      fetchedAt: "2026-06-16T15:00:55.000Z",
+      forwardPriceRaw: "65611186326705",
+      lateWindow: {
+        isFinalMinute: false,
+        openAllowedByPlatform: true,
+        openMayFailOnPredictQuote: true
+      },
+      oracleId: "0xfuture-nearest",
+      oracleStatus: "active",
+      priceDecimals: 9,
+      serverTimeMs: "1781622000000",
+      spotPriceRaw: "65611517258518",
+      status: "live",
+      strikeGrid: {
+        maxStrikeRaw: "80000000000000",
+        minStrikeRaw: "50000000000000",
+        strikeStepRaw: "1000000000"
+      },
+      timeToExpiryMs: "900000",
+      underlyingAsset: "BTC"
+    };
+    const fetcher = vi.fn(async () =>
+      new Response(JSON.stringify({ marketState }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
+
+    await expect(client.getCompetitionMarketState("btc-15m-001")).resolves.toEqual(marketState);
+    expect(fetcher).toHaveBeenCalledWith("https://platform.test/api/arena/competition/btc-15m-001/market-state");
+  });
+
   it("maps structured API errors to PlatformClientError", async () => {
     const fetcher = vi.fn(async () =>
       new Response(

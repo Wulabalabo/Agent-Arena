@@ -6,13 +6,19 @@ import { ArenaPriceChart } from "./ArenaPriceChart";
 describe("ArenaPriceChart", () => {
   it("renders a clean line chart with price and time axes", async () => {
     render(
-      <ArenaPriceChart error={null} snapshot={createSnapshot(65_611.52, "2026-06-16T15:00:54.893Z")} status="ready" />
+      <ArenaPriceChart
+        error={null}
+        marketReference={{ kind: "directional", strike: 65_000, strikeRaw: "65000000000000" }}
+        snapshot={createSnapshot(65_611.52, "2026-06-16T15:00:54.893Z")}
+        status="ready"
+      />
     );
 
     expect(screen.getByRole("img", { name: /BTC price line chart/i })).toBeInTheDocument();
     expect(screen.getByTestId("btc-reference-line")).toHaveAttribute("stroke", "#f59e0b");
-    expect(screen.getByTestId("btc-target-line")).toBeInTheDocument();
-    expect(screen.getByText("Target")).toBeInTheDocument();
+    expect(screen.getByTestId("btc-strike-line")).toBeInTheDocument();
+    expect(screen.getByText("Strike")).toBeInTheDocument();
+    expect(screen.queryByText("Target")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("btc-price-tick")).toHaveLength(4);
     expect(screen.getAllByTestId("btc-price-tick").every((tick) => tick.textContent?.startsWith("$"))).toBe(true);
     expect(screen.getAllByTestId("btc-time-tick")).toHaveLength(2);
@@ -21,18 +27,42 @@ describe("ArenaPriceChart", () => {
     expect(screen.getByTestId("btc-current-time-label")).toHaveTextContent("15:00:54 UTC");
   });
 
-  it("does not render a synthetic target when the forward price is unavailable", () => {
+  it("does not render a synthetic target from the forward price", () => {
     render(
       <ArenaPriceChart
         error={null}
-        snapshot={createSnapshot(65_611.52, "2026-06-16T15:00:54.893Z", null)}
+        snapshot={createSnapshot(65_611.52, "2026-06-16T15:00:54.893Z", 66_000)}
         status="ready"
       />
     );
 
-    expect(screen.queryByTestId("btc-target-line")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("btc-strike-line")).not.toBeInTheDocument();
     expect(screen.queryByText("Target")).not.toBeInTheDocument();
+    expect(screen.queryByText("Strike")).not.toBeInTheDocument();
     expect(screen.getByTestId("btc-current-price-label")).toHaveTextContent("$65,611.52");
+  });
+
+  it("renders both range reference lines when the market reference is a range", () => {
+    render(
+      <ArenaPriceChart
+        error={null}
+        marketReference={{
+          higherStrike: 66_000,
+          higherStrikeRaw: "66000000000000",
+          kind: "range",
+          lowerStrike: 64_000,
+          lowerStrikeRaw: "64000000000000"
+        }}
+        snapshot={createSnapshot(65_611.52, "2026-06-16T15:00:54.893Z")}
+        status="ready"
+      />
+    );
+
+    expect(screen.getByTestId("btc-lower-strike-line")).toBeInTheDocument();
+    expect(screen.getByTestId("btc-higher-strike-line")).toBeInTheDocument();
+    expect(screen.getByText("Range low")).toBeInTheDocument();
+    expect(screen.getByText("Range high")).toBeInTheDocument();
+    expect(screen.queryByText("Target")).not.toBeInTheDocument();
   });
 
   it("updates the reference trace when BTC price changes", async () => {

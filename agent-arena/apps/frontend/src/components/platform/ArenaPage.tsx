@@ -1,5 +1,5 @@
 import type { Competition } from "../../features/platform/types";
-import type { PublicActionFeedItem, UserAgentArenaProfile } from "../../features/platform/arena-ui";
+import type { ArenaChartMarketReference, PublicActionFeedItem, UserAgentArenaProfile } from "../../features/platform/arena-ui";
 import type { LiveBtcMarketSnapshot } from "../../features/predict/live-market";
 import type { LiveBtcMarketStatus } from "../../features/predict/use-live-btc-market";
 import { ArenaPriceChart } from "./ArenaPriceChart";
@@ -12,6 +12,7 @@ interface ArenaPageProps {
   liveMarketError: string | null;
   liveMarketSnapshot: LiveBtcMarketSnapshot | null;
   liveMarketStatus: LiveBtcMarketStatus;
+  marketReference: ArenaChartMarketReference | null;
   userAgentProfile: UserAgentArenaProfile;
 }
 
@@ -21,6 +22,7 @@ export function ArenaPage({
   liveMarketError,
   liveMarketSnapshot,
   liveMarketStatus,
+  marketReference,
   userAgentProfile
 }: ArenaPageProps) {
   const oracleId = competition?.oracleId ?? liveMarketSnapshot?.oracle?.oracleId ?? "waiting";
@@ -51,7 +53,12 @@ export function ArenaPage({
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section aria-label="Arena market and my Agent" className="min-w-0 space-y-4">
-          <ArenaPriceChart error={liveMarketError} snapshot={liveMarketSnapshot} status={liveMarketStatus} />
+          <ArenaPriceChart
+            error={liveMarketError}
+            marketReference={marketReference}
+            snapshot={liveMarketSnapshot}
+            status={liveMarketStatus}
+          />
           <UserAgentProfilePanel profile={userAgentProfile} />
         </section>
 
