@@ -224,6 +224,13 @@ export interface ExecutionRecord {
   createdAt: string;
 }
 
+export interface PublicAgentSummary {
+  id: string;
+  displayName: string;
+  twitterHandle: string | null;
+  twitterVerified: boolean;
+}
+
 export interface LeaderboardEntry {
   rank: number;
   agentId: string;
@@ -239,6 +246,13 @@ export interface LeaderboardEntry {
   invalidIntentCount: number;
   finalExecutionAt: string;
   currentExposureStatus?: ExposureStatus;
+}
+
+export interface PublicArenaActivity {
+  agents: PublicAgentSummary[];
+  intents: AgentIntent[];
+  executions: ExecutionRecord[];
+  leaderboard: LeaderboardEntry[];
 }
 
 export interface ReplayEvent {

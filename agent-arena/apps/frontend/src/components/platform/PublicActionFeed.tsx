@@ -8,7 +8,6 @@ interface PublicActionFeedProps {
 const maxVisibleFeedItems = 10;
 
 export function PublicActionFeed({ items }: PublicActionFeedProps) {
-  let scoreUpdateLabelUsed = false;
   const visibleItems = [...items]
     .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
     .slice(0, maxVisibleFeedItems);
@@ -31,32 +30,22 @@ export function PublicActionFeed({ items }: PublicActionFeedProps) {
       >
         {visibleItems.length > 0 ? (
           visibleItems.map((item) => {
-            const actionLabel = formatActionLabel(item, scoreUpdateLabelUsed);
-            if (item.action === "score_update" && !scoreUpdateLabelUsed) {
-              scoreUpdateLabelUsed = true;
-            }
+            const sizeDetail = formatSizeDetail(item);
 
             return (
               <article className={feedBubbleClass(item.status)} key={item.id}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="paper-label text-on-surface-variant">{formatTimestamp(item.timestamp)}</p>
-                    <h3 className="mt-1 font-display text-sm font-black uppercase text-on-surface">{actionLabel}</h3>
-                    <p
-                      aria-label={`Agent ${item.agentDisplayName}`}
-                      className="mt-1 truncate font-mono text-[11px] font-bold text-on-surface-variant"
-                      title={item.agentDisplayName}
-                    >
-                      Agent {formatDisplayToken(item.agentDisplayName)}
-                    </p>
+                    <h3 className="mt-1 font-display text-sm font-black uppercase text-on-surface">
+                      {formatHeadline(item)}
+                    </h3>
                   </div>
                   <span className={`paper-chip shrink-0 px-2 py-1 ${statusChipClass(item.status)}`}>{item.status}</span>
                 </div>
 
-                <p className="mt-2 break-all font-mono text-[11px] font-bold text-on-surface-variant">
-                  <span className="font-display text-[10px] uppercase">Market: </span>
-                  {formatMarket(item)}
-                </p>
+                {sizeDetail ? <FeedLine label="Size" value={sizeDetail} /> : null}
+                <FeedLine label="Market" value={formatMarket(item)} />
                 {item.reason ? <FeedLine label="Reason" value={item.reason} /> : null}
                 {item.rejectionCode ? <FeedLine label="Rejection code" value={item.rejectionCode} /> : null}
                 {item.predictTxDigest ? <FeedLine label="Predict tx" value={item.predictTxDigest} /> : null}
@@ -85,7 +74,7 @@ function feedBubbleClass(status: PublicActionFeedItem["status"]): string {
     return `${baseClass} mr-auto border-outline-variant bg-[#fffaf0]`;
   }
 
-  return `${baseClass} mr-auto border-black bg-white`;
+  return `${baseClass} mr-auto border-black bg-[#f2fbf6]`;
 }
 
 function FeedLine({ label, value }: { label: string; value: ReactNode }) {
@@ -97,16 +86,28 @@ function FeedLine({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function formatActionLabel(item: PublicActionFeedItem, scoreUpdateLabelUsed: boolean): string {
+function formatHeadline(item: PublicActionFeedItem): string {
+  if (item.action === "score_update") {
+    return `${item.agentDisplayName} scored ${item.scoreDelta?.toFixed(2) ?? "n/a"}`;
+  }
+
+  if (item.action === "executed") {
+    return `${item.agentDisplayName} execution confirmed`;
+  }
+
   if (item.action === "rejected") {
-    return "policy rejection";
+    return `${item.agentDisplayName} order rejected`;
   }
 
-  if (item.action === "score_update" && scoreUpdateLabelUsed) {
-    return "score delta";
+  if (item.action === "open_directional" && item.direction) {
+    return `${item.agentDisplayName} bought ${item.direction}`;
   }
 
-  return item.action.replace(/_/g, " ");
+  if (item.action === "open_range" && item.lowerStrike && item.higherStrike) {
+    return `${item.agentDisplayName} bought range ${item.lowerStrike}-${item.higherStrike}`;
+  }
+
+  return `${item.agentDisplayName} ${item.action.replace(/_/g, " ")}`;
 }
 
 function formatMarket(item: PublicActionFeedItem): string {
@@ -129,14 +130,29 @@ function formatMarket(item: PublicActionFeedItem): string {
   return "Market detail unavailable";
 }
 
+function formatSizeDetail(item: PublicActionFeedItem): string | null {
+  if (item.budgetRaw) {
+    return `Budget ${item.budgetRaw}`;
+  }
+
+  const parts: string[] = [];
+  if (item.quantity) {
+    parts.push(`Qty ${item.quantity}`);
+  }
+  if (item.maxCost) {
+    parts.push(`Max cost ${item.maxCost}`);
+  }
+  if (item.minProceeds) {
+    parts.push(`Min proceeds ${item.minProceeds}`);
+  }
+
+  return parts.length > 0 ? parts.join(" / ") : null;
+}
+
 function formatScoreAndPnl(item: PublicActionFeedItem): string {
   const score = item.scoreDelta === undefined ? "Score n/a" : `Score ${item.scoreDelta.toFixed(2)}`;
   const pnl = item.pnlDeltaPct === undefined ? "PnL n/a" : `PnL ${(item.pnlDeltaPct * 100).toFixed(2)}%`;
   return `${score} / ${pnl}`;
-}
-
-function formatDisplayToken(value: string): string {
-  return value.replace(/\s+/g, " / ");
 }
 
 function formatTimestamp(value: string): string {

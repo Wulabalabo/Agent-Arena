@@ -132,6 +132,7 @@ export function createPlatformFetchHandler(
             "GET /api/arena/competition/list-active",
             "GET /api/arena/competition/:id",
             "GET /api/arena/competition/:id/market-state",
+            "GET /api/arena/competition/:id/public-feed",
             "GET /api/arena/agent/positions?competitionId=...",
             "POST /api/arena/intents",
             "GET /api/arena/intents/:id",
@@ -252,6 +253,15 @@ export function createPlatformFetchHandler(
         }
 
         return jsonResponse({ marketState: createMarketSnapshot(competition, Date.now()) });
+      }
+
+      if (
+        request.method === "GET" &&
+        route.length === 3 &&
+        route[0] === "competition" &&
+        route[2] === "public-feed"
+      ) {
+        return getCompetitionPublicFeed(route[1], store);
       }
 
       if (request.method === "POST" && matchesRoute(route, ["intents"])) {
@@ -638,6 +648,50 @@ function getLeaderboard(url: URL, store: PlatformMockStore): Response {
   return jsonResponse({
     competitionId,
     entries
+  });
+}
+
+function getCompetitionPublicFeed(competitionId: string, store: PlatformMockStore): Response {
+  const competition = store.getCompetition(competitionId);
+  if (!competition) {
+    return errorResponse(404, "COMPETITION_NOT_FOUND", "Competition not found");
+  }
+
+  const intents = store.listIntents().filter((intent) => intent.competitionId === competitionId);
+  const executions = store.listExecutions().filter((execution) => execution.competitionId === competitionId);
+  const intentsById = new Map(store.listIntents().map((intent) => [intent.id, intent]));
+  const ledger = store.listPerformanceLedger({ competitionId });
+  const leaderboard = ledger.length > 0
+    ? createLedgerLeaderboardEntries({
+        agents: store.listAgents(),
+        ledger,
+        competitionId
+      })
+    : createLeaderboardEntries({
+        store,
+        executions,
+        intents,
+        intentsById
+      });
+  const agentIds = new Set([
+    ...intents.map((intent) => intent.agentId),
+    ...executions.map((execution) => execution.agentId),
+    ...leaderboard.map((entry) => entry.agentId)
+  ]);
+  const agents = store.listAgents()
+    .filter((agent) => agentIds.has(agent.id))
+    .map((agent) => ({
+      id: agent.id,
+      displayName: agent.displayName,
+      twitterHandle: agent.twitterHandle,
+      twitterVerified: agent.twitterVerified
+    }));
+
+  return jsonResponse({
+    agents,
+    intents,
+    executions,
+    leaderboard
   });
 }
 

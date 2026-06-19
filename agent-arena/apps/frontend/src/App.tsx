@@ -20,7 +20,7 @@ import {
 import { createPlatformClient } from "./features/platform/client";
 import { platformConfig } from "./features/platform/config";
 import { mockPlatformSnapshot } from "./features/platform/mock";
-import type { AgentProfile, MarketSnapshot } from "./features/platform/types";
+import type { AgentProfile, MarketSnapshot, PublicArenaActivity } from "./features/platform/types";
 import {
   createInitialPlatformState,
   getSelectedCompetition,
@@ -75,7 +75,9 @@ function WalletAwareApp({ connectedOwnerAddress, liveMarketLoader, platformFetch
 function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }: AppProps) {
   const [state, setState] = useState(() => createInitialPlatformState(mockPlatformSnapshot));
   const [marketState, setMarketState] = useState<MarketSnapshot | null>(null);
+  const [publicActivity, setPublicActivity] = useState<PublicArenaActivity | null>(null);
   const marketStateRequestSequenceRef = useRef(0);
+  const publicActivityRequestSequenceRef = useRef(0);
   const selectedCompetition = useMemo(() => getSelectedCompetition(state), [state]);
   const ownerAgent = useMemo(
     () => findOwnerAgent(state.agents, connectedOwnerAddress ?? null),
@@ -97,12 +99,12 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }
   const publicActionFeedItems = useMemo(
     () =>
       createPublicActionFeedItems({
-        agents: state.agents,
-        intents: state.intents,
-        executions: state.executions,
-        leaderboard: state.leaderboard
+        agents: publicActivity?.agents ?? state.agents,
+        intents: publicActivity?.intents ?? state.intents,
+        executions: publicActivity?.executions ?? state.executions,
+        leaderboard: publicActivity?.leaderboard ?? state.leaderboard
       }),
-    [state.agents, state.intents, state.executions, state.leaderboard]
+    [publicActivity, state.agents, state.intents, state.executions, state.leaderboard]
   );
   const chartMarketReference = useMemo(
     () =>
@@ -172,6 +174,49 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }
     void loadMarketState();
     const intervalId = window.setInterval(() => {
       void loadMarketState();
+    }, 5_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [platformClient, selectedCompetition, state.activeView]);
+
+  useEffect(() => {
+    if (state.activeView !== "arena" || !selectedCompetition) {
+      setPublicActivity(null);
+      return;
+    }
+
+    let cancelled = false;
+    let requestPending = false;
+
+    const loadPublicActivity = async () => {
+      if (requestPending) {
+        return;
+      }
+
+      requestPending = true;
+      const requestSequence = publicActivityRequestSequenceRef.current + 1;
+      publicActivityRequestSequenceRef.current = requestSequence;
+
+      try {
+        const nextPublicActivity = await platformClient.listCompetitionPublicActivity(selectedCompetition.id);
+        if (!cancelled && publicActivityRequestSequenceRef.current === requestSequence) {
+          setPublicActivity(nextPublicActivity);
+        }
+      } catch {
+        if (!cancelled && publicActivityRequestSequenceRef.current === requestSequence) {
+          setPublicActivity(null);
+        }
+      } finally {
+        requestPending = false;
+      }
+    };
+
+    void loadPublicActivity();
+    const intervalId = window.setInterval(() => {
+      void loadPublicActivity();
     }, 5_000);
 
     return () => {

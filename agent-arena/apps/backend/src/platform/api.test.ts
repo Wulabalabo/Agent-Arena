@@ -907,6 +907,59 @@ describe("Agent Arena platform API", () => {
     });
   });
 
+  it("serves public competition feed data without owner wallet fields", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch, { displayName: "Directional Agent" });
+    await fetch(new Request("http://localhost/api/arena/intents", {
+      method: "POST",
+      headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token },
+      body: JSON.stringify({
+        competitionId: "btc-15m-001",
+        agentId: claimed.agent.id,
+        idempotencyKey: "intent-public-feed",
+        action: "open_directional",
+        market: {
+          kind: "directional",
+          oracleId: "0xbtc15m",
+          expiry: "2026-06-15T10:15:00.000Z",
+          strike: "65000",
+          isUp: false
+        },
+        quantity: "7",
+        maxCost: "3.50",
+        confidence: 0.7,
+        reason: "Creates a public feed event.",
+        createdAt: "2026-06-15T10:04:12.000Z"
+      })
+    }));
+
+    const response = await fetch(new Request("http://localhost/api/arena/competition/btc-15m-001/public-feed"));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      agents: [{
+        id: claimed.agent.id,
+        displayName: "Directional Agent",
+        twitterVerified: false
+      }],
+      intents: [{
+        action: "open_directional",
+        quantity: "7",
+        maxCost: "3.50"
+      }],
+      executions: [{
+        status: "confirmed",
+        predictTxDigest: "0xmock_exec_1"
+      }],
+      leaderboard: [{
+        agentId: claimed.agent.id,
+        displayName: "Directional Agent"
+      }]
+    });
+    expect(JSON.stringify(body)).not.toContain("ownerAddress");
+    expect(JSON.stringify(body)).not.toContain("tradingWalletAddress");
+  });
+
   it("serves a current rolling BTC 15m market window for Agent runtime data", async () => {
     const beforeMs = Date.now();
     const fetch = createPlatformFetchHandler();

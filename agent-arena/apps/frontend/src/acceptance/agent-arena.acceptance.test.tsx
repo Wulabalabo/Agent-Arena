@@ -26,9 +26,9 @@ describe("Agent Arena acceptance", () => {
     expect(screen.getByText(/Predict oracle drives arena settlement/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /My Agent/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Public action feed/i })).toBeInTheDocument();
-    expect(screen.getByText(/open directional/i)).toBeInTheDocument();
+    expect(screen.getByText(/Trend Ranger bought UP/i)).toBeInTheDocument();
     expect(screen.getByText(/^rejected$/i)).toBeInTheDocument();
-    expect(screen.getByText(/score update/i)).toBeInTheDocument();
+    expect(screen.getByText(/Trend Ranger scored 28.49/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Predict tx/i).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /Pair Agent/i })).not.toBeInTheDocument();
     expectNoUserBettingLanguage();

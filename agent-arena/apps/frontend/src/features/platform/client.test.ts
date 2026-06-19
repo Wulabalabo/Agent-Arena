@@ -263,6 +263,32 @@ describe("createPlatformClient", () => {
     expect(fetcher).toHaveBeenCalledWith("https://platform.test/api/arena/competition/btc-15m-001/market-state");
   });
 
+  it("reads public competition activity for the action feed", async () => {
+    const publicActivity = {
+      agents: [
+        {
+          id: "agent_1",
+          displayName: "Trend Ranger",
+          twitterHandle: "Sui_Agent",
+          twitterVerified: false
+        }
+      ],
+      intents: [mockPlatformSnapshot.intents[0]],
+      executions: [mockPlatformSnapshot.executions[0]],
+      leaderboard: [mockPlatformSnapshot.leaderboard[0]]
+    };
+    const fetcher = vi.fn(async () =>
+      new Response(JSON.stringify(publicActivity), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
+
+    await expect(client.listCompetitionPublicActivity("btc-15m-001")).resolves.toEqual(publicActivity);
+    expect(fetcher).toHaveBeenCalledWith("https://platform.test/api/arena/competition/btc-15m-001/public-feed");
+  });
+
   it("maps structured API errors to PlatformClientError", async () => {
     const fetcher = vi.fn(async () =>
       new Response(

@@ -28,12 +28,12 @@ describe("ArenaPage", () => {
     expect(screen.getByTestId("btc-strike-line")).toBeInTheDocument();
     expect(screen.getByText("Strike")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /My Agent/i })).toBeInTheDocument();
-    expect(screen.getByText(/Trend Ranger/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Trend Ranger/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/UP 65000000000000/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Public action feed/i })).toBeInTheDocument();
-    expect(screen.getByText(/open directional/i)).toBeInTheDocument();
-    expect(screen.getByText(/rejected/i)).toBeInTheDocument();
-    expect(screen.getByText(/score update/i)).toBeInTheDocument();
+    expect(screen.getByText(/Trend Ranger bought UP/i)).toBeInTheDocument();
+    expect(screen.getByText(/^rejected$/i)).toBeInTheDocument();
+    expect(screen.getByText(/Trend Ranger scored 28.49/i)).toBeInTheDocument();
   });
 
   it("renders a muted chart state when BTC reference data is unavailable", () => {
@@ -125,7 +125,7 @@ describe("ArenaPage", () => {
 
     expect(screen.getByText("2 items")).toBeInTheDocument();
     expect(screen.getByText("partial")).toBeInTheDocument();
-    expect(screen.getByText(/score update/i)).toBeInTheDocument();
+    expect(screen.getByText(/Trend Ranger scored 12.34/i)).toBeInTheDocument();
     expect(screen.getByText(/Score 12.34 \/ PnL 4.56%/i)).toBeInTheDocument();
   });
 });

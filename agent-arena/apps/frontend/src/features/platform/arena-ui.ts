@@ -8,6 +8,7 @@ import type {
   ExecutionRecord,
   LeaderboardEntry,
   MarketSnapshot,
+  PublicAgentSummary,
   TradingWallet
 } from "./types";
 
@@ -40,6 +41,10 @@ export interface PublicActionFeedItem {
   confidence?: number;
   reason?: string;
   rejectionCode?: string;
+  budgetRaw?: string;
+  quantity?: string;
+  maxCost?: string;
+  minProceeds?: string;
   pnlDeltaPct?: number;
   scoreDelta?: number;
   predictTxDigest?: string;
@@ -89,7 +94,7 @@ interface CreateUserAgentArenaProfileInput {
 }
 
 interface CreatePublicActionFeedItemsInput {
-  agents: AgentProfile[];
+  agents: PublicAgentSummary[];
   intents: AgentIntent[];
   executions: ExecutionRecord[];
   leaderboard: LeaderboardEntry[];
@@ -175,6 +180,10 @@ export function createPublicActionFeedItems(input: CreatePublicActionFeedItemsIn
     confidence: intent.confidence,
     reason: intent.reason,
     rejectionCode: intent.rejectionCode ?? undefined,
+    budgetRaw: intent.budgetRaw,
+    quantity: intent.quantity,
+    maxCost: intent.maxCost,
+    minProceeds: intent.minProceeds,
     ...marketFields(intent)
   }));
   const executionItems = input.executions.map((execution): PublicActionFeedItem => ({
@@ -291,7 +300,7 @@ function findNewestByUpdatedAt<T extends { updatedAt: string }>(items: T[]): T |
 }
 
 function createAgentDisplayNameLookup(
-  agents: AgentProfile[],
+  agents: PublicAgentSummary[],
   leaderboard: LeaderboardEntry[]
 ): Map<string, string> {
   return new Map([

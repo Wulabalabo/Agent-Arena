@@ -8,6 +8,7 @@ import type {
   MarketSnapshot,
   PairingDraft,
   PlatformErrorBody,
+  PublicArenaActivity,
   ReplayEvent,
   RuntimeCredential,
   SubmitIntentInput,
@@ -119,6 +120,11 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
         fetcher,
         `${root}/competition/${encodeURIComponent(competitionId)}/market-state`
       ).then((response) => response.marketState),
+    listCompetitionPublicActivity: (competitionId: string) =>
+      requestJson<PublicArenaActivity>(
+        fetcher,
+        `${root}/competition/${encodeURIComponent(competitionId)}/public-feed`
+      ),
     submitIntent: (runtimeCredential: string, intent: SubmitIntentInput) =>
       requestJson<AgentIntent>(
         fetcher,

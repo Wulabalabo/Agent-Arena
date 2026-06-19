@@ -42,7 +42,7 @@ describe("ArenaPriceChart", () => {
     expect(screen.getByTestId("btc-current-price-label")).toHaveTextContent("$65,611.52");
   });
 
-  it("keeps at least one percent of total vertical price range", () => {
+  it("keeps at least one quarter percent of total vertical price range", () => {
     const spot = 65_611.52;
     render(
       <ArenaPriceChart
@@ -54,7 +54,8 @@ describe("ArenaPriceChart", () => {
 
     const ticks = screen.getAllByTestId("btc-price-tick").map((tick) => parseUsdTick(tick.textContent ?? ""));
 
-    expect(Math.max(...ticks) - Math.min(...ticks)).toBeGreaterThanOrEqual(Math.floor(spot * 0.01));
+    expect(Math.max(...ticks) - Math.min(...ticks)).toBeGreaterThanOrEqual(Math.floor(spot * 0.0025));
+    expect(Math.max(...ticks) - Math.min(...ticks)).toBeLessThan(Math.floor(spot * 0.01));
   });
 
   it("renders the current price marker as an unstretched HTML dot", () => {

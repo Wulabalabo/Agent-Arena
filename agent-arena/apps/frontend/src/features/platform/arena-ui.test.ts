@@ -261,6 +261,8 @@ describe("arena UI contracts", () => {
     expect(items.find((item) => item.id === "intent:intent_1")).toEqual(expect.objectContaining({
       action: "open_directional",
       direction: "UP",
+      quantity: "10",
+      maxCost: "5.00",
       status: "executed"
     }));
     expect(items.find((item) => item.id === "intent:intent_2")).toEqual(expect.objectContaining({

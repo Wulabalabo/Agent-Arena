@@ -60,12 +60,53 @@ describe("App", () => {
 
   it("navigates between Arena and Leaderboard only", async () => {
     const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
-    const platformFetcher = vi.fn(async () =>
-      new Response(JSON.stringify({ marketState: appMarketState }), {
+    const platformFetcher = vi.fn(async (url: string) => {
+      if (url.endsWith("/public-feed")) {
+        return new Response(JSON.stringify({
+          agents: [
+            {
+              id: "agent_real",
+              displayName: "Live Ranger",
+              twitterHandle: null,
+              twitterVerified: false
+            }
+          ],
+          intents: [
+            {
+              id: "intent_real",
+              competitionId: "btc-15m-001",
+              agentId: "agent_real",
+              idempotencyKey: "real-feed-1",
+              action: "open_directional",
+              status: "executed",
+              confidence: 0.78,
+              reason: "Real feed item from the platform API.",
+              rejectionCode: null,
+              createdAt: "2026-06-16T15:02:00.000Z",
+              market: {
+                kind: "directional",
+                oracleId: "0xfuture-nearest",
+                expiry: "1781622900000",
+                strike: "65700000000000",
+                isUp: false
+              },
+              quantity: "7",
+              maxCost: "3.50"
+            }
+          ],
+          executions: [],
+          leaderboard: []
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      return new Response(JSON.stringify({ marketState: appMarketState }), {
         status: 200,
         headers: { "content-type": "application/json" }
-      })
-    );
+      });
+    });
 
     render(<App connectedOwnerAddress="0xowner" liveMarketLoader={liveMarketLoader} platformFetcher={platformFetcher} />);
 
@@ -97,7 +138,8 @@ describe("App", () => {
     expect(within(myAgentProfile).getByText("0xmock_exec_1")).toBeInTheDocument();
     expect(within(myAgentProfile).getByText("0xagentwallet_agent_1")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Public action feed/i })).toBeInTheDocument();
-    expect(screen.getByText(/open directional/i)).toBeInTheDocument();
+    expect(await screen.findByText("Live Ranger bought DOWN")).toBeInTheDocument();
+    expect(screen.getByText(/Qty 7 \/ Max cost 3.50/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^Leaderboard$/i }));
     expect(screen.getByRole("heading", { name: /^Leaderboard$/i })).toBeInTheDocument();
