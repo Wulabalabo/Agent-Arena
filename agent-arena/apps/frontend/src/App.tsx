@@ -31,6 +31,12 @@ import {
 const apiBaseUrl = platformConfig.apiBaseUrl;
 const MARKET_STATE_REFRESH_INTERVAL_MS = 5_000;
 const PUBLIC_ACTIVITY_REFRESH_INTERVAL_MS = 15_000;
+const emptyPublicArenaActivity: PublicArenaActivity = {
+  agents: [],
+  intents: [],
+  executions: [],
+  leaderboard: []
+};
 
 interface AppProps {
   connectedOwnerAddress?: string | null;
@@ -99,14 +105,17 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }
     [ownerAgent, state.tradingWallet, state.positions, state.intents, state.executions, state.leaderboard]
   );
   const publicActionFeedItems = useMemo(
-    () =>
-      createPublicActionFeedItems({
-        agents: publicActivity?.agents ?? state.agents,
-        intents: publicActivity?.intents ?? state.intents,
-        executions: publicActivity?.executions ?? state.executions,
-        leaderboard: publicActivity?.leaderboard ?? state.leaderboard
-      }),
-    [publicActivity, state.agents, state.intents, state.executions, state.leaderboard]
+    () => {
+      const activity = publicActivity ?? emptyPublicArenaActivity;
+
+      return createPublicActionFeedItems({
+        agents: activity.agents ?? [],
+        intents: activity.intents ?? [],
+        executions: activity.executions ?? [],
+        leaderboard: activity.leaderboard ?? []
+      });
+    },
+    [publicActivity]
   );
   const chartMarketReference = useMemo(
     () =>

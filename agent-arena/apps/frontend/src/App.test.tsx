@@ -150,6 +150,38 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: /Ranked Agents/i })).toBeInTheDocument();
   });
 
+  it("does not show mock public actions when the public feed endpoint is unavailable", async () => {
+    const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
+    const platformFetcher = vi.fn(async (url: string) => {
+      if (url.endsWith("/public-feed")) {
+        return new Response(JSON.stringify({
+          error: {
+            code: "NOT_FOUND",
+            message: "Route not found"
+          }
+        }), {
+          status: 404,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      return new Response(JSON.stringify({ marketState: appMarketState }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    render(<App connectedOwnerAddress="0xowner" liveMarketLoader={liveMarketLoader} platformFetcher={platformFetcher} />);
+
+    await waitFor(() => {
+      expect(countPlatformCalls(platformFetcher, "/public-feed")).toBe(1);
+    });
+
+    expect(screen.getByText("No public actions yet.")).toBeInTheDocument();
+    expect(screen.queryByText("Trend Ranger bought UP")).not.toBeInTheDocument();
+    expect(screen.queryByText("Range Scout bought range 64000000000000-66000000000000")).not.toBeInTheDocument();
+  });
+
   it("refreshes public action feed less frequently than market state", async () => {
     vi.useFakeTimers();
     const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
