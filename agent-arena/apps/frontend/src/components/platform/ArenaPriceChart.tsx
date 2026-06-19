@@ -349,11 +349,18 @@ function createPriceRange(points: PriceTracePoint[], referencePrices: number[] =
     };
   }
 
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const midpoint = (rawMax + rawMin) / 2;
+  const anchor = points[points.length - 1]?.spot ?? midpoint;
+  const minimumRange = Math.max(Math.abs(anchor) * 0.02, 1);
+  const rawRange = rawMax - rawMin;
+  const adjustedRange = Math.max(rawRange, minimumRange);
+  const min = midpoint - adjustedRange / 2;
+  const max = midpoint + adjustedRange / 2;
   const range = max - min || Math.max(max * 0.0001, 1);
-  const paddedMin = min - range * 0.22;
-  const paddedMax = max + range * 0.22;
+  const paddedMin = min - range * 0.04;
+  const paddedMax = max + range * 0.04;
 
   return {
     max: paddedMax,

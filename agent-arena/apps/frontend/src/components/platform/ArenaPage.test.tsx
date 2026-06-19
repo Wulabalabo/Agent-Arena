@@ -17,6 +17,8 @@ describe("ArenaPage", () => {
     renderArenaPage();
 
     expect(screen.getByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
+    expect(screen.getByTestId("arena-summary-panel")).toHaveClass("p-3");
+    expect(screen.getByRole("heading", { name: /BTC 15m Arena/i })).toHaveClass("text-2xl");
     expect(screen.queryByRole("main")).not.toBeInTheDocument();
     expect(screen.getByLabelText(/BTC reference chart/i)).toBeInTheDocument();
     expect(screen.getByText(/Binance BTCUSDT reference display/i)).toBeInTheDocument();

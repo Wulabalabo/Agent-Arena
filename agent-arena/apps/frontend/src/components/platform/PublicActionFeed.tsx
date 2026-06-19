@@ -5,29 +5,39 @@ interface PublicActionFeedProps {
   items: PublicActionFeedItem[];
 }
 
+const maxVisibleFeedItems = 10;
+
 export function PublicActionFeed({ items }: PublicActionFeedProps) {
   let scoreUpdateLabelUsed = false;
+  const visibleItems = [...items]
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+    .slice(0, maxVisibleFeedItems);
 
   return (
-    <aside aria-label="Public action feed" className="paper-card-sm p-4">
+    <aside aria-label="Public action feed" className="paper-card-sm p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="paper-label text-on-surface-variant">Public action feed</p>
           <h2 className="mt-1 font-display text-lg font-black uppercase text-on-surface">Public action feed</h2>
         </div>
-        <span className="paper-chip px-2 py-1">{formatItemCount(items.length)}</span>
+        <span className="paper-chip px-2 py-1">{formatItemCount(items.length, visibleItems.length)}</span>
       </div>
 
-      <div aria-live="polite" aria-relevant="additions text" className="mt-3 space-y-2">
-        {items.length > 0 ? (
-          items.map((item) => {
+      <div
+        aria-live="polite"
+        aria-relevant="additions text"
+        className="mt-3 max-h-[620px] space-y-2 overflow-y-auto pr-1"
+        data-testid="public-action-feed-list"
+      >
+        {visibleItems.length > 0 ? (
+          visibleItems.map((item) => {
             const actionLabel = formatActionLabel(item, scoreUpdateLabelUsed);
             if (item.action === "score_update" && !scoreUpdateLabelUsed) {
               scoreUpdateLabelUsed = true;
             }
 
             return (
-              <article className="paper-inset p-3" key={item.id}>
+              <article className="rounded-sm border-2 border-black bg-white p-2" key={item.id}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="paper-label text-on-surface-variant">{formatTimestamp(item.timestamp)}</p>
@@ -132,8 +142,12 @@ function formatTimestamp(value: string): string {
   }).format(date);
 }
 
-function formatItemCount(count: number): string {
-  return `${count} ${count === 1 ? "item" : "items"}`;
+function formatItemCount(totalCount: number, visibleCount: number): string {
+  if (totalCount > visibleCount) {
+    return `${visibleCount} of ${totalCount} shown`;
+  }
+
+  return `${totalCount} ${totalCount === 1 ? "item" : "items"}`;
 }
 
 function statusChipClass(status: PublicActionFeedItem["status"]): string {

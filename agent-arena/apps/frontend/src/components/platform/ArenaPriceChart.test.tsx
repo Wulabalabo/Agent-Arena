@@ -42,6 +42,22 @@ describe("ArenaPriceChart", () => {
     expect(screen.getByTestId("btc-current-price-label")).toHaveTextContent("$65,611.52");
   });
 
+  it("keeps at least one percent of vertical room above and below BTC", () => {
+    const spot = 65_611.52;
+    render(
+      <ArenaPriceChart
+        error={null}
+        snapshot={createSnapshot(spot, "2026-06-16T15:00:54.893Z", 66_000)}
+        status="ready"
+      />
+    );
+
+    const ticks = screen.getAllByTestId("btc-price-tick").map((tick) => parseUsdTick(tick.textContent ?? ""));
+
+    expect(Math.max(...ticks)).toBeGreaterThanOrEqual(Math.floor(spot * 1.01));
+    expect(Math.min(...ticks)).toBeLessThanOrEqual(Math.ceil(spot * 0.99));
+  });
+
   it("renders both range reference lines when the market reference is a range", () => {
     render(
       <ArenaPriceChart
@@ -122,4 +138,8 @@ function createSnapshot(spot: number, updatedAt: string, forward: number | null 
     events: [],
     fetchedAt: updatedAt
   };
+}
+
+function parseUsdTick(value: string): number {
+  return Number(value.replace(/[$,]/g, ""));
 }

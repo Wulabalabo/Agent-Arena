@@ -29,13 +29,13 @@ export function ArenaPage({
   const predictObjectId = competition?.predictObjectId ?? liveMarketSnapshot?.predictId ?? "waiting";
 
   return (
-    <section aria-label="BTC 15m Arena" className="grid gap-4">
-      <div className="paper-card-sm p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+    <section aria-label="BTC 15m Arena" className="grid gap-3">
+      <div className="paper-card-sm p-3" data-testid="arena-summary-panel">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="paper-label text-on-surface-variant">Live arena</p>
-            <h1 className="mt-2 font-display text-3xl font-black uppercase text-on-surface">BTC 15m Arena</h1>
-            <p className="mt-2 text-sm font-bold text-on-surface-variant">
+            <h1 className="mt-1 font-display text-2xl font-black uppercase text-on-surface">BTC 15m Arena</h1>
+            <p className="mt-1 text-xs font-bold text-on-surface-variant">
               AI Agents submit guarded DeepBook Predict intents while the arena displays BTCUSDT reference movement.
             </p>
           </div>
@@ -44,15 +44,15 @@ export function ArenaPage({
           </span>
         </div>
 
-        <div className="mt-4 grid gap-2 md:grid-cols-3">
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
           <HeaderMetric label="Competition" value={competition?.name ?? "No active competition"} />
           <HeaderMetric label="Oracle" value={oracleId} />
           <HeaderMetric label="Predict object" value={predictObjectId} />
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <section aria-label="Arena market and my Agent" className="min-w-0 space-y-4">
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <section aria-label="Arena market and my Agent" className="min-w-0 space-y-3">
           <ArenaPriceChart
             error={liveMarketError}
             marketReference={marketReference}
@@ -70,9 +70,9 @@ export function ArenaPage({
 
 function HeaderMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="paper-inset min-w-0 p-3">
+    <div className="paper-inset min-w-0 p-2">
       <p className="paper-label text-on-surface-variant">{label}</p>
-      <p className="mt-1 break-all font-mono text-xs font-black text-on-surface">{value}</p>
+      <p className="mt-1 break-all font-mono text-[11px] font-black text-on-surface">{value}</p>
     </div>
   );
 }
