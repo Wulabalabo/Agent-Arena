@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import App from "../App";
 import type { LiveBtcMarketSnapshot } from "../features/predict/live-market";
+import { mockPlatformSnapshot } from "../features/platform/mock";
 
 function expectNoUserBettingLanguage() {
   expect(document.body.textContent).not.toMatch(/\b(bet|betting|wager|wagering|stake|staking)\b/i);
@@ -10,8 +11,26 @@ function expectNoUserBettingLanguage() {
 describe("Agent Arena acceptance", () => {
   it("shows the Agent participation MVP path without user betting language", async () => {
     const liveMarketLoader = vi.fn(async () => acceptanceLiveMarketSnapshot);
+    const platformFetcher = vi.fn(async (url: string) => {
+      if (url.endsWith("/public-feed")) {
+        return new Response(JSON.stringify({
+          agents: mockPlatformSnapshot.agents,
+          intents: mockPlatformSnapshot.intents,
+          executions: mockPlatformSnapshot.executions,
+          leaderboard: mockPlatformSnapshot.leaderboard
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
 
-    render(<App connectedOwnerAddress="0xowner" liveMarketLoader={liveMarketLoader} />);
+      return new Response(JSON.stringify({ marketState: null }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    render(<App connectedOwnerAddress="0xowner" liveMarketLoader={liveMarketLoader} platformFetcher={platformFetcher} />);
 
     expect(screen.queryByRole("button", { name: /^Lobby$/i })).not.toBeInTheDocument();
     expect(screen.getAllByText(/Testnet/i).length).toBeGreaterThan(0);

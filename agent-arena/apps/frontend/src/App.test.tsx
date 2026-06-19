@@ -137,10 +137,9 @@ describe("App", () => {
     expect(within(myAgentProfile).getByText(/Trend Ranger/i)).toBeInTheDocument();
     expect(within(myAgentProfile).getByText(/UP 65000000000000/i)).toBeInTheDocument();
     expect(within(myAgentProfile).getByText(/18.42%/i)).toBeInTheDocument();
-    expect(within(myAgentProfile).getByText("intent_1")).toBeInTheDocument();
-    expect(within(myAgentProfile).getByText("exec_1")).toBeInTheDocument();
-    expect(within(myAgentProfile).getByText("0xmock_exec_1")).toBeInTheDocument();
-    expect(within(myAgentProfile).getByText("0xagentwallet_agent_1")).toBeInTheDocument();
+    expect(within(myAgentProfile).getByText(/BTC 15m Testnet Arena/i)).toBeInTheDocument();
+    expect(within(myAgentProfile).getByText(/^live$/i)).toBeInTheDocument();
+    expect(within(myAgentProfile).queryByRole("region", { name: /My Agent wallet details/i })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Public action feed/i })).toBeInTheDocument();
     expect(await screen.findByText("Live Ranger bought DOWN")).toBeInTheDocument();
     expect(screen.getByText(/Qty 7 \/ Max cost 3.50/i)).toBeInTheDocument();

@@ -27,13 +27,14 @@ const utcDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
 });
 
 interface ArenaPriceChartProps {
+  className?: string;
   error: string | null;
   marketReference?: ArenaChartMarketReference | null;
   snapshot: LiveBtcMarketSnapshot | null;
   status: LiveBtcMarketStatus;
 }
 
-export function ArenaPriceChart({ error, marketReference = null, snapshot, status }: ArenaPriceChartProps) {
+export function ArenaPriceChart({ className = "", error, marketReference = null, snapshot, status }: ArenaPriceChartProps) {
   const price = snapshot?.price;
   const oracle = snapshot?.oracle;
   const spot = price?.spot;
@@ -116,7 +117,7 @@ export function ArenaPriceChart({ error, marketReference = null, snapshot, statu
   }, [hasActiveReferenceTrace, visibleTracePoints]);
 
   return (
-    <section aria-label="BTC reference chart" className="paper-card-sm p-4">
+    <section aria-label="BTC reference chart" className={`paper-card-sm flex flex-col p-4 ${className}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="paper-label text-on-surface-variant">BTC reference chart</p>
@@ -144,7 +145,10 @@ export function ArenaPriceChart({ error, marketReference = null, snapshot, statu
         )}
       </div>
 
-      <div className="relative mt-4 h-72 w-full overflow-hidden rounded-sm border-2 border-black bg-white text-slate-700">
+      <div
+        className="relative mt-4 min-h-[420px] w-full flex-1 overflow-hidden rounded-sm border-2 border-black bg-white text-slate-700 xl:min-h-[620px]"
+        data-testid="btc-chart-plot"
+      >
         <svg aria-label="BTC price line chart" className="absolute inset-0 h-full w-full" preserveAspectRatio="none" role="img" viewBox="0 0 640 232">
           <path d="M22 28H552M22 76H552M22 124H552M22 172H552" stroke="#e5e7eb" strokeWidth="1" />
           {hasActiveReferenceTrace ? (

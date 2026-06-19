@@ -1,10 +1,15 @@
 import { Check, Clipboard } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { agentArenaJoinPrompt } from "../../features/platform/arena-ui";
 
 type CopyStatus = "idle" | "copied" | "failed";
 
-export function CopyAgentPromptPanel() {
+interface CopyAgentPromptPanelProps {
+  className?: string;
+  summary?: ReactNode;
+}
+
+export function CopyAgentPromptPanel({ className = "", summary }: CopyAgentPromptPanelProps) {
   const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
   const copied = copyStatus === "copied";
   const statusMessage = copied ? "Prompt copied" : copyStatus === "failed" ? "Prompt copy failed" : "";
@@ -26,13 +31,16 @@ export function CopyAgentPromptPanel() {
   }
 
   return (
-    <section aria-label="Copy Agent prompt" className="paper-inset p-4">
+    <section aria-label="Copy Agent prompt" className={`paper-inset p-4 ${className}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="paper-label text-on-surface-variant">Join prompt</p>
           <h2 className="mt-1 font-display text-lg font-black uppercase text-on-surface">Send this to your Agent</h2>
         </div>
-        <span className="paper-chip px-2 py-1">Skill ready</span>
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          <span className="paper-chip px-2 py-1">Skill ready</span>
+          {summary}
+        </div>
       </div>
 
       <div className="mt-4 grid gap-3 border-2 border-black bg-[#191b23] p-3 text-white md:grid-cols-[1fr_auto]">

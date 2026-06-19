@@ -2,18 +2,19 @@ import type { ReactNode } from "react";
 import type { PublicActionFeedItem } from "../../features/platform/arena-ui";
 
 interface PublicActionFeedProps {
+  className?: string;
   items: PublicActionFeedItem[];
 }
 
 const maxVisibleFeedItems = 10;
 
-export function PublicActionFeed({ items }: PublicActionFeedProps) {
+export function PublicActionFeed({ className = "", items }: PublicActionFeedProps) {
   const visibleItems = [...items]
     .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
     .slice(0, maxVisibleFeedItems);
 
   return (
-    <aside aria-label="Public action feed" className="paper-card-sm p-3">
+    <aside aria-label="Public action feed" className={`paper-card-sm flex flex-col p-3 ${className}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="paper-label text-on-surface-variant">Public action feed</p>
@@ -25,7 +26,7 @@ export function PublicActionFeed({ items }: PublicActionFeedProps) {
       <div
         aria-live="polite"
         aria-relevant="additions text"
-        className="mt-3 max-h-[620px] space-y-2 overflow-y-auto rounded-sm border-2 border-black bg-surface-container-lowest p-2"
+        className="mt-3 max-h-[620px] space-y-2 overflow-y-auto rounded-sm border-2 border-black bg-surface-container-lowest p-2 xl:flex-1 xl:max-h-none"
         data-testid="public-action-feed-list"
       >
         {visibleItems.length > 0 ? (

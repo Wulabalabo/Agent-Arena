@@ -17,8 +17,13 @@ describe("ArenaPage", () => {
     renderArenaPage();
 
     expect(screen.getByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
-    expect(screen.getByTestId("arena-info-bar")).toHaveClass("py-2");
-    expect(screen.getByRole("heading", { name: /BTC 15m Arena/i })).toHaveClass("text-base");
+    expect(screen.getByTestId("arena-entry-panel")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /BTC 15m Arena/i })).toHaveClass("text-sm");
+    expect(screen.getByTestId("arena-live-grid")).toHaveClass("xl:items-stretch");
+    expect(screen.getByLabelText(/BTC reference chart/i)).toHaveClass("h-full");
+    expect(screen.getByTestId("btc-chart-plot")).toHaveClass("xl:min-h-[620px]");
+    expect(screen.getByLabelText(/Public action feed/i)).toHaveClass("h-full");
+    expect(screen.getByTestId("public-action-feed-list")).toHaveClass("xl:flex-1");
     expect(screen.queryByText("Predict object")).not.toBeInTheDocument();
     expect(screen.queryByRole("main")).not.toBeInTheDocument();
     expect(screen.getByLabelText(/BTC reference chart/i)).toBeInTheDocument();
@@ -81,7 +86,7 @@ describe("ArenaPage", () => {
     expect(screen.getByText(/No public actions yet/i)).toBeInTheDocument();
   });
 
-  it("renders the join prompt in the Agent slot when no Agent is bound", () => {
+  it("renders the join prompt in the top Arena entry panel when no Agent is bound", () => {
     renderArenaPage({
       userAgentProfile: createUserAgentArenaProfile({
         agent: null,
@@ -93,7 +98,10 @@ describe("ArenaPage", () => {
       })
     });
 
-    expect(screen.getByLabelText(/Copy Agent prompt/i)).toBeInTheDocument();
+    const entryPanel = screen.getByTestId("arena-entry-panel");
+    expect(within(entryPanel).getByLabelText(/Copy Agent prompt/i)).toBeInTheDocument();
+    expect(within(entryPanel).getByText(/BTC 15m Testnet Arena/i)).toBeInTheDocument();
+    expect(within(entryPanel).getByText(/^live$/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /copy prompt/i })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: /My Agent wallet details/i })).not.toBeInTheDocument();
   });

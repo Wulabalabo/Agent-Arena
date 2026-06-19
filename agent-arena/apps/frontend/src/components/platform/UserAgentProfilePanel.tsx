@@ -2,21 +2,31 @@ import type { ReactNode } from "react";
 import type { UserAgentArenaProfile } from "../../features/platform/arena-ui";
 
 interface UserAgentProfilePanelProps {
+  className?: string;
   profile: UserAgentArenaProfile;
+  summary?: ReactNode;
+  variant?: "full" | "compact";
 }
 
-export function UserAgentProfilePanel({ profile }: UserAgentProfilePanelProps) {
+export function UserAgentProfilePanel({ className = "", profile, summary, variant = "full" }: UserAgentProfilePanelProps) {
+  const compact = variant === "compact";
+
   return (
-    <section aria-label="My Agent profile" className="paper-card-sm p-4">
+    <section aria-label="My Agent profile" className={`paper-card-sm p-4 ${className}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="paper-label text-on-surface-variant">My Agent profile</p>
-          <h2 className="mt-1 font-display text-lg font-black uppercase text-on-surface">My Agent</h2>
-          <p className="mt-2 truncate font-display text-xl font-black uppercase text-on-surface">{profile.displayName}</p>
+          <h2 className={`mt-1 font-display font-black uppercase text-on-surface ${compact ? "text-base" : "text-lg"}`}>My Agent</h2>
+          <p className={`mt-2 truncate font-display font-black uppercase text-on-surface ${compact ? "text-lg" : "text-xl"}`}>
+            {profile.displayName}
+          </p>
         </div>
-        <span className={`paper-chip shrink-0 px-2 py-1 ${accountStateClass(profile.accountState)}`}>
-          {formatToken(profile.accountState)}
-        </span>
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          {summary}
+          <span className={`paper-chip shrink-0 px-2 py-1 ${accountStateClass(profile.accountState)}`}>
+            {formatToken(profile.accountState)}
+          </span>
+        </div>
       </div>
 
       <div className="mt-4 grid gap-2 md:grid-cols-4">
@@ -26,7 +36,7 @@ export function UserAgentProfilePanel({ profile }: UserAgentProfilePanelProps) {
         <ProfileMetric label="Realized PnL" value={formatPercent(profile.realizedPnlPct)} />
       </div>
 
-      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+      {!compact ? <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <section aria-label="My Agent position" className="paper-inset p-3">
           <h3 className="font-display text-xs font-black uppercase text-on-surface">Position and PnL</h3>
           <DetailLine label="Open quantity raw" value={profile.openQuantityRaw ?? "flat"} />
@@ -44,7 +54,7 @@ export function UserAgentProfilePanel({ profile }: UserAgentProfilePanelProps) {
           <DetailLine label="Latest Predict tx" value={profile.latestPredictTxDigest ?? "not submitted"} />
           {profile.twitterHandle ? <DetailLine label="Twitter" value={`@${profile.twitterHandle}`} /> : null}
         </section>
-      </div>
+      </div> : null}
     </section>
   );
 }
