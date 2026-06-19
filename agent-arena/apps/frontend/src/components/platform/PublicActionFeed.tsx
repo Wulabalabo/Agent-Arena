@@ -26,7 +26,7 @@ export function PublicActionFeed({ items }: PublicActionFeedProps) {
       <div
         aria-live="polite"
         aria-relevant="additions text"
-        className="mt-3 max-h-[620px] space-y-2 overflow-y-auto pr-1"
+        className="mt-3 max-h-[620px] space-y-2 overflow-y-auto rounded-sm border-2 border-black bg-surface-container-lowest p-2"
         data-testid="public-action-feed-list"
       >
         {visibleItems.length > 0 ? (
@@ -37,7 +37,7 @@ export function PublicActionFeed({ items }: PublicActionFeedProps) {
             }
 
             return (
-              <article className="rounded-sm border-2 border-black bg-white p-2" key={item.id}>
+              <article className={feedBubbleClass(item.status)} key={item.id}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="paper-label text-on-surface-variant">{formatTimestamp(item.timestamp)}</p>
@@ -72,6 +72,20 @@ export function PublicActionFeed({ items }: PublicActionFeedProps) {
       </div>
     </aside>
   );
+}
+
+function feedBubbleClass(status: PublicActionFeedItem["status"]): string {
+  const baseClass = "max-w-[92%] rounded-2xl border-2 px-3 py-2 shadow-sm";
+
+  if (status === "rejected" || status === "failed") {
+    return `${baseClass} ml-auto border-outline-variant bg-[#fff7f7]`;
+  }
+
+  if (status === "partial" || status === "queued") {
+    return `${baseClass} mr-auto border-outline-variant bg-[#fffaf0]`;
+  }
+
+  return `${baseClass} mr-auto border-black bg-white`;
 }
 
 function FeedLine({ label, value }: { label: string; value: ReactNode }) {

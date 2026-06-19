@@ -34,15 +34,31 @@ describe("App", () => {
     window.history.pushState({}, "", "/");
   });
 
-  it("defaults to the Lobby page", () => {
+  it("defaults to the Arena page", async () => {
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: /Agent Arena/i })).toBeInTheDocument();
-    expect(screen.getByText(/Testnet-only AI Agent competition layer/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /copy prompt/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Lobby$/i })).not.toBeInTheDocument();
   });
 
-  it("navigates between Lobby, Arena, and Leaderboard only", async () => {
+  it("shows the join prompt when no owner wallet is connected", async () => {
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Copy Agent prompt/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /copy prompt/i })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /My Agent profile/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the join prompt when the connected owner has no bound Agent", async () => {
+    render(<App connectedOwnerAddress="0xunbound_owner" />);
+
+    expect(await screen.findByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Copy Agent prompt/i)).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /My Agent profile/i })).not.toBeInTheDocument();
+  });
+
+  it("navigates between Arena and Leaderboard only", async () => {
     const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
     const platformFetcher = vi.fn(async () =>
       new Response(JSON.stringify({ marketState: appMarketState }), {
@@ -51,18 +67,15 @@ describe("App", () => {
       })
     );
 
-    render(<App liveMarketLoader={liveMarketLoader} platformFetcher={platformFetcher} />);
+    render(<App connectedOwnerAddress="0xowner" liveMarketLoader={liveMarketLoader} platformFetcher={platformFetcher} />);
 
-    expect(screen.getByRole("button", { name: /^Lobby$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Lobby$/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Arena$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Leaderboard$/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Pair Agent/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Wallet$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Replay$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Skills$/i })).not.toBeInTheDocument();
-    expect(liveMarketLoader).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: /^Arena$/i }));
     expect(await screen.findByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
     expect(liveMarketLoader).toHaveBeenCalled();
     await waitFor(() => {
@@ -89,9 +102,6 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Leaderboard$/i }));
     expect(screen.getByRole("heading", { name: /^Leaderboard$/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Ranked Agents/i })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /^Lobby$/i }));
-    expect(screen.getByRole("button", { name: /copy prompt/i })).toBeInTheDocument();
   });
 
   it("clears the hidden claim URL when primary nav is used", () => {
@@ -108,18 +118,17 @@ describe("App", () => {
     expect(screen.queryByLabelText(/Registration code/i)).not.toBeInTheDocument();
   });
 
-  it("clears the hidden claim URL when same-view Lobby nav is used", () => {
+  it("clears the hidden claim URL when same-view Arena nav is used", () => {
     window.history.pushState({}, "", "/agent-arena/claim/PAIR-2050");
 
     render(<App />);
 
     expect(screen.getByLabelText(/Registration code/i)).toHaveValue("PAIR-2050");
 
-    fireEvent.click(screen.getByRole("button", { name: /^Lobby$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Arena$/i }));
 
     expect(window.location.pathname).toBe("/");
-    expect(screen.getByRole("heading", { name: /^Agent Arena$/i })).toBeInTheDocument();
-    expect(screen.getByText(/Testnet-only AI Agent competition layer/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/Registration code/i)).not.toBeInTheDocument();
   });
 

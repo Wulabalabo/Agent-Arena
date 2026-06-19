@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { DAppKitContext, useWalletConnection } from "@mysten/dapp-kit-react";
 import { ArenaPage } from "./components/platform/ArenaPage";
 import { LeaderboardPanel } from "./components/platform/LeaderboardPanel";
-import { LobbyPage } from "./components/platform/LobbyPage";
 import { SuiDappKitAgentClaimPanel } from "./components/platform/SuiDappKitAgentClaimPanel";
 import { AppNav } from "./components/navigation/AppNav";
 import { createPredictClient } from "./features/predict/client";
@@ -20,10 +20,9 @@ import {
 import { createPlatformClient } from "./features/platform/client";
 import { platformConfig } from "./features/platform/config";
 import { mockPlatformSnapshot } from "./features/platform/mock";
-import type { MarketSnapshot } from "./features/platform/types";
+import type { AgentProfile, MarketSnapshot } from "./features/platform/types";
 import {
   createInitialPlatformState,
-  getSelectedAgent,
   getSelectedCompetition,
   selectPlatformView,
   type PlatformView
@@ -32,28 +31,68 @@ import {
 const apiBaseUrl = platformConfig.apiBaseUrl;
 
 interface AppProps {
+  connectedOwnerAddress?: string | null;
   liveMarketLoader?: () => Promise<LiveBtcMarketSnapshot>;
   platformFetcher?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
-export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}) {
+export default function App({ connectedOwnerAddress, liveMarketLoader, platformFetcher }: AppProps = {}) {
+  const dAppKit = useContext(DAppKitContext);
+
+  if (!dAppKit) {
+    return (
+      <AppContent
+        connectedOwnerAddress={connectedOwnerAddress ?? null}
+        liveMarketLoader={liveMarketLoader}
+        platformFetcher={platformFetcher}
+      />
+    );
+  }
+
+  return (
+    <WalletAwareApp
+      connectedOwnerAddress={connectedOwnerAddress}
+      liveMarketLoader={liveMarketLoader}
+      platformFetcher={platformFetcher}
+    />
+  );
+}
+
+function WalletAwareApp({ connectedOwnerAddress, liveMarketLoader, platformFetcher }: AppProps) {
+  const connection = useWalletConnection();
+  const ownerAddress =
+    connectedOwnerAddress ?? (connection.status === "connected" ? connection.account.address : null);
+
+  return (
+    <AppContent
+      connectedOwnerAddress={ownerAddress}
+      liveMarketLoader={liveMarketLoader}
+      platformFetcher={platformFetcher}
+    />
+  );
+}
+
+function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }: AppProps) {
   const [state, setState] = useState(() => createInitialPlatformState(mockPlatformSnapshot));
   const [marketState, setMarketState] = useState<MarketSnapshot | null>(null);
   const marketStateRequestSequenceRef = useRef(0);
-  const selectedAgent = useMemo(() => getSelectedAgent(state), [state]);
   const selectedCompetition = useMemo(() => getSelectedCompetition(state), [state]);
+  const ownerAgent = useMemo(
+    () => findOwnerAgent(state.agents, connectedOwnerAddress ?? null),
+    [connectedOwnerAddress, state.agents]
+  );
   const claimRegistrationCode = getClaimRegistrationCode();
   const userAgentProfile = useMemo(
     () =>
       createUserAgentArenaProfile({
-        agent: selectedAgent,
+        agent: ownerAgent,
         tradingWallet: state.tradingWallet,
         positions: state.positions,
         intents: state.intents,
         executions: state.executions,
         leaderboard: state.leaderboard
       }),
-    [selectedAgent, state.tradingWallet, state.positions, state.intents, state.executions, state.leaderboard]
+    [ownerAgent, state.tradingWallet, state.positions, state.intents, state.executions, state.leaderboard]
   );
   const publicActionFeedItems = useMemo(
     () =>
@@ -165,8 +204,6 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
             fetcher={platformFetcher}
             registrationCode={claimRegistrationCode}
           />
-        ) : state.activeView === "lobby" ? (
-          <LobbyPage competition={selectedCompetition} leaderboard={state.leaderboard} />
         ) : state.activeView === "arena" ? (
           <ArenaPage
             actionFeedItems={publicActionFeedItems}
@@ -183,6 +220,19 @@ export default function App({ liveMarketLoader, platformFetcher }: AppProps = {}
       </div>
     </main>
   );
+}
+
+function findOwnerAgent(agents: AgentProfile[], ownerAddress: string | null): AgentProfile | null {
+  if (!ownerAddress) {
+    return null;
+  }
+
+  const normalizedOwnerAddress = normalizeAddress(ownerAddress);
+  return agents.find((agent) => normalizeAddress(agent.ownerAddress) === normalizedOwnerAddress) ?? null;
+}
+
+function normalizeAddress(address: string): string {
+  return address.trim().toLowerCase();
 }
 
 function getClaimRegistrationCode(): string | null {

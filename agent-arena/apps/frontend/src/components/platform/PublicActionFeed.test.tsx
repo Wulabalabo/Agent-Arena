@@ -11,7 +11,11 @@ describe("PublicActionFeed", () => {
     expect(list).toHaveClass("max-h-[620px]");
     expect(list).toHaveClass("overflow-y-auto");
     expect(screen.getByText("10 of 14 shown")).toBeInTheDocument();
-    expect(within(list).getAllByRole("article")).toHaveLength(10);
+    const messages = within(list).getAllByRole("article");
+    expect(messages).toHaveLength(10);
+    expect(messages[0]).toHaveClass("rounded-2xl");
+    expect(messages[0]).toHaveClass("max-w-[92%]");
+    expect(messages[0]).not.toHaveClass("paper-inset");
     expect(screen.getByText("Reason 13")).toBeInTheDocument();
     expect(screen.queryByText("Reason 3")).not.toBeInTheDocument();
   });

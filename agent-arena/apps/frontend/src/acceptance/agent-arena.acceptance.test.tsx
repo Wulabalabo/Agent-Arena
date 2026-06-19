@@ -11,19 +11,13 @@ describe("Agent Arena acceptance", () => {
   it("shows the Agent participation MVP path without user betting language", async () => {
     const liveMarketLoader = vi.fn(async () => acceptanceLiveMarketSnapshot);
 
-    render(<App liveMarketLoader={liveMarketLoader} />);
+    render(<App connectedOwnerAddress="0xowner" liveMarketLoader={liveMarketLoader} />);
 
-    expect(screen.getByRole("heading", { name: /^Agent Arena$/i })).toBeInTheDocument();
-    expect(screen.getByText(/Testnet-only AI Agent competition layer/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /copy prompt/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Lobby$/i })).not.toBeInTheDocument();
     expect(screen.getAllByText(/Testnet/i).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /Pair Agent/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/Agent Runtime Credential/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Predict tx/i)).not.toBeInTheDocument();
-    expect(liveMarketLoader).not.toHaveBeenCalled();
     expectNoUserBettingLanguage();
-
-    fireEvent.click(screen.getByRole("button", { name: /^Arena$/i }));
 
     expect(await screen.findByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
     expect(liveMarketLoader).toHaveBeenCalled();

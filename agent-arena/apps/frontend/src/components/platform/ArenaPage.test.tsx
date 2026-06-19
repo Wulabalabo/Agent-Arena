@@ -17,8 +17,9 @@ describe("ArenaPage", () => {
     renderArenaPage();
 
     expect(screen.getByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
-    expect(screen.getByTestId("arena-summary-panel")).toHaveClass("p-3");
-    expect(screen.getByRole("heading", { name: /BTC 15m Arena/i })).toHaveClass("text-2xl");
+    expect(screen.getByTestId("arena-info-bar")).toHaveClass("py-2");
+    expect(screen.getByRole("heading", { name: /BTC 15m Arena/i })).toHaveClass("text-base");
+    expect(screen.queryByText("Predict object")).not.toBeInTheDocument();
     expect(screen.queryByRole("main")).not.toBeInTheDocument();
     expect(screen.getByLabelText(/BTC reference chart/i)).toBeInTheDocument();
     expect(screen.getByText(/Binance BTCUSDT reference display/i)).toBeInTheDocument();
@@ -80,7 +81,7 @@ describe("ArenaPage", () => {
     expect(screen.getByText(/No public actions yet/i)).toBeInTheDocument();
   });
 
-  it("renders no-claimed-Agent profile fallbacks", () => {
+  it("renders the join prompt in the Agent slot when no Agent is bound", () => {
     renderArenaPage({
       userAgentProfile: createUserAgentArenaProfile({
         agent: null,
@@ -92,12 +93,9 @@ describe("ArenaPage", () => {
       })
     });
 
-    expect(screen.getAllByText(/No claimed Agent/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/No active Agent/i)).toBeInTheDocument();
-
-    const walletDetails = screen.getByRole("region", { name: /My Agent wallet details/i });
-    expect(within(walletDetails).getByText(/Trading wallet:/i)).toBeInTheDocument();
-    expect(within(walletDetails).getByText(/not created/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Copy Agent prompt/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /copy prompt/i })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /My Agent wallet details/i })).not.toBeInTheDocument();
   });
 
   it("renders partial feed statuses and score update details", () => {

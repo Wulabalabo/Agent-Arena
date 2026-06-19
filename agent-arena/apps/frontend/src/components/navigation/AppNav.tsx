@@ -7,7 +7,6 @@ interface AppNavProps {
 }
 
 const navItems: Array<{ id: PlatformView; label: string }> = [
-  { id: "lobby", label: "Lobby" },
   { id: "arena", label: "Arena" },
   { id: "leaderboard", label: "Leaderboard" }
 ];
@@ -20,7 +19,7 @@ export function AppNav({ activeView, onNavigate }: AppNavProps) {
           <button
             className="shrink-0 py-2 font-display text-sm font-black uppercase text-on-surface hover:text-primary"
             type="button"
-            onClick={() => onNavigate("lobby")}
+            onClick={() => onNavigate("arena")}
           >
             Agent Arena
           </button>

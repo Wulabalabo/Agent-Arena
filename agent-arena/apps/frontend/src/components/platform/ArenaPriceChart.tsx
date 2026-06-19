@@ -144,7 +144,7 @@ export function ArenaPriceChart({ error, marketReference = null, snapshot, statu
         )}
       </div>
 
-      <div className="relative mt-4 h-56 w-full overflow-hidden rounded-sm border-2 border-black bg-white text-slate-700">
+      <div className="relative mt-4 h-72 w-full overflow-hidden rounded-sm border-2 border-black bg-white text-slate-700">
         <svg aria-label="BTC price line chart" className="absolute inset-0 h-full w-full" preserveAspectRatio="none" role="img" viewBox="0 0 640 232">
           <path d="M22 28H552M22 76H552M22 124H552M22 172H552" stroke="#e5e7eb" strokeWidth="1" />
           {hasActiveReferenceTrace ? (
@@ -171,16 +171,6 @@ export function ArenaPriceChart({ error, marketReference = null, snapshot, statu
                 strokeLinejoin="round"
                 strokeWidth="3"
               />
-              <circle
-                cx={chartGeometry.lastPoint.x}
-                cy={chartGeometry.lastPoint.y}
-                data-testid="btc-current-marker"
-                fill="#ffffff"
-                r="8"
-                stroke="#f59e0b"
-                strokeWidth="2"
-              />
-              <circle cx={chartGeometry.lastPoint.x} cy={chartGeometry.lastPoint.y} fill="#f59e0b" r="3" />
             </>
           ) : (
             <>
@@ -197,6 +187,17 @@ export function ArenaPriceChart({ error, marketReference = null, snapshot, statu
         </svg>
         {hasActiveReferenceTrace ? (
           <>
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute z-10 aspect-square w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#f59e0b] bg-white"
+              data-testid="btc-current-marker"
+              style={{
+                left: `${(chartGeometry.lastPoint.x / viewBoxWidth) * 100}%`,
+                top: `${(chartGeometry.lastPoint.y / viewBoxHeight) * 100}%`
+              }}
+            >
+              <span className="absolute left-1/2 top-1/2 aspect-square w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#f59e0b]" />
+            </span>
             {chartGeometry.referenceLines.map((referenceLine) => (
               <span
                 className="pointer-events-none absolute h-5 min-w-14 -translate-y-1/2 rounded-full bg-[#8b949e] px-2 text-center font-mono text-[10px] font-black leading-5 text-white"
@@ -353,7 +354,7 @@ function createPriceRange(points: PriceTracePoint[], referencePrices: number[] =
   const rawMax = Math.max(...values);
   const midpoint = (rawMax + rawMin) / 2;
   const anchor = points[points.length - 1]?.spot ?? midpoint;
-  const minimumRange = Math.max(Math.abs(anchor) * 0.02, 1);
+  const minimumRange = Math.max(Math.abs(anchor) * 0.01, 1);
   const rawRange = rawMax - rawMin;
   const adjustedRange = Math.max(rawRange, minimumRange);
   const min = midpoint - adjustedRange / 2;

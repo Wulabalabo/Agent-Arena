@@ -42,7 +42,7 @@ describe("ArenaPriceChart", () => {
     expect(screen.getByTestId("btc-current-price-label")).toHaveTextContent("$65,611.52");
   });
 
-  it("keeps at least one percent of vertical room above and below BTC", () => {
+  it("keeps at least one percent of total vertical price range", () => {
     const spot = 65_611.52;
     render(
       <ArenaPriceChart
@@ -54,8 +54,22 @@ describe("ArenaPriceChart", () => {
 
     const ticks = screen.getAllByTestId("btc-price-tick").map((tick) => parseUsdTick(tick.textContent ?? ""));
 
-    expect(Math.max(...ticks)).toBeGreaterThanOrEqual(Math.floor(spot * 1.01));
-    expect(Math.min(...ticks)).toBeLessThanOrEqual(Math.ceil(spot * 0.99));
+    expect(Math.max(...ticks) - Math.min(...ticks)).toBeGreaterThanOrEqual(Math.floor(spot * 0.01));
+  });
+
+  it("renders the current price marker as an unstretched HTML dot", () => {
+    render(
+      <ArenaPriceChart
+        error={null}
+        snapshot={createSnapshot(65_611.52, "2026-06-16T15:00:54.893Z")}
+        status="ready"
+      />
+    );
+
+    const marker = screen.getByTestId("btc-current-marker");
+    expect(marker.tagName).toBe("SPAN");
+    expect(marker).toHaveClass("aspect-square");
+    expect(marker).toHaveClass("rounded-full");
   });
 
   it("renders both range reference lines when the market reference is a range", () => {
@@ -87,7 +101,7 @@ describe("ArenaPriceChart", () => {
     );
 
     const initialPath = await readTracePath();
-    const initialMarkerY = screen.getByTestId("btc-current-marker").getAttribute("cy");
+    const initialMarkerTop = screen.getByTestId("btc-current-marker").style.top;
 
     rerender(
       <ArenaPriceChart error={null} snapshot={createSnapshot(65_705.88, "2026-06-16T15:00:55.393Z")} status="ready" />
@@ -97,7 +111,7 @@ describe("ArenaPriceChart", () => {
       expect(await readTracePath()).not.toBe(initialPath);
     });
     await waitFor(() => {
-      expect(screen.getByTestId("btc-current-marker").getAttribute("cy")).not.toBe(initialMarkerY);
+      expect(screen.getByTestId("btc-current-marker").style.top).not.toBe(initialMarkerTop);
     });
     expect(screen.getByTestId("btc-current-price-label")).toHaveTextContent("$65,705.88");
     expect(screen.getByTestId("btc-current-time-label")).toHaveTextContent("15:00:55 UTC");
