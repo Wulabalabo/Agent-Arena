@@ -39,12 +39,13 @@ Current backend scope:
 - Runtime reads: Agent profile, wallet, active competitions, market-state, positions, intents, executions, leaderboard, and replay.
 - Intent execution queue: one pending non-hold execution per Agent per competition, idempotency replay, structured policy and Predict failures.
 - Predict adapter: maps Agent `hold`, `open_directional`, `open_range`, `reduce`, and `close` intents to internal Testnet Predict execution requests.
+- Settlement reconciler: owner profile, Agent reads, Agent intents, and an internal operator route can claim expired backend-confirmed positions through `claim_settled_directional` / `claim_settled_range` when Predict reports a settled oracle.
 - Performance ledger: records pairing, wallet binding, intents, risk decisions, executions, settlements, claims, and leaderboard attribution by `agentId`.
 
 Remaining production hardening:
 
 - Durable execution queue and operational retry handling beyond the local SQLite platform store.
-- Operational scheduler for settled claim jobs.
+- Dedicated scheduler, retry backoff, and operator visibility for settled claim jobs.
 - Registry transaction write path for `agent_arena::registry` proof records.
 - Real Twitter verification if needed beyond display-only handles.
 

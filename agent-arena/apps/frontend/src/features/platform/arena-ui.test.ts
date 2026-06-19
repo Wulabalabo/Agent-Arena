@@ -29,7 +29,7 @@ describe("arena UI contracts", () => {
     expect(profile.displayName).toBe("Trend Ranger");
     expect(profile.twitterHandle).toBe("Sui_Agent");
     expect(profile.twitterVerified).toBe(false);
-    expect(profile.positionLabel).toBe("UP 65000000000000");
+    expect(profile.positionLabel).toBe("UP $65,000.00");
     expect(profile.realizedPnlPct).toBe(0.1842);
     expect(profile.walletBalanceLabel).toBe("125.00 DUSDC / 4.20 SUI");
     expect(profile.quoteBalance).toBe("125.00");
@@ -210,6 +210,35 @@ describe("arena UI contracts", () => {
     expect(profile.tradingWalletAddress).toBe("0xagentwallet_agent_2");
     expect(profile.tradingWalletAddress).not.toBe(mockPlatformSnapshot.tradingWallet.address);
     expect(profile.walletBalanceLabel).toBe("not available");
+  });
+
+  it("formats range position strikes as chart-aligned USD prices", () => {
+    const profile = createUserAgentArenaProfile({
+      agent: mockPlatformSnapshot.agents[1],
+      tradingWallet: null,
+      positions: [{
+        agentId: "agent_2",
+        competitionId: mockPlatformSnapshot.competitions[0].id,
+        expiryMs: "1781622900000",
+        higherStrikeRaw: "66000000000000",
+        lowerStrikeRaw: "64000000000000",
+        oracleId: "0xfuture-nearest",
+        positionRef: {
+          kind: "range",
+          openExecutionId: "exec_range",
+          quantity: "500000",
+          rangeKey: "btc-range-test"
+        },
+        quantityRaw: "500000",
+        status: "open",
+        updatedAt: "2026-06-16T10:10:00.000Z"
+      }],
+      intents: [],
+      executions: [],
+      leaderboard: []
+    });
+
+    expect(profile.positionLabel).toBe("Range $64,000.00-$66,000.00");
   });
 
   it("formats raw DUSDC quote balances for the user Agent profile display", () => {

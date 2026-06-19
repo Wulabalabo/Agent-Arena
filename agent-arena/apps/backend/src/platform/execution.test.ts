@@ -272,13 +272,13 @@ describe("mock intent execution", () => {
           kind: "directional",
           marketKey: "btc-up-65000000000000-1781701200000",
           openExecutionId: "exec_1",
-          quantity: "500000"
+          quantity: "5000000"
         },
         oracleId: "0xbtc15m",
         expiryMs: "1781701200000",
         strikeRaw: "65000000000000",
         direction: "up",
-        quantityRaw: "500000",
+        quantityRaw: "5000000",
         status: "open"
       }
     ]);
@@ -463,7 +463,7 @@ describe("mock intent execution", () => {
             strike: "65000",
             isUp: true
           },
-          quantity: "500000",
+          quantity: "5000000",
           maxCost: "5000000",
           budgetRaw: "5000000"
         }
@@ -521,7 +521,7 @@ describe("mock intent execution", () => {
             lowerStrike: "64000000000000",
             higherStrike: "66000000000000"
           },
-          quantity: "500000",
+          quantity: "5000000",
           maxCost: "5000000",
           budgetRaw: "5000000"
         }

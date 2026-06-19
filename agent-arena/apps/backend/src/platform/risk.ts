@@ -5,7 +5,7 @@ const dusdcScale = 1_000_000;
 export const riskLimit = Object.freeze({
   maxCostDisplay: 1_000,
   maxCostRaw: BigInt(1_000 * dusdcScale),
-  quantityRaw: 1_000_000n
+  quantityRaw: 5_000_000n
 });
 
 export type RiskRejectionCode =

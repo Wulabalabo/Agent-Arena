@@ -13,6 +13,7 @@ export interface CreateSettlementClaimJobInput {
   oracleId: string;
   expiryMs: string;
   positionKind: PositionKind;
+  positionIdentityKey?: string | null;
   quantityRaw: string;
   openExecutionId?: string;
   costRaw?: string | null;
@@ -61,6 +62,7 @@ export function createSettlementClaimJob(
     proceedsRaw: input.proceedsRaw ?? null,
     status: input.status,
     errorCode: input.errorCode ?? null,
+    positionIdentityKey: input.positionIdentityKey ?? null,
     policyDrift: "none",
     createdAt: input.createdAt,
     serverReceivedAt: input.createdAt
@@ -110,6 +112,7 @@ function recordSettledPositionPnl(
     realizedPnlRaw: subtractRawAmounts(input.proceedsRaw, openCostRaw),
     status: "realized",
     errorCode: null,
+    positionIdentityKey: input.positionIdentityKey ?? null,
     policyDrift: "none",
     createdAt: input.createdAt,
     serverReceivedAt: input.createdAt

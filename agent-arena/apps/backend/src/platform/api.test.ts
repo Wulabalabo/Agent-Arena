@@ -30,6 +30,66 @@ async function claimTestAgent(
   }))).json();
 }
 
+function seedExpiredDirectionalPosition(store: PlatformMockStore) {
+  const agent = store.createClaimedAgent({
+    displayName: "Settlement API Agent",
+    ownerAddress: "0xowner",
+    twitterHandle: null
+  });
+  const wallet = store.bindTradingWallet(agent.id, "0xwallet", {
+    predictManagerStatus: "ready",
+    predictManagerId: "0xmanager"
+  });
+  const expiryMs = "1781700900000";
+  store.updateAgentExposureStatus(agent.id, "directional");
+  store.savePositionSnapshot({
+    agentId: agent.id,
+    competitionId: "btc-15m-001",
+    positionRef: {
+      kind: "directional",
+      marketKey: "btc-up-62929000000000",
+      openExecutionId: "exec_open",
+      quantity: "500000"
+    },
+    oracleId: "0xbtc15m",
+    expiryMs,
+    strikeRaw: "62929000000000",
+    direction: "up",
+    quantityRaw: "500000",
+    status: "open",
+    updatedAt: "2026-06-17T12:50:00.000Z"
+  });
+  store.recordPerformanceLedger({
+    kind: "execution",
+    agentDraftId: null,
+    registrationCodeHash: null,
+    agentId: agent.id,
+    ownerAddress: agent.ownerAddress,
+    tradingWalletId: wallet.id,
+    walletAddress: wallet.address,
+    predictManagerId: wallet.predictManagerId,
+    competitionId: "btc-15m-001",
+    oracleId: "0xbtc15m",
+    expiryMs,
+    intentId: "intent_open",
+    riskDecisionId: "risk_open",
+    executionId: "exec_open",
+    txDigest: "open-digest",
+    action: "open_directional",
+    positionKind: "directional",
+    quantityRaw: "500000",
+    costRaw: "5000000",
+    proceedsRaw: null,
+    status: "confirmed",
+    errorCode: null,
+    policyDrift: "none",
+    createdAt: "2026-06-17T12:51:00.000Z",
+    serverReceivedAt: "2026-06-17T12:51:00.000Z"
+  });
+
+  return { agent, expiryMs, wallet };
+}
+
 describe("Agent Arena platform API", () => {
   it("initializes an Agent pairing without issuing runtime credentials", async () => {
     const fetch = createPlatformFetchHandler();
@@ -67,6 +127,92 @@ describe("Agent Arena platform API", () => {
     const body = await response.json();
     expect(body.claimUrl).toBe(`https://arena.test/agent-arena/claim/${body.registrationCode}`);
     expect(body.expiresAt).toBe("2026-06-18T02:15:00.000Z");
+  });
+
+  it("reconciles expired settlements behind an internal platform route", async () => {
+    const store = new PlatformMockStore();
+    const seeded = seedExpiredDirectionalPosition(store);
+    const claimRequests: unknown[] = [];
+    const fetch = createPlatformFetchHandler(store, {
+      now: () => 1781700960000,
+      settlementInternalToken: "settlement-secret",
+      settlementClaimExecutor: async (request) => {
+        claimRequests.push(request);
+        return {
+          status: "submitted",
+          txDigest: "claim-digest",
+          actualProceedsRaw: "5500000"
+        };
+      }
+    });
+
+    const unauthorized = await fetch(new Request("http://localhost/api/arena/settlements/reconcile", {
+      method: "POST",
+      body: JSON.stringify({})
+    }));
+    expect(unauthorized.status).toBe(401);
+
+    const response = await fetch(new Request("http://localhost/api/arena/settlements/reconcile", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-agent-arena-internal-token": "settlement-secret"
+      },
+      body: JSON.stringify({})
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      results: [{
+        agentId: seeded.agent.id,
+        status: "claimed",
+        claimStatus: "confirmed",
+        txDigest: "claim-digest"
+      }]
+    });
+    expect(claimRequests).toEqual([{
+      walletId: seeded.wallet.id,
+      operation: "claim_settled_directional",
+      managerId: "0xmanager",
+      oracleId: "0xbtc15m",
+      expiryMs: seeded.expiryMs,
+      strikeRaw: "62929000000000",
+      direction: "up",
+      minProceedsRaw: "0",
+      dryRunOnly: false
+    }]);
+    expect(store.getAgent(seeded.agent.id)?.exposureStatus).toBe("flat");
+  });
+
+  it("opportunistically reconciles expired owner Agent positions before serving the profile", async () => {
+    const store = new PlatformMockStore();
+    const seeded = seedExpiredDirectionalPosition(store);
+    const claimRequests: unknown[] = [];
+    const fetch = createPlatformFetchHandler(store, {
+      now: () => 1781700960000,
+      settlementClaimExecutor: async (request) => {
+        claimRequests.push(request);
+        return {
+          status: "submitted",
+          txDigest: "claim-digest",
+          actualProceedsRaw: "5500000"
+        };
+      }
+    });
+
+    const response = await fetch(new Request("http://localhost/api/arena/owner/agent?ownerAddress=0xowner"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      agent: {
+        id: seeded.agent.id,
+        exposureStatus: "flat"
+      },
+      positions: [{
+        status: "settled"
+      }]
+    });
+    expect(claimRequests).toHaveLength(1);
   });
 
   it("claims a pairing code and returns the runtime credential once", async () => {
@@ -808,7 +954,7 @@ describe("Agent Arena platform API", () => {
         predictOperation: "mint_directional",
         predictPayload: {
           operation: "mint_directional",
-          quantity: "500000",
+          quantity: "5000000",
           maxCost: "5000000",
           budgetRaw: "5000000"
         }
@@ -827,7 +973,7 @@ describe("Agent Arena platform API", () => {
           kind: "directional",
           openExecutionId: "exec_1"
         },
-        quantityRaw: "500000",
+        quantityRaw: "5000000",
         status: "open"
       }]
     });

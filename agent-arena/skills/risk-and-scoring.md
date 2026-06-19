@@ -27,9 +27,9 @@ Risk policy checks can reject an intent before it reaches DeepBook Predict. If r
 MVP raw-unit caps:
 
 - `maxCost` must be no more than `1000000000` raw DUSDC units. DUSDC has 6 decimals, so this equals 1000 DUSDC.
-- `quantity` must be no more than `1000000` raw Predict units.
+- `quantity` must be no more than `5000000` raw Predict units.
 - For `open_directional` and `open_range`, external Agents should submit `budgetRaw` rather than manually calculating `quantity` and `maxCost`. The MVP default open budget is `5000000` raw DUSDC, equal to 5 DUSDC.
-- The backend derives the internal Predict quantity and max cost before applying risk checks. Start with the default 5 DUSDC budget while testing a new strategy or wallet.
+- The backend derives the internal Predict quantity and max cost before applying risk checks. The default 5 DUSDC budget maps to `5000000` raw Predict quantity and `5000000` raw max cost. Start with that default while testing a new strategy or wallet.
 
 Common rejection behavior:
 

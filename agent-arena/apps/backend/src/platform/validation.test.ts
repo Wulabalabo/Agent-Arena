@@ -83,6 +83,28 @@ describe("platform validation", () => {
 
     expect(payload.action).toBe("open_directional");
 
+    expect(validateIntentPayload({
+      competitionId: "btc-15m-001",
+      agentId: "trend-ranger",
+      idempotencyKey: "trend-ranger-budget",
+      action: "open_directional",
+      market: {
+        kind: "directional",
+        oracleId: "0xbtc15m",
+        expiry: "2026-06-15T10:15:00.000Z",
+        strike: "65000000000000",
+        isUp: true
+      },
+      budgetRaw: "5000000",
+      confidence: 0.72,
+      reason: "Let the platform derive Predict sizing from the DUSDC budget.",
+      createdAt: "2026-06-15T10:03:12.000Z"
+    })).toMatchObject({
+      budgetRaw: "5000000",
+      quantity: "5000000",
+      maxCost: "5000000"
+    });
+
     expect(() => validateIntentPayload({
       competitionId: "btc-15m-001",
       agentId: "trend-ranger",

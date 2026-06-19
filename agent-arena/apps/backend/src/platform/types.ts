@@ -118,6 +118,7 @@ export interface PerformanceLedgerRecord {
   realizedPnlRaw?: string | null;
   status: string;
   errorCode: string | null;
+  positionIdentityKey?: string | null;
   policyDrift: PolicyDrift;
   createdAt: string;
   serverReceivedAt: string;

@@ -333,14 +333,28 @@ function formatPositionLabel(position?: AgentPositionSnapshot): string {
   }
 
   if (position.positionRef.kind === "directional" && position.strikeRaw && position.direction) {
-    return `${position.direction.toUpperCase()} ${position.strikeRaw}`;
+    return `${position.direction.toUpperCase()} ${formatRawUsdPrice(position.strikeRaw)}`;
   }
 
   if (position.positionRef.kind === "range" && position.lowerStrikeRaw && position.higherStrikeRaw) {
-    return `Range ${position.lowerStrikeRaw}-${position.higherStrikeRaw}`;
+    return `Range ${formatRawUsdPrice(position.lowerStrikeRaw)}-${formatRawUsdPrice(position.higherStrikeRaw)}`;
   }
 
   return "Flat";
+}
+
+function formatRawUsdPrice(rawPrice: string): string {
+  const parsed = parseRawStrike(rawPrice);
+  if (parsed === null) {
+    return rawPrice;
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: "currency"
+  }).format(parsed);
 }
 
 function findNewestByCreatedAt<T extends { createdAt: string }>(items: T[]): T | undefined {

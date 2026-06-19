@@ -12,7 +12,6 @@ const rawIntegerStringPattern = /^\d+$/;
 const suiAddressPattern = /^0x[0-9a-fA-F]{64}$/;
 const twitterHandlePattern = /^[A-Za-z0-9_]+$/;
 export const defaultAgentOpenBudgetRaw = "5000000";
-const mvpBudgetToQuantityDivisor = 10n;
 
 export class PlatformInputError extends Error {
   constructor(message: string) {
@@ -305,8 +304,7 @@ function validateOpenSizing(
 }
 
 function estimateMvpQuantityFromBudgetRaw(budgetRaw: string): string {
-  const quantity = BigInt(budgetRaw) / mvpBudgetToQuantityDivisor;
-  return (quantity > 0n ? quantity : 1n).toString();
+  return budgetRaw;
 }
 
 function validateRangeMarket(value: unknown): RangeMarket {

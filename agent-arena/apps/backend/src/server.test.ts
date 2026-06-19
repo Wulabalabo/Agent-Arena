@@ -748,6 +748,449 @@ describe("createAgentArenaFetchHandler", () => {
     });
     expect(setupCalls).toEqual(["wallet_internal_001"]);
   });
+
+  it("routes real-runtime settlement reconciliation through the internal Predict executor", async () => {
+    const platformStore = new PlatformMockStore();
+    const walletStore = createMemoryWalletStore({
+      walletSecret: "platform-wallet-secret",
+      quoteAssetType: "0xquote::dusdc::DUSDC"
+    });
+    const agent = platformStore.createClaimedAgent({
+      displayName: "Settlement Runtime Agent",
+      ownerAddress: "0xowner",
+      twitterHandle: null
+    });
+    const internalWallet = await walletStore.createWallet({
+      agentId: agent.id,
+      bindingMode: "claimed_agent",
+      label: "claimed-agent:Settlement Runtime Agent"
+    });
+    const wallet = platformStore.bindTradingWallet(agent.id, internalWallet.address, {
+      id: internalWallet.id,
+      predictManagerStatus: "ready",
+      predictManagerId: "0xmanager"
+    });
+    const expiryMs = "1781700900000";
+    const submissions: unknown[] = [];
+    const tradeExecutor: PredictTradeExecutor = {
+      async resolveDirectionalPosition(input) {
+        return {
+          ...input,
+          quantityRaw: "500000"
+        };
+      },
+      async submitRedeemDirectional(input) {
+        submissions.push(input);
+        return {
+          operation: "claim_settled_directional",
+          mode: "submit",
+          status: "submitted",
+          txDigest: "claim-digest",
+          managerId: input.managerId,
+          oracleId: input.oracleId,
+          expiryMs: input.expiryMs,
+          strikeRaw: input.strikeRaw,
+          direction: input.direction,
+          quantityRaw: input.quantityRaw,
+          minProceedsRaw: input.minProceedsRaw,
+          actualProceedsRaw: "5500000"
+        };
+      }
+    };
+
+    platformStore.updateAgentExposureStatus(agent.id, "directional");
+    platformStore.savePositionSnapshot({
+      agentId: agent.id,
+      competitionId: "btc-15m-001",
+      positionRef: {
+        kind: "directional",
+        marketKey: "btc-up-62929000000000",
+        openExecutionId: "exec_open",
+        quantity: "500000"
+      },
+      oracleId: "0xbtc15m",
+      expiryMs,
+      strikeRaw: "62929000000000",
+      direction: "up",
+      quantityRaw: "500000",
+      status: "open",
+      updatedAt: "2026-06-17T12:50:00.000Z"
+    });
+    platformStore.recordPerformanceLedger({
+      kind: "execution",
+      agentDraftId: null,
+      registrationCodeHash: null,
+      agentId: agent.id,
+      ownerAddress: agent.ownerAddress,
+      tradingWalletId: wallet.id,
+      walletAddress: wallet.address,
+      predictManagerId: wallet.predictManagerId,
+      competitionId: "btc-15m-001",
+      oracleId: "0xbtc15m",
+      expiryMs,
+      intentId: "intent_open",
+      riskDecisionId: "risk_open",
+      executionId: "exec_open",
+      txDigest: "open-digest",
+      action: "open_directional",
+      positionKind: "directional",
+      quantityRaw: "500000",
+      costRaw: "5000000",
+      proceedsRaw: null,
+      status: "confirmed",
+      errorCode: null,
+      policyDrift: "none",
+      createdAt: "2026-06-17T12:51:00.000Z",
+      serverReceivedAt: "2026-06-17T12:51:00.000Z"
+    });
+
+    const predictServerClient = {
+      ...createRealRuntimePredictClient(() => [{ managerId: "0xmanager", ownerAddress: wallet.address }]),
+      async getOracleState() {
+        return {
+          oracle_id: "0xbtc15m",
+          underlying_asset: "BTC",
+          expiry: Number(expiryMs),
+          strike: 62929000000000,
+          min_strike: 50000000000000,
+          tick_size: 1000000000,
+          status: "settled"
+        };
+      }
+    };
+    const fetch = createAgentArenaFetchHandler({
+      runtimeMode: "real",
+      platformStore,
+      platformWalletStore: walletStore,
+      predictEnv: createRealRuntimeTestEnv({
+        AGENT_ARENA_ENABLE_PREDICT_SUBMIT: "true"
+      }),
+      predictServerClient,
+      predictTradeExecutor: tradeExecutor
+    });
+
+    const response = await fetch(new Request("http://localhost/api/arena/settlements/reconcile", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-agent-arena-internal-token": "secret"
+      },
+      body: JSON.stringify({})
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      results: [{
+        agentId: agent.id,
+        status: "claimed",
+        claimStatus: "confirmed",
+        txDigest: "claim-digest"
+      }]
+    });
+    expect(submissions).toMatchObject([{
+      operation: "claim_settled_directional",
+      managerId: "0xmanager",
+      oracleId: "0xbtc15m",
+      expiryMs,
+      strikeRaw: "62929000000000",
+      direction: "up",
+      minProceedsRaw: "0",
+      quantityRaw: "500000"
+    }]);
+    expect(platformStore.getAgent(agent.id)?.exposureStatus).toBe("flat");
+  });
+
+  it("reconciles real-runtime settlement when Predict already redeemed the position", async () => {
+    const platformStore = new PlatformMockStore();
+    const walletStore = createMemoryWalletStore({
+      walletSecret: "platform-wallet-secret",
+      quoteAssetType: "0xquote::dusdc::DUSDC"
+    });
+    const agent = platformStore.createClaimedAgent({
+      displayName: "Externally Redeemed Agent",
+      ownerAddress: "0xowner",
+      twitterHandle: null
+    });
+    const internalWallet = await walletStore.createWallet({
+      agentId: agent.id,
+      bindingMode: "claimed_agent",
+      label: "claimed-agent:Externally Redeemed Agent"
+    });
+    const wallet = platformStore.bindTradingWallet(agent.id, internalWallet.address, {
+      id: internalWallet.id,
+      predictManagerStatus: "ready",
+      predictManagerId: "0xmanager"
+    });
+    const expiryMs = "1781700900000";
+    const submissions: unknown[] = [];
+    const tradeExecutor: PredictTradeExecutor = {
+      async resolveDirectionalPosition(input) {
+        return {
+          ...input,
+          quantityRaw: "0"
+        };
+      },
+      async submitRedeemDirectional(input) {
+        submissions.push(input);
+        throw new Error("empty position should not be submitted");
+      }
+    };
+
+    platformStore.updateAgentExposureStatus(agent.id, "directional");
+    platformStore.savePositionSnapshot({
+      agentId: agent.id,
+      competitionId: "btc-15m-001",
+      positionRef: {
+        kind: "directional",
+        marketKey: "btc-up-62929000000000",
+        openExecutionId: "exec_open",
+        quantity: "500000"
+      },
+      oracleId: "0xbtc15m",
+      expiryMs,
+      strikeRaw: "62929000000000",
+      direction: "up",
+      quantityRaw: "500000",
+      status: "open",
+      updatedAt: "2026-06-17T12:50:00.000Z"
+    });
+    platformStore.recordPerformanceLedger({
+      kind: "execution",
+      agentDraftId: null,
+      registrationCodeHash: null,
+      agentId: agent.id,
+      ownerAddress: agent.ownerAddress,
+      tradingWalletId: wallet.id,
+      walletAddress: wallet.address,
+      predictManagerId: wallet.predictManagerId,
+      competitionId: "btc-15m-001",
+      oracleId: "0xbtc15m",
+      expiryMs,
+      intentId: "intent_open",
+      riskDecisionId: "risk_open",
+      executionId: "exec_open",
+      txDigest: "open-digest",
+      action: "open_directional",
+      positionKind: "directional",
+      quantityRaw: "500000",
+      costRaw: "245150",
+      proceedsRaw: null,
+      status: "confirmed",
+      errorCode: null,
+      policyDrift: "none",
+      createdAt: "2026-06-17T12:51:00.000Z",
+      serverReceivedAt: "2026-06-17T12:51:00.000Z"
+    });
+
+    const predictServerClient = {
+      ...createRealRuntimePredictClient(() => [{ managerId: "0xmanager", ownerAddress: wallet.address }]),
+      async getOracleState() {
+        return {
+          oracle_id: "0xbtc15m",
+          underlying_asset: "BTC",
+          expiry: Number(expiryMs),
+          strike: 62929000000000,
+          min_strike: 50000000000000,
+          tick_size: 1000000000,
+          status: "settled"
+        };
+      },
+      async getRedeemedPositions() {
+        return [{
+          digest: "external-redeem-digest",
+          manager_id: "0xmanager",
+          owner: wallet.address,
+          oracle_id: "0xbtc15m",
+          expiry: Number(expiryMs),
+          strike: 62929000000000,
+          is_up: true,
+          quantity: 500000,
+          payout: 500000,
+          is_settled: true
+        }];
+      }
+    };
+    const fetch = createAgentArenaFetchHandler({
+      runtimeMode: "real",
+      platformStore,
+      platformWalletStore: walletStore,
+      predictEnv: createRealRuntimeTestEnv({
+        AGENT_ARENA_ENABLE_PREDICT_SUBMIT: "true"
+      }),
+      predictServerClient,
+      predictTradeExecutor: tradeExecutor
+    });
+
+    const response = await fetch(new Request("http://localhost/api/arena/settlements/reconcile", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-agent-arena-internal-token": "secret"
+      },
+      body: JSON.stringify({})
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      results: [{
+        agentId: agent.id,
+        status: "claimed",
+        claimStatus: "confirmed",
+        txDigest: "external-redeem-digest"
+      }]
+    });
+    expect(submissions).toEqual([]);
+    expect(platformStore.getAgent(agent.id)?.exposureStatus).toBe("flat");
+    expect(platformStore.listPositionSnapshots({ agentId: agent.id })).toMatchObject([{
+      status: "settled"
+    }]);
+    expect(platformStore.listPerformanceLedger({ agentId: agent.id })).toContainEqual(expect.objectContaining({
+      kind: "position",
+      txDigest: "external-redeem-digest",
+      costRaw: "245150",
+      proceedsRaw: "500000",
+      realizedPnlRaw: "254850",
+      status: "realized"
+    }));
+  });
+
+  it("does not reconcile an external redemption without a matching owner wallet", async () => {
+    const platformStore = new PlatformMockStore();
+    const walletStore = createMemoryWalletStore({
+      walletSecret: "platform-wallet-secret",
+      quoteAssetType: "0xquote::dusdc::DUSDC"
+    });
+    const agent = platformStore.createClaimedAgent({
+      displayName: "Missing Owner Redemption Agent",
+      ownerAddress: "0xowner",
+      twitterHandle: null
+    });
+    const internalWallet = await walletStore.createWallet({
+      agentId: agent.id,
+      bindingMode: "claimed_agent",
+      label: "claimed-agent:Missing Owner Redemption Agent"
+    });
+    const wallet = platformStore.bindTradingWallet(agent.id, internalWallet.address, {
+      id: internalWallet.id,
+      predictManagerStatus: "ready",
+      predictManagerId: "0xmanager"
+    });
+    const expiryMs = "1781700900000";
+    const tradeExecutor: PredictTradeExecutor = {
+      async resolveDirectionalPosition(input) {
+        return {
+          ...input,
+          quantityRaw: "0"
+        };
+      }
+    };
+
+    platformStore.updateAgentExposureStatus(agent.id, "directional");
+    platformStore.savePositionSnapshot({
+      agentId: agent.id,
+      competitionId: "btc-15m-001",
+      positionRef: {
+        kind: "directional",
+        marketKey: "btc-up-62929000000000",
+        openExecutionId: "exec_open",
+        quantity: "500000"
+      },
+      oracleId: "0xbtc15m",
+      expiryMs,
+      strikeRaw: "62929000000000",
+      direction: "up",
+      quantityRaw: "500000",
+      status: "open",
+      updatedAt: "2026-06-17T12:50:00.000Z"
+    });
+    platformStore.recordPerformanceLedger({
+      kind: "execution",
+      agentDraftId: null,
+      registrationCodeHash: null,
+      agentId: agent.id,
+      ownerAddress: agent.ownerAddress,
+      tradingWalletId: wallet.id,
+      walletAddress: wallet.address,
+      predictManagerId: wallet.predictManagerId,
+      competitionId: "btc-15m-001",
+      oracleId: "0xbtc15m",
+      expiryMs,
+      intentId: "intent_open",
+      riskDecisionId: "risk_open",
+      executionId: "exec_open",
+      txDigest: "open-digest",
+      action: "open_directional",
+      positionKind: "directional",
+      quantityRaw: "500000",
+      costRaw: "245150",
+      proceedsRaw: null,
+      status: "confirmed",
+      errorCode: null,
+      policyDrift: "none",
+      createdAt: "2026-06-17T12:51:00.000Z",
+      serverReceivedAt: "2026-06-17T12:51:00.000Z"
+    });
+
+    const predictServerClient = {
+      ...createRealRuntimePredictClient(() => [{ managerId: "0xmanager", ownerAddress: wallet.address }]),
+      async getOracleState() {
+        return {
+          oracle_id: "0xbtc15m",
+          underlying_asset: "BTC",
+          expiry: Number(expiryMs),
+          strike: 62929000000000,
+          min_strike: 50000000000000,
+          tick_size: 1000000000,
+          status: "settled"
+        };
+      },
+      async getRedeemedPositions() {
+        return [{
+          digest: "external-redeem-digest",
+          manager_id: "0xmanager",
+          oracle_id: "0xbtc15m",
+          expiry: Number(expiryMs),
+          strike: 62929000000000,
+          is_up: true,
+          quantity: 500000,
+          payout: 500000,
+          is_settled: true
+        }];
+      }
+    };
+    const fetch = createAgentArenaFetchHandler({
+      runtimeMode: "real",
+      platformStore,
+      platformWalletStore: walletStore,
+      predictEnv: createRealRuntimeTestEnv({
+        AGENT_ARENA_ENABLE_PREDICT_SUBMIT: "true"
+      }),
+      predictServerClient,
+      predictTradeExecutor: tradeExecutor
+    });
+
+    const response = await fetch(new Request("http://localhost/api/arena/settlements/reconcile", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-agent-arena-internal-token": "secret"
+      },
+      body: JSON.stringify({})
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      results: [{
+        agentId: agent.id,
+        status: "failed",
+        errorCode: "POSITION_NOT_FOUND"
+      }]
+    });
+    expect(platformStore.getAgent(agent.id)?.exposureStatus).toBe("directional");
+    expect(platformStore.listPositionSnapshots({ agentId: agent.id })).toMatchObject([{
+      status: "open"
+    }]);
+  });
 });
 
 function createTempPlatformDbPath(): string {

@@ -18,12 +18,17 @@ import {
   createRegistrationCodeHash
 } from "./performance-ledger";
 import {
+  reconcileSettlements,
+  type ReconcileSettlementsOptions
+} from "./settlement-reconciler";
+import {
   calculateMvpScore,
   createLedgerLeaderboardEntries,
   sortLeaderboard,
   type LeaderboardEntry
 } from "./scoring";
 import { publicSkillDocs } from "../skill-docs";
+import { internalTokenHeader } from "../predict/internal-auth";
 import {
   createMockCompetition,
   type AgentProfile,
@@ -51,7 +56,7 @@ const pairingDraftTtlMs = 15 * 60 * 1000;
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,POST,OPTIONS",
-  "access-control-allow-headers": `content-type, ${runtimeTokenHeader}`
+  "access-control-allow-headers": `content-type, ${runtimeTokenHeader}, ${internalTokenHeader}`
 };
 
 export interface OwnerWithdrawalServiceInput {
@@ -96,6 +101,9 @@ export interface CreatePlatformFetchHandlerOptions {
   now?: () => number;
   ownerWithdrawalService?: (input: OwnerWithdrawalServiceInput) => Promise<OwnerWithdrawalServiceResult>;
   predictExecutionAdapter?: SubmitIntentExecutionOptions["predictExecutionAdapter"];
+  settlementClaimExecutor?: ReconcileSettlementsOptions["executeSettlementClaim"];
+  settlementRedemptionReader?: ReconcileSettlementsOptions["readSettlementRedemption"];
+  settlementInternalToken?: string;
 }
 
 export function createPlatformFetchHandler(
@@ -160,8 +168,12 @@ export function createPlatformFetchHandler(
         return await claimAgent(request, store, options.agentWalletService);
       }
 
+      if (request.method === "POST" && matchesRoute(route, ["settlements", "reconcile"])) {
+        return await reconcileSettlementsRoute(request, store, options);
+      }
+
       if (request.method === "GET" && matchesRoute(route, ["owner", "agent"])) {
-        return getOwnerAgentProfile(url, store);
+        return await getOwnerAgentProfile(url, store, options);
       }
 
       if (
@@ -180,6 +192,7 @@ export function createPlatformFetchHandler(
 
       if (request.method === "GET" && matchesRoute(route, ["agent", "me"])) {
         const auth = authenticateAgentRuntimeRequest(request, store);
+        await maybeReconcileAgentSettlements(store, options, auth.agentId);
         const agent = store.getAgent(auth.agentId);
         if (!agent) {
           return errorResponse(404, "AGENT_NOT_FOUND", "Agent not found");
@@ -198,6 +211,7 @@ export function createPlatformFetchHandler(
 
       if (request.method === "GET" && matchesRoute(route, ["agent", "positions"])) {
         const auth = authenticateAgentRuntimeRequest(request, store);
+        await maybeReconcileAgentSettlements(store, options, auth.agentId);
         return getAgentPositions(url, store, auth.agentId);
       }
 
@@ -273,7 +287,10 @@ export function createPlatformFetchHandler(
       if (request.method === "POST" && matchesRoute(route, ["intents"])) {
         return await submitIntent(request, store, {
           agentWalletReader: options.agentWalletReader,
-          predictExecutionAdapter: options.predictExecutionAdapter
+          now: options.now,
+          predictExecutionAdapter: options.predictExecutionAdapter,
+          settlementClaimExecutor: options.settlementClaimExecutor,
+          settlementRedemptionReader: options.settlementRedemptionReader
         });
       }
 
@@ -507,7 +524,36 @@ async function claimAgent(
   }, 201);
 }
 
-function getOwnerAgentProfile(url: URL, store: PlatformMockStore): Response {
+async function reconcileSettlementsRoute(
+  request: Request,
+  store: PlatformMockStore,
+  options: Pick<
+    CreatePlatformFetchHandlerOptions,
+    "now" | "settlementClaimExecutor" | "settlementInternalToken" | "settlementRedemptionReader"
+  >
+): Promise<Response> {
+  const expectedToken = options.settlementInternalToken?.trim();
+  if (!expectedToken) {
+    return errorResponse(503, "SETTLEMENT_RECONCILER_DISABLED", "Settlement reconciler is not configured");
+  }
+
+  if (request.headers.get(internalTokenHeader) !== expectedToken) {
+    return errorResponse(401, "UNAUTHORIZED", "Internal settlement token is required");
+  }
+
+  const summary = await reconcileSettlements(store, {
+    nowMs: options.now?.() ?? Date.now(),
+    executeSettlementClaim: options.settlementClaimExecutor,
+    readSettlementRedemption: options.settlementRedemptionReader
+  });
+  return jsonResponse(summary);
+}
+
+async function getOwnerAgentProfile(
+  url: URL,
+  store: PlatformMockStore,
+  options: Pick<CreatePlatformFetchHandlerOptions, "now" | "settlementClaimExecutor" | "settlementRedemptionReader">
+): Promise<Response> {
   const ownerAddress = url.searchParams.get("ownerAddress")?.trim();
   if (!ownerAddress) {
     return errorResponse(400, "INVALID_INPUT", "ownerAddress query parameter is required");
@@ -520,24 +566,26 @@ function getOwnerAgentProfile(url: URL, store: PlatformMockStore): Response {
     return jsonResponse(createEmptyOwnerAgentProfile());
   }
 
+  await maybeReconcileAgentSettlements(store, options, agent.id);
+  const currentAgent = store.getAgent(agent.id) ?? agent;
   const competitionId = defaultCompetitionId;
   const competition = store.getCompetition(competitionId);
-  const tradingWallet = store.getTradingWalletByAgentId(agent.id) ?? null;
-  syncIdentityBindingWithWallet(store, agent.id, tradingWallet);
+  const tradingWallet = store.getTradingWalletByAgentId(currentAgent.id) ?? null;
+  syncIdentityBindingWithWallet(store, currentAgent.id, tradingWallet);
   const intents = store.listIntents().filter(
-    (intent) => intent.agentId === agent.id && intent.competitionId === competitionId
+    (intent) => intent.agentId === currentAgent.id && intent.competitionId === competitionId
   );
   const executions = store.listExecutions().filter(
-    (execution) => execution.agentId === agent.id && execution.competitionId === competitionId
+    (execution) => execution.agentId === currentAgent.id && execution.competitionId === competitionId
   );
   const leaderboard = competition
-    ? createCompetitionLeaderboardEntries(competitionId, store).filter((entry) => entry.agentId === agent.id)
+    ? createCompetitionLeaderboardEntries(competitionId, store).filter((entry) => entry.agentId === currentAgent.id)
     : [];
 
   return jsonResponse({
-    agent,
+    agent: currentAgent,
     tradingWallet,
-    positions: store.listPositionSnapshots({ agentId: agent.id, competitionId }),
+    positions: store.listPositionSnapshots({ agentId: currentAgent.id, competitionId }),
     intents,
     executions,
     leaderboard
@@ -619,13 +667,17 @@ async function withdrawTradingWallet(
 async function submitIntent(
   request: Request,
   store: PlatformMockStore,
-  options: Pick<CreatePlatformFetchHandlerOptions, "agentWalletReader" | "predictExecutionAdapter">
+  options: Pick<
+    CreatePlatformFetchHandlerOptions,
+    "agentWalletReader" | "now" | "predictExecutionAdapter" | "settlementClaimExecutor" | "settlementRedemptionReader"
+  >
 ): Promise<Response> {
   const auth = authenticateAgentRuntimeRequest(request, store);
   const wallet = store.getTradingWalletByAgentId(auth.agentId);
   if (wallet) {
     await refreshTradingWallet(store, wallet, options.agentWalletReader);
   }
+  await maybeReconcileAgentSettlements(store, options, auth.agentId);
 
   const body = await readJsonObject(request);
   const bodyAgentId = validateNonEmptyString(body.agentId, "agentId");
@@ -668,6 +720,23 @@ async function submitIntent(
   }
 
   return jsonResponse(result, 201);
+}
+
+async function maybeReconcileAgentSettlements(
+  store: PlatformMockStore,
+  options: Pick<CreatePlatformFetchHandlerOptions, "now" | "settlementClaimExecutor" | "settlementRedemptionReader">,
+  agentId: string
+): Promise<void> {
+  if (!options.settlementClaimExecutor) {
+    return;
+  }
+
+  await reconcileSettlements(store, {
+    agentId,
+    nowMs: options.now?.() ?? Date.now(),
+    executeSettlementClaim: options.settlementClaimExecutor,
+    readSettlementRedemption: options.settlementRedemptionReader
+  });
 }
 
 function getLeaderboard(url: URL, store: PlatformMockStore): Response {
