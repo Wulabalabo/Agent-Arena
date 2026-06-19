@@ -29,6 +29,8 @@ import {
 } from "./state/platform";
 
 const apiBaseUrl = platformConfig.apiBaseUrl;
+const MARKET_STATE_REFRESH_INTERVAL_MS = 5_000;
+const PUBLIC_ACTIVITY_REFRESH_INTERVAL_MS = 15_000;
 
 interface AppProps {
   connectedOwnerAddress?: string | null;
@@ -174,7 +176,7 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }
     void loadMarketState();
     const intervalId = window.setInterval(() => {
       void loadMarketState();
-    }, 5_000);
+    }, MARKET_STATE_REFRESH_INTERVAL_MS);
 
     return () => {
       cancelled = true;
@@ -217,7 +219,7 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }
     void loadPublicActivity();
     const intervalId = window.setInterval(() => {
       void loadPublicActivity();
-    }, 5_000);
+    }, PUBLIC_ACTIVITY_REFRESH_INTERVAL_MS);
 
     return () => {
       cancelled = true;

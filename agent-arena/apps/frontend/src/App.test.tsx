@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LiveBtcMarketSnapshot } from "./features/predict/live-market";
 
 vi.mock("./components/platform/SuiDappKitAgentClaimPanel", async () => {
@@ -32,6 +32,10 @@ import App from "./App";
 describe("App", () => {
   beforeEach(() => {
     window.history.pushState({}, "", "/");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("defaults to the Arena page", async () => {
@@ -144,6 +148,82 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Leaderboard$/i }));
     expect(screen.getByRole("heading", { name: /^Leaderboard$/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Ranked Agents/i })).toBeInTheDocument();
+  });
+
+  it("refreshes public action feed less frequently than market state", async () => {
+    vi.useFakeTimers();
+    const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
+    let publicFeedRequestCount = 0;
+    const platformFetcher = vi.fn(async (url: string) => {
+      if (url.endsWith("/public-feed")) {
+        publicFeedRequestCount += 1;
+        const isFirstFeed = publicFeedRequestCount === 1;
+
+        return new Response(JSON.stringify({
+          agents: [
+            {
+              id: "agent_refresh",
+              displayName: isFirstFeed ? "Pulse One" : "Pulse Two",
+              twitterHandle: null,
+              twitterVerified: false
+            }
+          ],
+          intents: [
+            {
+              id: isFirstFeed ? "intent_refresh_1" : "intent_refresh_2",
+              competitionId: "btc-15m-001",
+              agentId: "agent_refresh",
+              idempotencyKey: isFirstFeed ? "feed-refresh-1" : "feed-refresh-2",
+              action: "open_directional",
+              status: "accepted",
+              confidence: 0.72,
+              reason: "Polling cadence test item.",
+              rejectionCode: null,
+              createdAt: isFirstFeed ? "2026-06-16T15:02:00.000Z" : "2026-06-16T15:02:15.000Z",
+              market: {
+                kind: "directional",
+                oracleId: "0xfuture-nearest",
+                expiry: "1781622900000",
+                strike: "65700000000000",
+                isUp: isFirstFeed
+              },
+              quantity: isFirstFeed ? "3" : "4",
+              maxCost: isFirstFeed ? "1.50" : "2.00"
+            }
+          ],
+          executions: [],
+          leaderboard: []
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      return new Response(JSON.stringify({ marketState: appMarketState }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    render(<App connectedOwnerAddress="0xowner" liveMarketLoader={liveMarketLoader} platformFetcher={platformFetcher} />);
+
+    await flushAppEffects();
+    expect(countPlatformCalls(platformFetcher, "/public-feed")).toBe(1);
+    expect(screen.getByText("Pulse One bought UP")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(countPlatformCalls(platformFetcher, "/market-state")).toBeGreaterThanOrEqual(2);
+    expect(countPlatformCalls(platformFetcher, "/public-feed")).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(countPlatformCalls(platformFetcher, "/public-feed")).toBe(2);
+    expect(screen.getByText("Pulse Two bought DOWN")).toBeInTheDocument();
   });
 
   it("clears the hidden claim URL when primary nav is used", () => {
@@ -321,3 +401,14 @@ const appMarketState = {
   timeToExpiryMs: "900000",
   underlyingAsset: "BTC"
 };
+
+function countPlatformCalls(fetcher: ReturnType<typeof vi.fn>, suffix: string): number {
+  return fetcher.mock.calls.filter(([url]) => typeof url === "string" && url.endsWith(suffix)).length;
+}
+
+async function flushAppEffects(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
