@@ -1,11 +1,17 @@
 import { Activity, Radio } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { LiveBtcMarketSnapshot } from "../../features/predict/live-market";
 import type { LiveBtcMarketStatus } from "../../features/predict/use-live-btc-market";
 
-const chartWidth = 640;
-const chartHeight = 176;
 const traceLimit = 36;
+const viewBoxWidth = 640;
+const viewBoxHeight = 232;
+const plotBounds = {
+  bottom: 172,
+  left: 22,
+  right: 552,
+  top: 28
+} as const;
 
 const utcDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
   day: "2-digit",
@@ -30,6 +36,12 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
   const oracle = snapshot?.oracle;
   const hasActiveReferenceTrace = Boolean(price) && status !== "error";
   const [tracePoints, setTracePoints] = useState<PriceTracePoint[]>([]);
+  const renderedTracePointsRef = useRef<PriceTracePoint[]>([]);
+  const [renderedTracePoints, setRenderedTracePointsState] = useState<PriceTracePoint[]>([]);
+  const setRenderedTracePoints = (points: PriceTracePoint[]) => {
+    renderedTracePointsRef.current = points;
+    setRenderedTracePointsState(points);
+  };
   const visibleTracePoints = useMemo(() => {
     if (!hasActiveReferenceTrace || !price) {
       return [];
@@ -37,7 +49,11 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
 
     return tracePoints.length > 0 ? tracePoints : seedTrace(price.spot, price.updatedAt);
   }, [hasActiveReferenceTrace, price, tracePoints]);
-  const chartGeometry = useMemo(() => createChartGeometry(visibleTracePoints), [visibleTracePoints]);
+  const chartSourcePoints = renderedTracePoints.length > 0 ? renderedTracePoints : visibleTracePoints;
+  const chartGeometry = useMemo(
+    () => createChartGeometry(chartSourcePoints, price?.forward ?? undefined),
+    [chartSourcePoints, price?.forward]
+  );
 
   useEffect(() => {
     if (!price || status === "error") {
@@ -55,12 +71,50 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
     });
   }, [price, status]);
 
+  useEffect(() => {
+    if (!hasActiveReferenceTrace || visibleTracePoints.length === 0) {
+      setRenderedTracePoints([]);
+      return;
+    }
+
+    const prefersReducedMotion =
+      typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReducedMotion || typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+      setRenderedTracePoints(visibleTracePoints);
+      return;
+    }
+
+    const startPoints = alignTracePoints(renderedTracePointsRef.current, visibleTracePoints);
+    const startAt = window.performance.now();
+    const durationMs = 360;
+    let frameId = 0;
+
+    const animate = (now: number) => {
+      const progress = clamp((now - startAt) / durationMs, 0, 1);
+      const easedProgress = easeOutCubic(progress);
+      const nextPoints = visibleTracePoints.map((point, index) => ({
+        spot: lerp(startPoints[index]?.spot ?? point.spot, point.spot, easedProgress),
+        updatedAt: point.updatedAt
+      }));
+
+      setRenderedTracePoints(nextPoints);
+
+      if (progress < 1) {
+        frameId = window.requestAnimationFrame(animate);
+      }
+    };
+
+    frameId = window.requestAnimationFrame(animate);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [hasActiveReferenceTrace, visibleTracePoints]);
+
   return (
     <section aria-label="BTC reference chart" className="paper-card-sm p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="paper-label text-on-surface-variant">BTC reference chart</p>
-          <h2 className="mt-1 font-display text-lg font-black uppercase text-on-surface">Binance BTCUSDT heartbeat</h2>
+          <h2 className="mt-1 font-display text-lg font-black uppercase text-on-surface">Binance BTCUSDT line</h2>
         </div>
         <span className={`paper-chip shrink-0 px-2 py-1 ${hasActiveReferenceTrace ? "paper-chip-green" : status === "error" ? "paper-chip-red" : ""}`}>
           <Radio aria-hidden="true" size={12} />
@@ -78,43 +132,115 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
           Predict oracle drives arena settlement
         </span>
         {hasActiveReferenceTrace ? (
-          <span className="paper-chip paper-chip-green px-2 py-1">Active BTC reference trace</span>
+          <span className="paper-chip paper-chip-green px-2 py-1">Active BTC price line</span>
         ) : (
           <span className="paper-chip px-2 py-1">Waiting for BTC reference data</span>
         )}
       </div>
 
-      <div className="mt-4 h-44 w-full overflow-hidden rounded-sm border-2 border-black bg-[#111827] text-white">
-        <svg aria-hidden="true" className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 640 176">
-          <defs>
-            <linearGradient id="arena-chart-fill" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="#22c55e" stopOpacity="0.35" />
-              <stop offset="100%" stopColor="#22c55e" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <path d="M0 38H640M0 88H640M0 138H640" stroke="#374151" strokeDasharray="6 8" strokeWidth="1" />
+      <div className="relative mt-4 h-56 w-full overflow-hidden rounded-sm border-2 border-black bg-white text-slate-700">
+        <svg aria-label="BTC price line chart" className="absolute inset-0 h-full w-full" preserveAspectRatio="none" role="img" viewBox="0 0 640 232">
+          <path d="M22 28H552M22 76H552M22 124H552M22 172H552" stroke="#e5e7eb" strokeWidth="1" />
           {hasActiveReferenceTrace ? (
             <>
-              <path d={chartGeometry.candlePath} stroke="#e5e7eb" strokeWidth="4" />
-              <path d={chartGeometry.connectorPath} stroke="#facc15" strokeWidth="3" />
+              {chartGeometry.targetY !== null ? (
+                <line
+                  data-testid="btc-target-line"
+                  stroke="#cbd5e1"
+                  strokeDasharray="7 8"
+                  strokeWidth="1.4"
+                  x1={plotBounds.left}
+                  x2={plotBounds.right}
+                  y1={chartGeometry.targetY}
+                  y2={chartGeometry.targetY}
+                />
+              ) : null}
               <path
                 d={chartGeometry.tracePath}
-                data-testid="btc-reference-trace"
+                data-testid="btc-reference-line"
                 fill="none"
-                stroke="#22c55e"
+                stroke="#f59e0b"
                 strokeLinecap="round"
-                strokeWidth="5"
+                strokeLinejoin="round"
+                strokeWidth="3"
               />
-              <path d={chartGeometry.areaPath} fill="url(#arena-chart-fill)" />
-              <circle cx={chartGeometry.lastPoint.x} cy={chartGeometry.lastPoint.y} fill="#ffffff" r="6" />
+              <circle
+                cx={chartGeometry.lastPoint.x}
+                cy={chartGeometry.lastPoint.y}
+                data-testid="btc-current-marker"
+                fill="#ffffff"
+                r="8"
+                stroke="#f59e0b"
+                strokeWidth="2"
+              />
+              <circle cx={chartGeometry.lastPoint.x} cy={chartGeometry.lastPoint.y} fill="#f59e0b" r="3" />
             </>
           ) : (
             <>
-              <path d="M72 68V108M128 70V112M184 66V106M240 72V116M296 70V112M352 68V108M408 72V116M464 70V112M520 68V108M576 72V116" stroke="#6b7280" strokeWidth="4" />
-              <path d="M24 100C78 92 116 112 168 100C222 88 260 112 312 100C366 88 404 112 456 100C510 88 556 112 616 100" fill="none" stroke="#9ca3af" strokeDasharray="10 10" strokeLinecap="round" strokeWidth="5" />
+              <path
+                d="M38 126C82 112 104 118 141 96C181 73 220 81 260 93C302 106 335 91 371 82C414 72 449 93 486 83C519 74 541 79 552 76"
+                fill="none"
+                stroke="#cbd5e1"
+                strokeDasharray="10 10"
+                strokeLinecap="round"
+                strokeWidth="3"
+              />
             </>
           )}
         </svg>
+        {hasActiveReferenceTrace ? (
+          <>
+            {chartGeometry.targetY !== null ? (
+              <span
+                className="pointer-events-none absolute h-5 w-14 -translate-y-1/2 rounded-full bg-[#8b949e] text-center font-mono text-[10px] font-black leading-5 text-white"
+                style={{ left: `${(566 / viewBoxWidth) * 100}%`, top: `${(chartGeometry.targetY / viewBoxHeight) * 100}%` }}
+              >
+                Target
+              </span>
+            ) : null}
+            {chartGeometry.priceTicks.map((tick) => (
+              <span
+                className="pointer-events-none absolute right-3 -translate-y-1/2 font-mono text-[11px] font-bold text-slate-500"
+                data-testid="btc-price-tick"
+                key={`${tick.value}-${tick.y}`}
+                style={{ top: `${(tick.y / viewBoxHeight) * 100}%` }}
+              >
+                {formatAxisUsd(tick.value)}
+              </span>
+            ))}
+            {chartGeometry.timeTicks.map((tick) => (
+              <span
+                className="pointer-events-none absolute bottom-2 font-mono text-[11px] font-bold text-slate-500"
+                data-testid="btc-time-tick"
+                key={`${tick.updatedAt}-${tick.x}`}
+                style={{
+                  left: `${(tick.x / viewBoxWidth) * 100}%`,
+                  transform: createTimeTickTransform(tick.anchor)
+                }}
+              >
+                {formatTimeUtc(tick.updatedAt)}
+              </span>
+            ))}
+            {price ? (
+              <>
+                <span
+                  className="pointer-events-none absolute -translate-x-full -translate-y-1/2 text-right font-mono text-xs font-black text-slate-900"
+                  data-testid="btc-current-price-label"
+                  style={{ left: `${(plotBounds.right / viewBoxWidth) * 100}%`, top: `${(199 / viewBoxHeight) * 100}%` }}
+                >
+                  {formatUsd(price.spot)}
+                </span>
+                <span
+                  className="pointer-events-none absolute -translate-x-full -translate-y-1/2 text-right font-mono text-[11px] font-extrabold text-slate-500"
+                  data-testid="btc-current-time-label"
+                  style={{ left: `${(plotBounds.right / viewBoxWidth) * 100}%`, top: `${(219 / viewBoxHeight) * 100}%` }}
+                >
+                  {formatTimeUtc(price.updatedAt)}
+                </span>
+              </>
+            ) : null}
+          </>
+        ) : null}
       </div>
 
       <div className="mt-3 grid gap-2 md:grid-cols-4">
@@ -153,106 +279,185 @@ interface ChartPoint {
   y: number;
 }
 
+interface PriceTick {
+  value: number;
+  y: number;
+}
+
+interface TimeTick {
+  anchor: "end" | "middle" | "start";
+  updatedAt: string;
+  x: number;
+}
+
 function seedTrace(spot: number, updatedAt: string): PriceTracePoint[] {
+  const baseTime = new Date(updatedAt).getTime();
   return Array.from({ length: 18 }, (_, index) => {
     const phase = index / 2.3;
     const drift = (index - 17) * spot * 0.000003;
     const pulse = Math.sin(phase) * spot * 0.00024;
     const pressure = Math.cos(phase * 0.7) * spot * 0.00012;
+    const pointTime = Number.isNaN(baseTime) ? updatedAt : new Date(baseTime - (17 - index) * 15_000).toISOString();
 
     return {
       spot: spot + drift + pulse + pressure,
-      updatedAt
+      updatedAt: pointTime
     };
   });
 }
 
-function createChartGeometry(points: PriceTracePoint[]) {
-  const scaledPoints = scaleTracePoints(points);
-  const tracePath = createLinePath(scaledPoints);
+function createChartGeometry(points: PriceTracePoint[], targetPrice?: number) {
+  const priceRange = createPriceRange(points, targetPrice);
+  const scaledPoints = scaleTracePoints(points, priceRange);
+  const tracePath = createSmoothLinePath(scaledPoints);
+  const hasTargetPrice = typeof targetPrice === "number" && Number.isFinite(targetPrice);
 
   return {
-    areaPath: createAreaPath(scaledPoints, tracePath),
-    candlePath: createCandlePath(points, scaledPoints),
-    connectorPath: createConnectorPath(scaledPoints),
-    lastPoint: scaledPoints[scaledPoints.length - 1] ?? { x: 616, y: 88 },
+    lastPoint: scaledPoints[scaledPoints.length - 1] ?? { x: plotBounds.right, y: 100 },
+    priceTicks: createPriceTicks(priceRange),
+    targetY: hasTargetPrice ? scalePrice(targetPrice, priceRange) : null,
+    timeTicks: createTimeTicks(points, scaledPoints),
     tracePath
   };
 }
 
-function scaleTracePoints(points: PriceTracePoint[]): ChartPoint[] {
+function createPriceRange(points: PriceTracePoint[], targetPrice?: number) {
+  const values = points.map((point) => point.spot);
+  if (typeof targetPrice === "number" && Number.isFinite(targetPrice)) {
+    values.push(targetPrice);
+  }
+
+  if (values.length === 0) {
+    return {
+      max: 1,
+      mid: 0.5,
+      min: 0
+    };
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || Math.max(max * 0.0001, 1);
+  const paddedMin = min - range * 0.22;
+  const paddedMax = max + range * 0.22;
+
+  return {
+    max: paddedMax,
+    mid: (paddedMax + paddedMin) / 2,
+    min: paddedMin
+  };
+}
+
+function scaleTracePoints(points: PriceTracePoint[], priceRange: ReturnType<typeof createPriceRange>): ChartPoint[] {
   if (points.length === 0) {
     return [];
   }
 
-  const values = points.map((point) => point.spot);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || Math.max(max * 0.0001, 1);
-  const paddedMin = min - range * 0.18;
-  const paddedMax = max + range * 0.18;
-  const paddedRange = paddedMax - paddedMin || 1;
-  const left = 24;
-  const right = chartWidth - 24;
-  const top = 18;
-  const bottom = chartHeight - 24;
-  const xSpan = right - left;
-  const ySpan = bottom - top;
+  const xSpan = plotBounds.right - plotBounds.left;
   const denominator = Math.max(points.length - 1, 1);
 
   return points.map((point, index) => ({
-    x: round(left + (index / denominator) * xSpan),
-    y: round(bottom - ((point.spot - paddedMin) / paddedRange) * ySpan)
+    x: round(plotBounds.left + (index / denominator) * xSpan),
+    y: scalePrice(point.spot, priceRange)
   }));
 }
 
-function createLinePath(points: ChartPoint[]): string {
+function scalePrice(value: number, priceRange: ReturnType<typeof createPriceRange>): number {
+  const ySpan = plotBounds.bottom - plotBounds.top;
+  const paddedRange = priceRange.max - priceRange.min || 1;
+  return round(plotBounds.bottom - ((value - priceRange.min) / paddedRange) * ySpan);
+}
+
+function createSmoothLinePath(points: ChartPoint[]): string {
   if (points.length === 0) {
     return "";
   }
 
-  return points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x} ${point.y}`).join("");
-}
-
-function createAreaPath(points: ChartPoint[], tracePath: string): string {
-  if (points.length === 0 || !tracePath) {
-    return "";
+  if (points.length === 1) {
+    return `M${points[0].x} ${points[0].y}`;
   }
 
-  const firstPoint = points[0];
-  return `${tracePath}V${chartHeight}H${firstPoint.x}V${firstPoint.y}Z`;
-}
-
-function createConnectorPath(points: ChartPoint[]): string {
-  if (points.length < 2) {
-    return "";
+  let path = `M${points[0].x} ${points[0].y}`;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const p0 = points[index - 1] ?? points[index];
+    const p1 = points[index];
+    const p2 = points[index + 1];
+    const p3 = points[index + 2] ?? p2;
+    const cp1x = round(p1.x + (p2.x - p0.x) / 6);
+    const cp1y = round(p1.y + (p2.y - p0.y) / 6);
+    const cp2x = round(p2.x - (p3.x - p1.x) / 6);
+    const cp2y = round(p2.y - (p3.y - p1.y) / 6);
+    path += `C${cp1x} ${cp1y} ${cp2x} ${cp2y} ${p2.x} ${p2.y}`;
   }
 
-  return points
-    .slice(1)
-    .map((point, index) => {
-      const previousPoint = points[index];
-      return `M${previousPoint.x} ${previousPoint.y}H${point.x}`;
-    })
-    .join("");
+  return path;
 }
 
-function createCandlePath(sourcePoints: PriceTracePoint[], scaledPoints: ChartPoint[]): string {
-  if (scaledPoints.length === 0) {
-    return "";
+function createPriceTicks(priceRange: ReturnType<typeof createPriceRange>): PriceTick[] {
+  const tickCount = 4;
+  const range = priceRange.max - priceRange.min || 1;
+
+  return Array.from({ length: tickCount }, (_, index) => {
+    const value = priceRange.max - (range * index) / (tickCount - 1);
+    return {
+      value,
+      y: scalePrice(value, priceRange)
+    };
+  });
+}
+
+function createTimeTicks(points: PriceTracePoint[], scaledPoints: ChartPoint[]): TimeTick[] {
+  if (points.length === 0 || scaledPoints.length === 0) {
+    return [];
   }
 
-  const values = sourcePoints.map((point) => point.spot);
-  const range = Math.max(Math.max(...values) - Math.min(...values), values[0] * 0.00012, 1);
+  const lastIndex = points.length - 1;
+  const indexes = [0, Math.floor(lastIndex / 2), lastIndex];
+  const anchors: TimeTick["anchor"][] = ["start", "middle", "end"];
 
-  return scaledPoints
-    .map((point, index) => {
-      const amplitude = 7 + Math.abs(Math.sin(index * 1.7)) * 13 + Math.min(range * 0.0002, 8);
-      const high = clamp(point.y - amplitude, 14, chartHeight - 18);
-      const low = clamp(point.y + amplitude, 14, chartHeight - 18);
-      return `M${point.x} ${round(high)}V${round(low)}`;
-    })
-    .join("");
+  return indexes.map((pointIndex, index) => ({
+    anchor: anchors[index],
+    updatedAt: points[pointIndex].updatedAt,
+    x: scaledPoints[pointIndex].x
+  }));
+}
+
+function alignTracePoints(startPoints: PriceTracePoint[], endPoints: PriceTracePoint[]): PriceTracePoint[] {
+  if (startPoints.length === endPoints.length) {
+    return startPoints;
+  }
+
+  if (startPoints.length === 0) {
+    return endPoints;
+  }
+
+  if (startPoints.length > endPoints.length) {
+    return startPoints.slice(startPoints.length - endPoints.length);
+  }
+
+  const missingCount = endPoints.length - startPoints.length;
+  const firstPoint = startPoints[0] ?? endPoints[0];
+  return [...Array.from({ length: missingCount }, () => firstPoint), ...startPoints];
+}
+
+function easeOutCubic(value: number): number {
+  return 1 - (1 - value) ** 3;
+}
+
+function lerp(start: number, end: number, progress: number): number {
+  return start + (end - start) * progress;
+}
+
+function createTimeTickTransform(anchor: TimeTick["anchor"]): string {
+  if (anchor === "middle") {
+    return "translateX(-50%)";
+  }
+
+  if (anchor === "end") {
+    return "translateX(-100%)";
+  }
+
+  return "translateX(0)";
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -278,6 +483,15 @@ function formatUsd(value: number): string {
     currency: "USD",
     maximumFractionDigits: 2,
     minimumFractionDigits: 2,
+    style: "currency"
+  }).format(value);
+}
+
+function formatAxisUsd(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
     style: "currency"
   }).format(value);
 }

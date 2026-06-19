@@ -20,7 +20,7 @@ describe("ArenaPage", () => {
     expect(screen.getByLabelText(/BTC reference chart/i)).toBeInTheDocument();
     expect(screen.getByText(/Binance BTCUSDT reference display/i)).toBeInTheDocument();
     expect(screen.getByText(/Predict oracle drives arena settlement/i)).toBeInTheDocument();
-    expect(screen.getByText(/Active BTC reference trace/i)).toBeInTheDocument();
+    expect(screen.getByText(/Active BTC price line/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /My Agent/i })).toBeInTheDocument();
     expect(screen.getByText(/Trend Ranger/i)).toBeInTheDocument();
     expect(screen.getByText(/UP 65000000000000/i)).toBeInTheDocument();
@@ -38,7 +38,7 @@ describe("ArenaPage", () => {
     });
 
     expect(screen.getAllByText(/Waiting for BTC reference data/i).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Active BTC reference trace/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Active BTC price line/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Predict refresh failed/i)).toBeInTheDocument();
   });
 

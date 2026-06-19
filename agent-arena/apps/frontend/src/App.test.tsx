@@ -59,7 +59,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Arena$/i }));
     expect(await screen.findByRole("heading", { name: /BTC 15m Arena/i })).toBeInTheDocument();
     expect(liveMarketLoader).toHaveBeenCalled();
-    expect(await screen.findByText("$65,611.52")).toBeInTheDocument();
+    expect(await screen.findByTestId("btc-current-price-label")).toHaveTextContent("$65,611.52");
     expect(screen.getByText(/Binance BTCUSDT reference display/i)).toBeInTheDocument();
     expect(screen.getByText(/Predict oracle drives arena settlement/i)).toBeInTheDocument();
     const myAgentProfile = screen.getByRole("region", { name: /My Agent profile/i });
