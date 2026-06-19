@@ -15,7 +15,8 @@ describe("ArenaPriceChart", () => {
     expect(screen.getByText("Target")).toBeInTheDocument();
     expect(screen.getAllByTestId("btc-price-tick")).toHaveLength(4);
     expect(screen.getAllByTestId("btc-price-tick").every((tick) => tick.textContent?.startsWith("$"))).toBe(true);
-    expect(screen.getAllByTestId("btc-time-tick")).toHaveLength(3);
+    expect(screen.getAllByTestId("btc-time-tick")).toHaveLength(2);
+    expect(screen.getAllByTestId("btc-time-tick").map((tick) => tick.textContent)).not.toContain("15:00:54 UTC");
     expect(screen.getByTestId("btc-current-price-label")).toHaveTextContent("$65,611.52");
     expect(screen.getByTestId("btc-current-time-label")).toHaveTextContent("15:00:54 UTC");
   });

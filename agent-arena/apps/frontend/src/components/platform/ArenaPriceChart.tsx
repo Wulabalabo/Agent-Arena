@@ -34,6 +34,9 @@ interface ArenaPriceChartProps {
 export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProps) {
   const price = snapshot?.price;
   const oracle = snapshot?.oracle;
+  const spot = price?.spot;
+  const priceUpdatedAt = price?.updatedAt;
+  const forwardPrice = price?.forward ?? undefined;
   const hasActiveReferenceTrace = Boolean(price) && status !== "error";
   const [tracePoints, setTracePoints] = useState<PriceTracePoint[]>([]);
   const renderedTracePointsRef = useRef<PriceTracePoint[]>([]);
@@ -43,33 +46,34 @@ export function ArenaPriceChart({ error, snapshot, status }: ArenaPriceChartProp
     setRenderedTracePointsState(points);
   };
   const visibleTracePoints = useMemo(() => {
-    if (!hasActiveReferenceTrace || !price) {
+    if (!hasActiveReferenceTrace || typeof spot !== "number" || !priceUpdatedAt) {
       return [];
     }
 
-    return tracePoints.length > 0 ? tracePoints : seedTrace(price.spot, price.updatedAt);
-  }, [hasActiveReferenceTrace, price, tracePoints]);
+    return tracePoints.length > 0 ? tracePoints : seedTrace(spot, priceUpdatedAt);
+  }, [hasActiveReferenceTrace, priceUpdatedAt, spot, tracePoints]);
   const chartSourcePoints = renderedTracePoints.length > 0 ? renderedTracePoints : visibleTracePoints;
+  const chartPriceRange = useMemo(() => createPriceRange(visibleTracePoints, forwardPrice), [forwardPrice, visibleTracePoints]);
   const chartGeometry = useMemo(
-    () => createChartGeometry(chartSourcePoints, price?.forward ?? undefined),
-    [chartSourcePoints, price?.forward]
+    () => createChartGeometry(chartSourcePoints, chartPriceRange, forwardPrice),
+    [chartPriceRange, chartSourcePoints, forwardPrice]
   );
 
   useEffect(() => {
-    if (!price || status === "error") {
+    if (typeof spot !== "number" || !priceUpdatedAt || status === "error") {
       return;
     }
 
     setTracePoints((currentPoints) => {
       const latestPoint = currentPoints[currentPoints.length - 1];
-      if (latestPoint?.spot === price.spot && latestPoint.updatedAt === price.updatedAt) {
+      if (latestPoint?.spot === spot && latestPoint.updatedAt === priceUpdatedAt) {
         return currentPoints;
       }
 
-      const nextPoints = currentPoints.length > 0 ? currentPoints : seedTrace(price.spot, price.updatedAt);
-      return [...nextPoints, { spot: price.spot, updatedAt: price.updatedAt }].slice(-traceLimit);
+      const nextPoints = currentPoints.length > 0 ? currentPoints : seedTrace(spot, priceUpdatedAt);
+      return [...nextPoints, { spot, updatedAt: priceUpdatedAt }].slice(-traceLimit);
     });
-  }, [price, status]);
+  }, [priceUpdatedAt, spot, status]);
 
   useEffect(() => {
     if (!hasActiveReferenceTrace || visibleTracePoints.length === 0) {
@@ -306,8 +310,7 @@ function seedTrace(spot: number, updatedAt: string): PriceTracePoint[] {
   });
 }
 
-function createChartGeometry(points: PriceTracePoint[], targetPrice?: number) {
-  const priceRange = createPriceRange(points, targetPrice);
+function createChartGeometry(points: PriceTracePoint[], priceRange: ReturnType<typeof createPriceRange>, targetPrice?: number) {
   const scaledPoints = scaleTracePoints(points, priceRange);
   const tracePath = createSmoothLinePath(scaledPoints);
   const hasTargetPrice = typeof targetPrice === "number" && Number.isFinite(targetPrice);
@@ -407,19 +410,23 @@ function createPriceTicks(priceRange: ReturnType<typeof createPriceRange>): Pric
 }
 
 function createTimeTicks(points: PriceTracePoint[], scaledPoints: ChartPoint[]): TimeTick[] {
-  if (points.length === 0 || scaledPoints.length === 0) {
+  if (points.length < 3 || scaledPoints.length < 3) {
     return [];
   }
 
   const lastIndex = points.length - 1;
-  const indexes = [0, Math.floor(lastIndex / 2), lastIndex];
-  const anchors: TimeTick["anchor"][] = ["start", "middle", "end"];
+  const indexes = [0, Math.floor((lastIndex - 1) / 2)];
+  const anchors: TimeTick["anchor"][] = ["start", "middle"];
+  const latestUpdatedAt = points[lastIndex].updatedAt;
 
-  return indexes.map((pointIndex, index) => ({
-    anchor: anchors[index],
-    updatedAt: points[pointIndex].updatedAt,
-    x: scaledPoints[pointIndex].x
-  }));
+  return indexes
+    .filter((pointIndex, index, sourceIndexes) => sourceIndexes.indexOf(pointIndex) === index)
+    .filter((pointIndex) => points[pointIndex].updatedAt !== latestUpdatedAt)
+    .map((pointIndex, index) => ({
+      anchor: anchors[index],
+      updatedAt: points[pointIndex].updatedAt,
+      x: scaledPoints[pointIndex].x
+    }));
 }
 
 function alignTracePoints(startPoints: PriceTracePoint[], endPoints: PriceTracePoint[]): PriceTracePoint[] {
