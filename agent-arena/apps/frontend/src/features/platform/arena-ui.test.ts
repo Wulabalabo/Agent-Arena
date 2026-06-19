@@ -31,6 +31,9 @@ describe("arena UI contracts", () => {
     expect(profile.twitterVerified).toBe(false);
     expect(profile.positionLabel).toBe("UP 65000000000000");
     expect(profile.realizedPnlPct).toBe(0.1842);
+    expect(profile.walletBalanceLabel).toBe("125.00 DUSDC / 4.20 SUI");
+    expect(profile.quoteBalance).toBe("125.00");
+    expect(profile.testnetSuiBalance).toBe("4.20");
     expect(profile.latestIntentId).toBe("intent_1");
     expect(profile.latestExecutionId).toBe("exec_1");
     expect(profile.latestPredictTxDigest).toBe("0xmock_exec_1");
@@ -206,6 +209,25 @@ describe("arena UI contracts", () => {
     expect(profile.tradingWalletAddress).toBe(mockPlatformSnapshot.agents[1].tradingWalletAddress);
     expect(profile.tradingWalletAddress).toBe("0xagentwallet_agent_2");
     expect(profile.tradingWalletAddress).not.toBe(mockPlatformSnapshot.tradingWallet.address);
+    expect(profile.walletBalanceLabel).toBe("not available");
+  });
+
+  it("formats raw DUSDC quote balances for the user Agent profile display", () => {
+    const profile = createUserAgentArenaProfile({
+      agent: mockPlatformSnapshot.agents[0],
+      tradingWallet: {
+        ...mockPlatformSnapshot.tradingWallet,
+        quoteBalance: "10254850",
+        testnetSuiBalance: "0.976797716"
+      },
+      positions: [],
+      intents: [],
+      executions: [],
+      leaderboard: []
+    });
+
+    expect(profile.quoteBalance).toBe("10.25485");
+    expect(profile.walletBalanceLabel).toBe("10.25485 DUSDC / 0.976797716 SUI");
   });
 
   it("marks the selected Agent profile as attention when its latest intent failed", () => {
@@ -235,7 +257,8 @@ describe("arena UI contracts", () => {
       agents: mockPlatformSnapshot.agents,
       intents: mockPlatformSnapshot.intents,
       executions: mockPlatformSnapshot.executions,
-      leaderboard: mockPlatformSnapshot.leaderboard
+      leaderboard: mockPlatformSnapshot.leaderboard,
+      ownerAgentId: "agent_1"
     });
 
     expect(items.map((item) => item.timestamp)).toEqual(
@@ -255,6 +278,7 @@ describe("arena UI contracts", () => {
       agentDisplayName: "Trend Ranger",
       pnlDeltaPct: 0.1842,
       scoreDelta: 28.49,
+      walletScope: "owner",
       status: "info"
     }));
 
@@ -263,6 +287,7 @@ describe("arena UI contracts", () => {
       direction: "UP",
       quantity: "10",
       maxCost: "5.00",
+      walletScope: "owner",
       status: "executed"
     }));
     expect(items.find((item) => item.id === "intent:intent_2")).toEqual(expect.objectContaining({
@@ -270,12 +295,14 @@ describe("arena UI contracts", () => {
       lowerStrike: "64000000000000",
       higherStrike: "66000000000000",
       rejectionCode: "RISK_LIMIT_EXCEEDED",
+      walletScope: "public",
       status: "rejected"
     }));
     expect(items.find((item) => item.id === "execution:exec_1")).toEqual(expect.objectContaining({
       action: "executed",
       agentDisplayName: "Trend Ranger",
       predictTxDigest: "0xmock_exec_1",
+      walletScope: "owner",
       status: "executed"
     }));
   });
@@ -305,6 +332,24 @@ describe("arena UI contracts", () => {
       ["execution:exec_signed", "queued"],
       ["execution:exec_queued", "queued"]
     ]);
+  });
+
+  it("marks all owner Agent ids in the public feed as owner wallet scope", () => {
+    const items = createPublicActionFeedItems({
+      agents: mockPlatformSnapshot.agents,
+      intents: [
+        { ...mockPlatformSnapshot.intents[0], agentId: "agent_1", id: "intent_owner_current" },
+        { ...mockPlatformSnapshot.intents[1], agentId: "agent_2", id: "intent_owner_previous" },
+        { ...mockPlatformSnapshot.intents[1], agentId: "agent_3", id: "intent_public" }
+      ],
+      executions: [],
+      leaderboard: [],
+      ownerAgentIds: ["agent_1", "agent_2"]
+    });
+
+    expect(items.find((item) => item.id === "intent:intent_owner_current")).toMatchObject({ walletScope: "owner" });
+    expect(items.find((item) => item.id === "intent:intent_owner_previous")).toMatchObject({ walletScope: "owner" });
+    expect(items.find((item) => item.id === "intent:intent_public")).toMatchObject({ walletScope: "public" });
   });
 
   it("maps every intent feed status explicitly", () => {

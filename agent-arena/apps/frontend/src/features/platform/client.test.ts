@@ -80,6 +80,32 @@ describe("createPlatformClient", () => {
     });
   });
 
+  it("loads a claimed owner Agent profile by owner wallet address", async () => {
+    const fetcher = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          agent: mockPlatformSnapshot.agents[0],
+          tradingWallet: mockPlatformSnapshot.tradingWallet,
+          positions: mockPlatformSnapshot.positions,
+          intents: mockPlatformSnapshot.intents,
+          executions: mockPlatformSnapshot.executions,
+          leaderboard: mockPlatformSnapshot.leaderboard
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena/", fetcher });
+
+    const result = await client.getOwnerAgentProfile("0xOwner ABC");
+
+    expect(result.agent?.id).toBe("agent_1");
+    expect(result.tradingWallet?.address).toBe("0xagentwallet_agent_1");
+    expect(result.positions).toHaveLength(mockPlatformSnapshot.positions.length);
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://platform.test/api/arena/owner/agent?ownerAddress=0xOwner%20ABC"
+    );
+  });
+
   it("uses the runtime credential header for agent runtime methods", async () => {
     const fetcher = vi.fn(async (url: string) => {
       if (url.endsWith("/agent/me")) {
@@ -275,7 +301,8 @@ describe("createPlatformClient", () => {
       ],
       intents: [mockPlatformSnapshot.intents[0]],
       executions: [mockPlatformSnapshot.executions[0]],
-      leaderboard: [mockPlatformSnapshot.leaderboard[0]]
+      leaderboard: [mockPlatformSnapshot.leaderboard[0]],
+      ownerAgentIds: ["agent_1"]
     };
     const fetcher = vi.fn(async () =>
       new Response(JSON.stringify(publicActivity), {
@@ -285,8 +312,10 @@ describe("createPlatformClient", () => {
     );
     const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
 
-    await expect(client.listCompetitionPublicActivity("btc-15m-001")).resolves.toEqual(publicActivity);
-    expect(fetcher).toHaveBeenCalledWith("https://platform.test/api/arena/competition/btc-15m-001/public-feed");
+    await expect(client.listCompetitionPublicActivity("btc-15m-001", "0xOwner ABC")).resolves.toEqual(publicActivity);
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://platform.test/api/arena/competition/btc-15m-001/public-feed?ownerAddress=0xOwner%20ABC"
+    );
   });
 
   it("maps structured API errors to PlatformClientError", async () => {

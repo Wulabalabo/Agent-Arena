@@ -8,16 +8,18 @@ describe("PublicActionFeed", () => {
     render(<PublicActionFeed items={createFeedItems(14)} />);
 
     const list = screen.getByTestId("public-action-feed-list");
-    expect(list).toHaveClass("max-h-[620px]");
+    expect(list).toHaveClass("h-[420px]");
+    expect(list).toHaveClass("xl:h-[560px]");
     expect(list).toHaveClass("overflow-y-auto");
-    expect(screen.getByText("10 of 14 shown")).toBeInTheDocument();
+    expect(list).not.toHaveClass("xl:max-h-none");
+    expect(screen.getByText("8 of 14 shown")).toBeInTheDocument();
     const messages = within(list).getAllByRole("article");
-    expect(messages).toHaveLength(10);
+    expect(messages).toHaveLength(8);
     expect(messages[0]).toHaveClass("rounded-2xl");
     expect(messages[0]).toHaveClass("max-w-[92%]");
     expect(messages[0]).not.toHaveClass("paper-inset");
     expect(screen.getByText("Reason 13")).toBeInTheDocument();
-    expect(screen.queryByText("Reason 3")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reason 5")).not.toBeInTheDocument();
   });
 
   it("summarizes Agent buying actions at a glance", () => {

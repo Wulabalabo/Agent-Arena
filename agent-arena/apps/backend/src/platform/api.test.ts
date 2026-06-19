@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createAgentArenaFetchHandler } from "../server";
 import { createPlatformFetchHandler } from "./api";
+import { PlatformMockStore } from "./mock-store";
 import { createPerformanceLedgerRecord, createRegistrationCodeHash } from "./performance-ledger";
 import { createMockCompetition } from "./types";
 
@@ -176,6 +177,164 @@ describe("Agent Arena platform API", () => {
       { kind: "wallet_binding", tradingWalletId: "wallet_internal_001" }
     ]);
     expect(JSON.stringify(store.listPerformanceLedger({ agentId: body.agent.id }))).not.toContain(draft.registrationCode);
+  });
+
+  it("serves the claimed owner Agent profile by owner wallet address", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch, {
+      displayName: "Owner Linked Agent",
+      ownerAddress: "0xOwnerABC",
+      twitterHandle: "@linked_agent"
+    });
+
+    const response = await fetch(new Request("http://localhost/api/arena/owner/agent?ownerAddress=0xownerabc"));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.agent).toMatchObject({
+      id: claimed.agent.id,
+      displayName: "Owner Linked Agent",
+      ownerAddress: "0xOwnerABC",
+      twitterHandle: "linked_agent",
+      tradingWalletAddress: claimed.tradingWallet.address
+    });
+    expect(body.tradingWallet).toMatchObject({
+      agentId: claimed.agent.id,
+      address: claimed.tradingWallet.address,
+      status: "active"
+    });
+    expect(body.positions).toEqual([]);
+    expect(body.intents).toEqual([]);
+    expect(body.executions).toEqual([]);
+    expect(body.leaderboard).toEqual([]);
+    expect(JSON.stringify(body)).not.toContain(claimed.runtimeCredential.token);
+  });
+
+  it("serves the current owner Agent when an owner has duplicate claimed Agents", async () => {
+    const store = new PlatformMockStore();
+    let nowMs = Date.parse("2026-06-18T13:00:00.000Z");
+    const fetch = createPlatformFetchHandler(store, {
+      now: () => nowMs
+    });
+    await claimTestAgent(fetch, {
+      displayName: "Old Owner Agent",
+      ownerAddress: "0xOwnerABC"
+    });
+
+    nowMs = Date.parse("2026-06-19T17:26:25.451Z");
+    const current = await claimTestAgent(fetch, {
+      displayName: "Current Owner Agent",
+      ownerAddress: "0xOwnerABC"
+    });
+    const currentWallet = store.updateTradingWallet(current.tradingWallet.id, {
+      testnetSuiBalance: "0.976797716",
+      quoteBalance: "10254850",
+      predictManagerStatus: "ready",
+      predictManagerId: "0xmanager_current"
+    });
+
+    const response = await fetch(new Request("http://localhost/api/arena/owner/agent?ownerAddress=0xownerabc"));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.agent).toMatchObject({
+      id: current.agent.id,
+      displayName: "Current Owner Agent",
+      ownerAddress: "0xOwnerABC",
+      tradingWalletAddress: currentWallet.address
+    });
+    expect(body.tradingWallet).toMatchObject({
+      id: currentWallet.id,
+      agentId: current.agent.id,
+      testnetSuiBalance: "0.976797716",
+      quoteBalance: "10254850",
+      predictManagerStatus: "ready",
+      predictManagerId: "0xmanager_current"
+    });
+    expect(store.getIdentityBindingByAgentId(current.agent.id)).toMatchObject({
+      tradingWalletId: currentWallet.id,
+      walletAddress: currentWallet.address,
+      predictManagerId: "0xmanager_current"
+    });
+  });
+
+  it("returns owner Agent ids in the public feed for owner wallet scoping", async () => {
+    const store = new PlatformMockStore();
+    const fetch = createPlatformFetchHandler(store);
+    const first = await claimTestAgent(fetch, {
+      displayName: "First Owner Agent",
+      ownerAddress: "0xowner"
+    });
+    const second = await claimTestAgent(fetch, {
+      displayName: "Second Owner Agent",
+      ownerAddress: "0xowner"
+    });
+    const other = await claimTestAgent(fetch, {
+      displayName: "Other Agent",
+      ownerAddress: "0xother"
+    });
+
+    store.saveIntent({
+      id: "intent_owner_first",
+      competitionId: "btc-15m-001",
+      agentId: first.agent.id,
+      idempotencyKey: "owner-first",
+      action: "hold",
+      status: "accepted",
+      confidence: 0.5,
+      reason: "Owner first wallet activity.",
+      rejectionCode: null,
+      createdAt: "2026-06-19T17:30:00.000Z"
+    });
+    store.saveIntent({
+      id: "intent_owner_second",
+      competitionId: "btc-15m-001",
+      agentId: second.agent.id,
+      idempotencyKey: "owner-second",
+      action: "hold",
+      status: "accepted",
+      confidence: 0.5,
+      reason: "Owner second wallet activity.",
+      rejectionCode: null,
+      createdAt: "2026-06-19T17:31:00.000Z"
+    });
+    store.saveIntent({
+      id: "intent_other",
+      competitionId: "btc-15m-001",
+      agentId: other.agent.id,
+      idempotencyKey: "other",
+      action: "hold",
+      status: "accepted",
+      confidence: 0.5,
+      reason: "Other wallet activity.",
+      rejectionCode: null,
+      createdAt: "2026-06-19T17:32:00.000Z"
+    });
+
+    const response = await fetch(new Request("http://localhost/api/arena/competition/btc-15m-001/public-feed?ownerAddress=0xowner"));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.ownerAgentIds).toEqual([first.agent.id, second.agent.id]);
+    expect(body.agents.map((agent: { id: string }) => agent.id).sort()).toEqual(
+      [first.agent.id, second.agent.id, other.agent.id].sort()
+    );
+  });
+
+  it("returns an empty owner Agent profile for an unbound owner wallet", async () => {
+    const fetch = createPlatformFetchHandler();
+
+    const response = await fetch(new Request("http://localhost/api/arena/owner/agent?ownerAddress=0xunbound"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      agent: null,
+      tradingWallet: null,
+      positions: [],
+      intents: [],
+      executions: [],
+      leaderboard: []
+    });
   });
 
   it("rejects owner wallet withdrawal when only an Agent runtime token is supplied", async () => {

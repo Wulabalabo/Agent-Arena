@@ -12,7 +12,21 @@ describe("Agent Arena acceptance", () => {
   it("shows the Agent participation MVP path without user betting language", async () => {
     const liveMarketLoader = vi.fn(async () => acceptanceLiveMarketSnapshot);
     const platformFetcher = vi.fn(async (url: string) => {
-      if (url.endsWith("/public-feed")) {
+      if (url.includes("/owner/agent?")) {
+        return new Response(JSON.stringify({
+          agent: mockPlatformSnapshot.agents[0],
+          tradingWallet: mockPlatformSnapshot.tradingWallet,
+          positions: mockPlatformSnapshot.positions,
+          intents: mockPlatformSnapshot.intents,
+          executions: mockPlatformSnapshot.executions,
+          leaderboard: mockPlatformSnapshot.leaderboard
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      if (url.includes("/public-feed")) {
         return new Response(JSON.stringify({
           agents: mockPlatformSnapshot.agents,
           intents: mockPlatformSnapshot.intents,

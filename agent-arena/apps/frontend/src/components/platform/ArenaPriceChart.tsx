@@ -204,7 +204,7 @@ export function ArenaPriceChart({ className = "", error, marketReference = null,
             </span>
             {chartGeometry.referenceLines.map((referenceLine) => (
               <span
-                className="pointer-events-none absolute h-5 min-w-14 -translate-y-1/2 rounded-full bg-[#8b949e] px-2 text-center font-mono text-[10px] font-black leading-5 text-white"
+                className="pointer-events-none absolute h-5 min-w-24 -translate-y-1/2 whitespace-nowrap rounded-full bg-[#8b949e] px-2 text-center font-mono text-[10px] font-black leading-5 text-white"
                 key={referenceLine.id}
                 style={{ left: `${(566 / viewBoxWidth) * 100}%`, top: `${(referenceLine.y / viewBoxHeight) * 100}%` }}
               >
@@ -306,6 +306,7 @@ interface TimeTick {
 interface ReferenceLine {
   id: "higher-strike" | "lower-strike" | "strike";
   label: string;
+  value: number;
   y: number;
 }
 
@@ -398,7 +399,8 @@ function createReferenceLines(
     return [
       {
         id: "strike",
-        label: "Strike",
+        label: `Strike ${formatUsd(marketReference.strike)}`,
+        value: marketReference.strike,
         y: scalePrice(marketReference.strike, priceRange)
       }
     ];
@@ -407,12 +409,14 @@ function createReferenceLines(
   return [
     {
       id: "lower-strike",
-      label: "Range low",
+      label: `Range low ${formatUsd(marketReference.lowerStrike)}`,
+      value: marketReference.lowerStrike,
       y: scalePrice(marketReference.lowerStrike, priceRange)
     },
     {
       id: "higher-strike",
-      label: "Range high",
+      label: `Range high ${formatUsd(marketReference.higherStrike)}`,
+      value: marketReference.higherStrike,
       y: scalePrice(marketReference.higherStrike, priceRange)
     }
   ];

@@ -48,6 +48,7 @@ export interface PublicActionFeedItem {
   pnlDeltaPct?: number;
   scoreDelta?: number;
   predictTxDigest?: string;
+  walletScope?: "owner" | "public";
 }
 
 export interface UserAgentArenaProfile {
@@ -55,6 +56,8 @@ export interface UserAgentArenaProfile {
   agentId: string | null;
   displayName: string;
   ownerAddress: string | null;
+  quoteBalance: string | null;
+  testnetSuiBalance: string | null;
   twitterHandle: string | null;
   twitterVerified: false;
   tradingWalletAddress: string | null;
@@ -65,6 +68,7 @@ export interface UserAgentArenaProfile {
   submittedBudgetRaw: string | null;
   realizedPnlPct: number | null;
   unrealizedPnlPct: number | null;
+  walletBalanceLabel: string;
   latestIntentId: string | null;
   latestExecutionId: string | null;
   latestPredictTxDigest: string | null;
@@ -98,6 +102,8 @@ interface CreatePublicActionFeedItemsInput {
   intents: AgentIntent[];
   executions: ExecutionRecord[];
   leaderboard: LeaderboardEntry[];
+  ownerAgentId?: string | null;
+  ownerAgentIds?: readonly string[];
 }
 
 interface CreateArenaChartMarketReferenceInput {
@@ -116,6 +122,8 @@ export function createUserAgentArenaProfile(input: CreateUserAgentArenaProfileIn
       agentId: null,
       displayName: "No claimed Agent",
       ownerAddress: null,
+      quoteBalance: null,
+      testnetSuiBalance: null,
       twitterHandle: null,
       twitterVerified: false,
       tradingWalletAddress: null,
@@ -126,6 +134,7 @@ export function createUserAgentArenaProfile(input: CreateUserAgentArenaProfileIn
       submittedBudgetRaw: null,
       realizedPnlPct: null,
       unrealizedPnlPct: null,
+      walletBalanceLabel: "not available",
       latestIntentId: null,
       latestExecutionId: null,
       latestPredictTxDigest: null
@@ -139,6 +148,7 @@ export function createUserAgentArenaProfile(input: CreateUserAgentArenaProfileIn
   const latestExecution = findNewestByCreatedAt(agentExecutions);
   const openPosition = positions.find((position) => position.agentId === agent.id && position.status === "open");
   const leaderboardEntry = leaderboard.find((entry) => entry.agentId === agent.id);
+  const quoteBalance = agentTradingWallet ? formatQuoteBalance(agentTradingWallet.quoteBalance) : null;
   const accountState = deriveAccountState({
     agent,
     tradingWallet: agentTradingWallet,
@@ -152,6 +162,8 @@ export function createUserAgentArenaProfile(input: CreateUserAgentArenaProfileIn
     agentId: agent.id,
     displayName: agent.displayName,
     ownerAddress: agent.ownerAddress || null,
+    quoteBalance,
+    testnetSuiBalance: agentTradingWallet?.testnetSuiBalance ?? null,
     twitterHandle: agent.twitterHandle,
     twitterVerified: false,
     tradingWalletAddress: agentTradingWallet?.address ?? agent.tradingWalletAddress ?? null,
@@ -162,6 +174,7 @@ export function createUserAgentArenaProfile(input: CreateUserAgentArenaProfileIn
     submittedBudgetRaw: latestIntent?.budgetRaw ?? null,
     realizedPnlPct: leaderboardEntry?.netPnlPct ?? null,
     unrealizedPnlPct: null,
+    walletBalanceLabel: formatWalletBalance(agentTradingWallet),
     latestIntentId: latestIntent?.id ?? null,
     latestExecutionId: latestExecution?.id ?? null,
     latestPredictTxDigest: latestExecution?.predictTxDigest ?? null
@@ -170,6 +183,7 @@ export function createUserAgentArenaProfile(input: CreateUserAgentArenaProfileIn
 
 export function createPublicActionFeedItems(input: CreatePublicActionFeedItemsInput): PublicActionFeedItem[] {
   const agentDisplayNames = createAgentDisplayNameLookup(input.agents, input.leaderboard);
+  const ownerAgentIds = createOwnerAgentIdSet(input.ownerAgentId, input.ownerAgentIds);
   const intentItems = input.intents.map((intent): PublicActionFeedItem => ({
     id: `intent:${intent.id}`,
     timestamp: intent.createdAt,
@@ -184,6 +198,7 @@ export function createPublicActionFeedItems(input: CreatePublicActionFeedItemsIn
     quantity: intent.quantity,
     maxCost: intent.maxCost,
     minProceeds: intent.minProceeds,
+    walletScope: walletScopeForAgent(intent.agentId, ownerAgentIds),
     ...marketFields(intent)
   }));
   const executionItems = input.executions.map((execution): PublicActionFeedItem => ({
@@ -193,6 +208,7 @@ export function createPublicActionFeedItems(input: CreatePublicActionFeedItemsIn
     agentDisplayName: agentDisplayNames.get(execution.agentId) ?? execution.agentId,
     action: "executed",
     status: statusFromExecution(execution),
+    walletScope: walletScopeForAgent(execution.agentId, ownerAgentIds),
     predictTxDigest: execution.predictTxDigest ?? undefined
   }));
   const leaderboardItems = input.leaderboard.map((entry): PublicActionFeedItem => ({
@@ -203,12 +219,48 @@ export function createPublicActionFeedItems(input: CreatePublicActionFeedItemsIn
     action: "score_update",
     status: "info",
     pnlDeltaPct: entry.netPnlPct,
+    walletScope: walletScopeForAgent(entry.agentId, ownerAgentIds),
     scoreDelta: entry.score
   }));
 
   return [...intentItems, ...executionItems, ...leaderboardItems].sort((left, right) =>
     right.timestamp.localeCompare(left.timestamp)
   );
+}
+
+function formatWalletBalance(wallet: TradingWallet | null): string {
+  if (!wallet) {
+    return "not available";
+  }
+
+  return `${formatQuoteBalance(wallet.quoteBalance)} DUSDC / ${wallet.testnetSuiBalance} SUI`;
+}
+
+function formatQuoteBalance(value: string): string {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed) || trimmed === "0") {
+    return trimmed || "0";
+  }
+
+  return formatRawUnits(trimmed, 6);
+}
+
+function formatRawUnits(raw: string, decimals: number): string {
+  const padded = raw.padStart(decimals + 1, "0");
+  const whole = padded.slice(0, -decimals).replace(/^0+(?=\d)/, "");
+  const fractional = padded.slice(-decimals).replace(/0+$/, "");
+  return fractional ? `${whole}.${fractional}` : whole;
+}
+
+function createOwnerAgentIdSet(ownerAgentId?: string | null, ownerAgentIds: readonly string[] = []): Set<string> {
+  return new Set([
+    ...ownerAgentIds,
+    ...(ownerAgentId ? [ownerAgentId] : [])
+  ]);
+}
+
+function walletScopeForAgent(agentId: string, ownerAgentIds: ReadonlySet<string>): PublicActionFeedItem["walletScope"] {
+  return ownerAgentIds.has(agentId) ? "owner" : "public";
 }
 
 export function createArenaChartMarketReference({

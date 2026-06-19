@@ -253,6 +253,16 @@ export interface PublicArenaActivity {
   intents: AgentIntent[];
   executions: ExecutionRecord[];
   leaderboard: LeaderboardEntry[];
+  ownerAgentIds?: string[];
+}
+
+export interface OwnerAgentProfile {
+  agent: AgentProfile | null;
+  tradingWallet: TradingWallet | null;
+  positions: AgentPositionSnapshot[];
+  intents: AgentIntent[];
+  executions: ExecutionRecord[];
+  leaderboard: LeaderboardEntry[];
 }
 
 export interface ReplayEvent {

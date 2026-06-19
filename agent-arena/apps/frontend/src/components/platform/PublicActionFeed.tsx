@@ -6,7 +6,7 @@ interface PublicActionFeedProps {
   items: PublicActionFeedItem[];
 }
 
-const maxVisibleFeedItems = 10;
+const maxVisibleFeedItems = 8;
 
 export function PublicActionFeed({ className = "", items }: PublicActionFeedProps) {
   const visibleItems = [...items]
@@ -14,7 +14,7 @@ export function PublicActionFeed({ className = "", items }: PublicActionFeedProp
     .slice(0, maxVisibleFeedItems);
 
   return (
-    <aside aria-label="Public action feed" className={`paper-card-sm flex flex-col p-3 ${className}`}>
+    <aside aria-label="Public action feed" className={`paper-card-sm flex min-h-0 flex-col overflow-hidden p-3 ${className}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="paper-label text-on-surface-variant">Public action feed</p>
@@ -26,7 +26,7 @@ export function PublicActionFeed({ className = "", items }: PublicActionFeedProp
       <div
         aria-live="polite"
         aria-relevant="additions text"
-        className="mt-3 max-h-[620px] space-y-2 overflow-y-auto rounded-sm border-2 border-black bg-surface-container-lowest p-2 xl:flex-1 xl:max-h-none"
+        className="mt-3 h-[420px] max-h-[calc(100vh-16rem)] space-y-2 overflow-y-auto rounded-sm border-2 border-black bg-surface-container-lowest p-2 xl:h-[560px]"
         data-testid="public-action-feed-list"
       >
         {visibleItems.length > 0 ? (
@@ -34,7 +34,7 @@ export function PublicActionFeed({ className = "", items }: PublicActionFeedProp
             const sizeDetail = formatSizeDetail(item);
 
             return (
-              <article className={feedBubbleClass(item.status)} key={item.id}>
+              <article className={feedBubbleClass(item)} key={item.id}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="paper-label text-on-surface-variant">{formatTimestamp(item.timestamp)}</p>
@@ -42,7 +42,12 @@ export function PublicActionFeed({ className = "", items }: PublicActionFeedProp
                       {formatHeadline(item)}
                     </h3>
                   </div>
-                  <span className={`paper-chip shrink-0 px-2 py-1 ${statusChipClass(item.status)}`}>{item.status}</span>
+                  <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                    <span className={`paper-chip px-2 py-1 ${walletScopeChipClass(item.walletScope)}`}>
+                      {formatWalletScope(item.walletScope)}
+                    </span>
+                    <span className={`paper-chip px-2 py-1 ${statusChipClass(item.status)}`}>{item.status}</span>
+                  </div>
                 </div>
 
                 {sizeDetail ? <FeedLine label="Size" value={sizeDetail} /> : null}
@@ -64,18 +69,23 @@ export function PublicActionFeed({ className = "", items }: PublicActionFeedProp
   );
 }
 
-function feedBubbleClass(status: PublicActionFeedItem["status"]): string {
+function feedBubbleClass(item: PublicActionFeedItem): string {
   const baseClass = "max-w-[92%] rounded-2xl border-2 px-3 py-2 shadow-sm";
+  const alignmentClass = item.walletScope === "owner" ? "ml-auto" : "mr-auto";
 
-  if (status === "rejected" || status === "failed") {
-    return `${baseClass} ml-auto border-outline-variant bg-[#fff7f7]`;
+  if (item.status === "rejected" || item.status === "failed") {
+    return `${baseClass} ${alignmentClass} border-outline-variant bg-[#fff7f7]`;
   }
 
-  if (status === "partial" || status === "queued") {
-    return `${baseClass} mr-auto border-outline-variant bg-[#fffaf0]`;
+  if (item.status === "partial" || item.status === "queued") {
+    return `${baseClass} ${alignmentClass} border-outline-variant bg-[#fffaf0]`;
   }
 
-  return `${baseClass} mr-auto border-black bg-[#f2fbf6]`;
+  if (item.walletScope === "owner") {
+    return `${baseClass} ${alignmentClass} border-black bg-[#eef6ff]`;
+  }
+
+  return `${baseClass} ${alignmentClass} border-black bg-[#f2fbf6]`;
 }
 
 function FeedLine({ label, value }: { label: string; value: ReactNode }) {
@@ -156,6 +166,10 @@ function formatScoreAndPnl(item: PublicActionFeedItem): string {
   return `${score} / ${pnl}`;
 }
 
+function formatWalletScope(scope: PublicActionFeedItem["walletScope"]): string {
+  return scope === "owner" ? "My wallet" : "Public";
+}
+
 function formatTimestamp(value: string): string {
   const date = new Date(value);
 
@@ -195,4 +209,8 @@ function statusChipClass(status: PublicActionFeedItem["status"]): string {
     case "queued":
       return "";
   }
+}
+
+function walletScopeChipClass(scope: PublicActionFeedItem["walletScope"]): string {
+  return scope === "owner" ? "paper-chip-blue" : "";
 }

@@ -23,7 +23,7 @@ describe("ArenaPage", () => {
     expect(screen.getByLabelText(/BTC reference chart/i)).toHaveClass("h-full");
     expect(screen.getByTestId("btc-chart-plot")).toHaveClass("xl:min-h-[620px]");
     expect(screen.getByLabelText(/Public action feed/i)).toHaveClass("h-full");
-    expect(screen.getByTestId("public-action-feed-list")).toHaveClass("xl:flex-1");
+    expect(screen.getByTestId("public-action-feed-list")).toHaveClass("xl:h-[560px]");
     expect(screen.queryByText("Predict object")).not.toBeInTheDocument();
     expect(screen.queryByRole("main")).not.toBeInTheDocument();
     expect(screen.getByLabelText(/BTC reference chart/i)).toBeInTheDocument();
@@ -31,12 +31,15 @@ describe("ArenaPage", () => {
     expect(screen.getByText(/Predict oracle drives arena settlement/i)).toBeInTheDocument();
     expect(screen.getByText(/Active BTC price line/i)).toBeInTheDocument();
     expect(screen.getByTestId("btc-strike-line")).toBeInTheDocument();
-    expect(screen.getByText("Strike")).toBeInTheDocument();
+    expect(screen.getByText("Strike $65,000.00")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /My Agent/i })).toBeInTheDocument();
     expect(screen.getAllByText(/Trend Ranger/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/125.00 DUSDC \/ 4.20 SUI/i)).toBeInTheDocument();
     expect(screen.getByText(/UP 65000000000000/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Public action feed/i })).toBeInTheDocument();
     expect(screen.getByText(/Trend Ranger bought UP/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/My wallet/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^Public$/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/^rejected$/i)).toBeInTheDocument();
     expect(screen.getByText(/Trend Ranger scored 28.49/i)).toBeInTheDocument();
   });
@@ -143,7 +146,8 @@ function renderArenaPage({
     agents: mockPlatformSnapshot.agents,
     intents: mockPlatformSnapshot.intents,
     executions: mockPlatformSnapshot.executions,
-    leaderboard: mockPlatformSnapshot.leaderboard
+    leaderboard: mockPlatformSnapshot.leaderboard,
+    ownerAgentId: "agent_1"
   }),
   liveMarketError = null,
   liveMarketSnapshot: snapshot = liveMarketSnapshot,

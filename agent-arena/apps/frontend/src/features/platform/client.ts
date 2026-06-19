@@ -6,6 +6,7 @@ import type {
   ExecutionRecord,
   LeaderboardEntry,
   MarketSnapshot,
+  OwnerAgentProfile,
   PairingDraft,
   PlatformErrorBody,
   PublicArenaActivity,
@@ -93,6 +94,11 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
       requestJson<PairingDraft>(fetcher, `${root}/agent/init`, jsonPost(input)),
     claimAgent: (input: ClaimAgentInput) =>
       requestJson<ClaimAgentResponse>(fetcher, `${root}/owner/agents/claim`, jsonPost(input)),
+    getOwnerAgentProfile: (ownerAddress: string) =>
+      requestJson<OwnerAgentProfile>(
+        fetcher,
+        `${root}/owner/agent?ownerAddress=${encodeURIComponent(ownerAddress)}`
+      ),
     getAgentMe: (runtimeCredential: string) =>
       requestJson<AgentProfile>(fetcher, `${root}/agent/me`, {
         headers: createRuntimeHeaders(runtimeCredential)
@@ -120,10 +126,10 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
         fetcher,
         `${root}/competition/${encodeURIComponent(competitionId)}/market-state`
       ).then((response) => response.marketState),
-    listCompetitionPublicActivity: (competitionId: string) =>
+    listCompetitionPublicActivity: (competitionId: string, ownerAddress?: string | null) =>
       requestJson<PublicArenaActivity>(
         fetcher,
-        `${root}/competition/${encodeURIComponent(competitionId)}/public-feed`
+        createPublicFeedUrl(root, competitionId, ownerAddress)
       ),
     submitIntent: (runtimeCredential: string, intent: SubmitIntentInput) =>
       requestJson<AgentIntent>(
@@ -251,4 +257,9 @@ function createRuntimeHeaders(runtimeCredential: string): Record<string, string>
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
+}
+
+function createPublicFeedUrl(root: string, competitionId: string, ownerAddress?: string | null): string {
+  const ownerQuery = ownerAddress ? `?ownerAddress=${encodeURIComponent(ownerAddress)}` : "";
+  return `${root}/competition/${encodeURIComponent(competitionId)}/public-feed${ownerQuery}`;
 }

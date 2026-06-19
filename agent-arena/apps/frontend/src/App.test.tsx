@@ -28,6 +28,7 @@ vi.mock("./components/platform/SuiDappKitAgentClaimPanel", async () => {
 });
 
 import App from "./App";
+import { mockPlatformSnapshot } from "./features/platform/mock";
 
 describe("App", () => {
   beforeEach(() => {
@@ -62,10 +63,62 @@ describe("App", () => {
     expect(screen.queryByRole("region", { name: /My Agent profile/i })).not.toBeInTheDocument();
   });
 
+  it("loads a connected owner Agent profile from the platform API", async () => {
+    const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
+    const platformFetcher = vi.fn(async (url: string) => {
+      if (url.includes("/owner/agent?")) {
+        return jsonResponse({
+          agent: {
+            ...mockPlatformSnapshot.agents[0],
+            id: "agent_real_owner",
+            displayName: "Real Bound Agent",
+            ownerAddress: "0xreal_owner",
+            tradingWalletAddress: "0xreal_agent_wallet",
+            exposureStatus: "flat"
+          },
+          tradingWallet: {
+            ...mockPlatformSnapshot.tradingWallet,
+            id: "wallet_real_owner",
+            agentId: "agent_real_owner",
+            address: "0xreal_agent_wallet"
+          },
+          positions: [],
+          intents: [],
+          executions: [],
+          leaderboard: []
+        });
+      }
+
+      if (url.includes("/public-feed")) {
+        return jsonResponse({
+          agents: [],
+          intents: [],
+          executions: [],
+          leaderboard: []
+        });
+      }
+
+      return jsonResponse({ marketState: appMarketState });
+    });
+
+    render(<App connectedOwnerAddress="0xreal_owner" liveMarketLoader={liveMarketLoader} platformFetcher={platformFetcher} />);
+
+    const myAgentProfile = await screen.findByRole("region", { name: /My Agent profile/i });
+    expect(within(myAgentProfile).getByText(/Real Bound Agent/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Copy Agent prompt/i)).not.toBeInTheDocument();
+    expect(platformFetcher).toHaveBeenCalledWith(
+      "http://127.0.0.1:8787/api/arena/owner/agent?ownerAddress=0xreal_owner"
+    );
+  });
+
   it("navigates between Arena and Leaderboard only", async () => {
     const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
     const platformFetcher = vi.fn(async (url: string) => {
-      if (url.endsWith("/public-feed")) {
+      if (url.includes("/owner/agent?")) {
+        return createMockOwnerAgentProfileResponse();
+      }
+
+      if (url.includes("/public-feed")) {
         return new Response(JSON.stringify({
           agents: [
             {
@@ -130,7 +183,7 @@ describe("App", () => {
     });
     expect(await screen.findByTestId("btc-current-price-label")).toHaveTextContent("$65,611.52");
     expect(screen.getByTestId("btc-strike-line")).toBeInTheDocument();
-    expect(screen.getByText("Strike")).toBeInTheDocument();
+    expect(screen.getByText("Strike $65,700.00")).toBeInTheDocument();
     expect(screen.getByText(/Binance BTCUSDT reference display/i)).toBeInTheDocument();
     expect(screen.getByText(/Predict oracle drives arena settlement/i)).toBeInTheDocument();
     const myAgentProfile = screen.getByRole("region", { name: /My Agent profile/i });
@@ -152,7 +205,11 @@ describe("App", () => {
   it("does not show mock public actions when the public feed endpoint is unavailable", async () => {
     const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
     const platformFetcher = vi.fn(async (url: string) => {
-      if (url.endsWith("/public-feed")) {
+      if (url.includes("/owner/agent?")) {
+        return createMockOwnerAgentProfileResponse();
+      }
+
+      if (url.includes("/public-feed")) {
         return new Response(JSON.stringify({
           error: {
             code: "NOT_FOUND",
@@ -186,7 +243,11 @@ describe("App", () => {
     const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
     let publicFeedRequestCount = 0;
     const platformFetcher = vi.fn(async (url: string) => {
-      if (url.endsWith("/public-feed")) {
+      if (url.includes("/owner/agent?")) {
+        return createMockOwnerAgentProfileResponse();
+      }
+
+      if (url.includes("/public-feed")) {
         publicFeedRequestCount += 1;
         const isFirstFeed = publicFeedRequestCount === 1;
 
@@ -434,12 +495,30 @@ const appMarketState = {
 };
 
 function countPlatformCalls(fetcher: ReturnType<typeof vi.fn>, suffix: string): number {
-  return fetcher.mock.calls.filter(([url]) => typeof url === "string" && url.endsWith(suffix)).length;
+  return fetcher.mock.calls.filter(([url]) => typeof url === "string" && url.includes(suffix)).length;
 }
 
 async function flushAppEffects(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
     await Promise.resolve();
+  });
+}
+
+function createMockOwnerAgentProfileResponse(): Response {
+  return jsonResponse({
+    agent: mockPlatformSnapshot.agents[0],
+    tradingWallet: mockPlatformSnapshot.tradingWallet,
+    positions: mockPlatformSnapshot.positions,
+    intents: mockPlatformSnapshot.intents,
+    executions: mockPlatformSnapshot.executions,
+    leaderboard: mockPlatformSnapshot.leaderboard
+  });
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" }
   });
 }

@@ -26,6 +26,7 @@ import {
 import { publicSkillDocs } from "../skill-docs";
 import {
   createMockCompetition,
+  type AgentProfile,
   type AgentIntent,
   type Competition,
   type ExecutionRecord,
@@ -127,6 +128,7 @@ export function createPlatformFetchHandler(
             "GET /api/arena/skills",
             "POST /api/arena/agent/init",
             "POST /api/arena/owner/agents/claim",
+            "GET /api/arena/owner/agent?ownerAddress=...",
             "GET /api/arena/agent/me",
             "GET /api/arena/agent/wallet",
             "GET /api/arena/competition/list-active",
@@ -156,6 +158,10 @@ export function createPlatformFetchHandler(
 
       if (request.method === "POST" && matchesRoute(route, ["owner", "agents", "claim"])) {
         return await claimAgent(request, store, options.agentWalletService);
+      }
+
+      if (request.method === "GET" && matchesRoute(route, ["owner", "agent"])) {
+        return getOwnerAgentProfile(url, store);
       }
 
       if (
@@ -261,7 +267,7 @@ export function createPlatformFetchHandler(
         route[0] === "competition" &&
         route[2] === "public-feed"
       ) {
-        return getCompetitionPublicFeed(route[1], store);
+        return getCompetitionPublicFeed(url, route[1], store);
       }
 
       if (request.method === "POST" && matchesRoute(route, ["intents"])) {
@@ -346,7 +352,7 @@ async function refreshTradingWallet(
   }
 
   const refreshed = await agentWalletReader(wallet);
-  return store.updateTradingWallet(wallet.id, {
+  const updated = store.updateTradingWallet(wallet.id, {
     testnetSuiBalance: refreshed.testnetSuiBalance ?? wallet.testnetSuiBalance,
     quoteBalance: refreshed.quoteBalance ?? wallet.quoteBalance,
     predictManagerStatus: refreshed.predictManagerStatus ?? wallet.predictManagerStatus,
@@ -354,6 +360,8 @@ async function refreshTradingWallet(
       ? wallet.predictManagerId
       : refreshed.predictManagerId
   });
+  syncIdentityBindingWithWallet(store, updated.agentId, updated);
+  return updated;
 }
 
 async function initAgentPairing(
@@ -497,6 +505,54 @@ async function claimAgent(
       scopes: credential.scopes
     }
   }, 201);
+}
+
+function getOwnerAgentProfile(url: URL, store: PlatformMockStore): Response {
+  const ownerAddress = url.searchParams.get("ownerAddress")?.trim();
+  if (!ownerAddress) {
+    return errorResponse(400, "INVALID_INPUT", "ownerAddress query parameter is required");
+  }
+
+  const normalizedOwnerAddress = normalizeAddress(ownerAddress);
+  const agent = findCurrentOwnerAgent(store, normalizedOwnerAddress);
+
+  if (!agent) {
+    return jsonResponse(createEmptyOwnerAgentProfile());
+  }
+
+  const competitionId = defaultCompetitionId;
+  const competition = store.getCompetition(competitionId);
+  const tradingWallet = store.getTradingWalletByAgentId(agent.id) ?? null;
+  syncIdentityBindingWithWallet(store, agent.id, tradingWallet);
+  const intents = store.listIntents().filter(
+    (intent) => intent.agentId === agent.id && intent.competitionId === competitionId
+  );
+  const executions = store.listExecutions().filter(
+    (execution) => execution.agentId === agent.id && execution.competitionId === competitionId
+  );
+  const leaderboard = competition
+    ? createCompetitionLeaderboardEntries(competitionId, store).filter((entry) => entry.agentId === agent.id)
+    : [];
+
+  return jsonResponse({
+    agent,
+    tradingWallet,
+    positions: store.listPositionSnapshots({ agentId: agent.id, competitionId }),
+    intents,
+    executions,
+    leaderboard
+  });
+}
+
+function createEmptyOwnerAgentProfile() {
+  return {
+    agent: null,
+    tradingWallet: null,
+    positions: [],
+    intents: [],
+    executions: [],
+    leaderboard: []
+  };
 }
 
 async function withdrawTradingWallet(
@@ -651,7 +707,7 @@ function getLeaderboard(url: URL, store: PlatformMockStore): Response {
   });
 }
 
-function getCompetitionPublicFeed(competitionId: string, store: PlatformMockStore): Response {
+function getCompetitionPublicFeed(url: URL, competitionId: string, store: PlatformMockStore): Response {
   const competition = store.getCompetition(competitionId);
   if (!competition) {
     return errorResponse(404, "COMPETITION_NOT_FOUND", "Competition not found");
@@ -678,6 +734,10 @@ function getCompetitionPublicFeed(competitionId: string, store: PlatformMockStor
     ...executions.map((execution) => execution.agentId),
     ...leaderboard.map((entry) => entry.agentId)
   ]);
+  const ownerAddress = url.searchParams.get("ownerAddress")?.trim() ?? null;
+  const ownerAgentIds = ownerAddress
+    ? findOwnerAgents(store, normalizeAddress(ownerAddress)).map((agent) => agent.id)
+    : [];
   const agents = store.listAgents()
     .filter((agent) => agentIds.has(agent.id))
     .map((agent) => ({
@@ -691,7 +751,27 @@ function getCompetitionPublicFeed(competitionId: string, store: PlatformMockStor
     agents,
     intents,
     executions,
-    leaderboard
+    leaderboard,
+    ownerAgentIds
+  });
+}
+
+function createCompetitionLeaderboardEntries(competitionId: string, store: PlatformMockStore): LeaderboardEntry[] {
+  const ledger = store.listPerformanceLedger({ competitionId });
+  if (ledger.length > 0) {
+    return createLedgerLeaderboardEntries({
+      agents: store.listAgents(),
+      ledger,
+      competitionId
+    });
+  }
+
+  const intentsById = new Map(store.listIntents().map((intent) => [intent.id, intent]));
+  return createLeaderboardEntries({
+    store,
+    executions: store.listExecutions().filter((execution) => execution.competitionId === competitionId),
+    intents: store.listIntents().filter((intent) => intent.competitionId === competitionId),
+    intentsById
   });
 }
 
@@ -816,6 +896,115 @@ function getAgentReplay(agentId: string, store: PlatformMockStore): Response {
       riskDecisions: store.listRiskDecisions(),
       executions: store.listExecutions()
     })
+  });
+}
+
+function normalizeAddress(address: string): string {
+  return address.trim().toLowerCase();
+}
+
+function findOwnerAgents(store: PlatformMockStore, normalizedOwnerAddress: string): AgentProfile[] {
+  return store.listAgents().filter(
+    (candidate) => normalizeAddress(candidate.ownerAddress) === normalizedOwnerAddress
+  );
+}
+
+function findCurrentOwnerAgent(store: PlatformMockStore, normalizedOwnerAddress: string): AgentProfile | undefined {
+  return findOwnerAgents(store, normalizedOwnerAddress)
+    .sort((left, right) => compareOwnerAgentPriority(store, right, left))[0];
+}
+
+function compareOwnerAgentPriority(store: PlatformMockStore, left: AgentProfile, right: AgentProfile): number {
+  const leftTime = getOwnerAgentLatestActivityMs(store, left);
+  const rightTime = getOwnerAgentLatestActivityMs(store, right);
+  if (leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+
+  const leftReadiness = getOwnerAgentReadinessScore(store, left);
+  const rightReadiness = getOwnerAgentReadinessScore(store, right);
+  if (leftReadiness !== rightReadiness) {
+    return leftReadiness - rightReadiness;
+  }
+
+  return getAgentNumericId(left.id) - getAgentNumericId(right.id);
+}
+
+function getOwnerAgentLatestActivityMs(store: PlatformMockStore, agent: AgentProfile): number {
+  const binding = store.getIdentityBindingByAgentId(agent.id);
+  const wallet = store.getTradingWalletByAgentId(agent.id);
+  const intentTimes = store.listIntents()
+    .filter((intent) => intent.agentId === agent.id)
+    .map((intent) => Date.parse(intent.createdAt));
+  const executionTimes = store.listExecutions()
+    .filter((execution) => execution.agentId === agent.id)
+    .map((execution) => Date.parse(execution.createdAt));
+  const candidates = [
+    Date.parse(agent.createdAt),
+    binding ? Date.parse(binding.createdAt) : NaN,
+    binding ? Date.parse(binding.claimedAt) : NaN,
+    wallet ? Date.parse(wallet.createdAt) : NaN,
+    ...intentTimes,
+    ...executionTimes
+  ].filter(Number.isFinite);
+
+  return candidates.length > 0 ? Math.max(...candidates) : 0;
+}
+
+function getOwnerAgentReadinessScore(store: PlatformMockStore, agent: AgentProfile): number {
+  const wallet = store.getTradingWalletByAgentId(agent.id);
+  let score = 0;
+  if (wallet?.status === "active") {
+    score += 1;
+  }
+  if (wallet?.predictManagerStatus === "ready") {
+    score += 2;
+  }
+  if (wallet?.predictManagerId) {
+    score += 2;
+  }
+  if (agent.runtimeStatus === "active") {
+    score += 1;
+  }
+  if (agent.exposureStatus !== "flat" && agent.exposureStatus !== "settled") {
+    score += 1;
+  }
+
+  return score;
+}
+
+function getAgentNumericId(agentId: string): number {
+  const match = agentId.match(/_(\d+)$/);
+  return match ? Number(match[1]) : 0;
+}
+
+function syncIdentityBindingWithWallet(
+  store: PlatformMockStore,
+  agentId: string,
+  wallet: TradingWallet | null
+): void {
+  if (!wallet) {
+    return;
+  }
+
+  const binding = store.getIdentityBindingByAgentId(agentId);
+  if (!binding) {
+    return;
+  }
+
+  if (
+    binding.tradingWalletId === wallet.id &&
+    binding.walletAddress === wallet.address &&
+    binding.predictManagerId === wallet.predictManagerId
+  ) {
+    return;
+  }
+
+  store.saveIdentityBinding({
+    ...binding,
+    tradingWalletId: wallet.id,
+    walletAddress: wallet.address,
+    predictManagerId: wallet.predictManagerId
   });
 }
 

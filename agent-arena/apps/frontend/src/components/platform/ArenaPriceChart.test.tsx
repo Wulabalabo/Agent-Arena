@@ -17,7 +17,7 @@ describe("ArenaPriceChart", () => {
     expect(screen.getByRole("img", { name: /BTC price line chart/i })).toBeInTheDocument();
     expect(screen.getByTestId("btc-reference-line")).toHaveAttribute("stroke", "#f59e0b");
     expect(screen.getByTestId("btc-strike-line")).toBeInTheDocument();
-    expect(screen.getByText("Strike")).toBeInTheDocument();
+    expect(screen.getByText("Strike $65,000.00")).toBeInTheDocument();
     expect(screen.queryByText("Target")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("btc-price-tick")).toHaveLength(4);
     expect(screen.getAllByTestId("btc-price-tick").every((tick) => tick.textContent?.startsWith("$"))).toBe(true);
@@ -38,7 +38,7 @@ describe("ArenaPriceChart", () => {
 
     expect(screen.queryByTestId("btc-strike-line")).not.toBeInTheDocument();
     expect(screen.queryByText("Target")).not.toBeInTheDocument();
-    expect(screen.queryByText("Strike")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Strike/i)).not.toBeInTheDocument();
     expect(screen.getByTestId("btc-current-price-label")).toHaveTextContent("$65,611.52");
   });
 
@@ -91,8 +91,8 @@ describe("ArenaPriceChart", () => {
 
     expect(screen.getByTestId("btc-lower-strike-line")).toBeInTheDocument();
     expect(screen.getByTestId("btc-higher-strike-line")).toBeInTheDocument();
-    expect(screen.getByText("Range low")).toBeInTheDocument();
-    expect(screen.getByText("Range high")).toBeInTheDocument();
+    expect(screen.getByText("Range low $64,000.00")).toBeInTheDocument();
+    expect(screen.getByText("Range high $66,000.00")).toBeInTheDocument();
     expect(screen.queryByText("Target")).not.toBeInTheDocument();
   });
 

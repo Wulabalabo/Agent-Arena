@@ -20,7 +20,7 @@ import {
 import { createPlatformClient } from "./features/platform/client";
 import { platformConfig } from "./features/platform/config";
 import { mockPlatformSnapshot } from "./features/platform/mock";
-import type { AgentProfile, MarketSnapshot, PublicArenaActivity } from "./features/platform/types";
+import type { AgentProfile, MarketSnapshot, OwnerAgentProfile, PublicArenaActivity } from "./features/platform/types";
 import {
   createInitialPlatformState,
   getSelectedCompetition,
@@ -31,11 +31,13 @@ import {
 const apiBaseUrl = platformConfig.apiBaseUrl;
 const MARKET_STATE_REFRESH_INTERVAL_MS = 5_000;
 const PUBLIC_ACTIVITY_REFRESH_INTERVAL_MS = 15_000;
+const OWNER_AGENT_PROFILE_REFRESH_INTERVAL_MS = 15_000;
 const emptyPublicArenaActivity: PublicArenaActivity = {
   agents: [],
   intents: [],
   executions: [],
-  leaderboard: []
+  leaderboard: [],
+  ownerAgentIds: []
 };
 
 interface AppProps {
@@ -84,25 +86,42 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }
   const [state, setState] = useState(() => createInitialPlatformState(mockPlatformSnapshot));
   const [marketState, setMarketState] = useState<MarketSnapshot | null>(null);
   const [publicActivity, setPublicActivity] = useState<PublicArenaActivity | null>(null);
+  const [ownerAgentProfile, setOwnerAgentProfile] = useState<OwnerAgentProfile | null>(null);
+  const [ownerAgentProfileAddress, setOwnerAgentProfileAddress] = useState<string | null>(null);
   const marketStateRequestSequenceRef = useRef(0);
   const publicActivityRequestSequenceRef = useRef(0);
+  const ownerAgentProfileRequestSequenceRef = useRef(0);
   const selectedCompetition = useMemo(() => getSelectedCompetition(state), [state]);
-  const ownerAgent = useMemo(
-    () => findOwnerAgent(state.agents, connectedOwnerAddress ?? null),
-    [connectedOwnerAddress, state.agents]
-  );
   const claimRegistrationCode = getClaimRegistrationCode();
+  const normalizedConnectedOwnerAddress = connectedOwnerAddress ? normalizeAddress(connectedOwnerAddress) : null;
+  const ownerAgentProfileMatchesConnection = ownerAgentProfileAddress === normalizedConnectedOwnerAddress;
+  const ownerAgent = useMemo(
+    () =>
+      ownerAgentProfileMatchesConnection
+        ? ownerAgentProfile?.agent ?? null
+        : findOwnerAgent(state.agents, connectedOwnerAddress ?? null),
+    [connectedOwnerAddress, ownerAgentProfile, ownerAgentProfileMatchesConnection, state.agents]
+  );
   const userAgentProfile = useMemo(
     () =>
       createUserAgentArenaProfile({
         agent: ownerAgent,
-        tradingWallet: state.tradingWallet,
-        positions: state.positions,
-        intents: state.intents,
-        executions: state.executions,
-        leaderboard: state.leaderboard
+        tradingWallet: ownerAgentProfileMatchesConnection ? ownerAgentProfile?.tradingWallet ?? null : state.tradingWallet,
+        positions: ownerAgentProfileMatchesConnection ? ownerAgentProfile?.positions ?? [] : state.positions,
+        intents: ownerAgentProfileMatchesConnection ? ownerAgentProfile?.intents ?? [] : state.intents,
+        executions: ownerAgentProfileMatchesConnection ? ownerAgentProfile?.executions ?? [] : state.executions,
+        leaderboard: ownerAgentProfileMatchesConnection ? ownerAgentProfile?.leaderboard ?? [] : state.leaderboard
       }),
-    [ownerAgent, state.tradingWallet, state.positions, state.intents, state.executions, state.leaderboard]
+    [
+      ownerAgent,
+      ownerAgentProfile,
+      ownerAgentProfileMatchesConnection,
+      state.tradingWallet,
+      state.positions,
+      state.intents,
+      state.executions,
+      state.leaderboard
+    ]
   );
   const publicActionFeedItems = useMemo(
     () => {
@@ -112,10 +131,12 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }
         agents: activity.agents ?? [],
         intents: activity.intents ?? [],
         executions: activity.executions ?? [],
-        leaderboard: activity.leaderboard ?? []
+        leaderboard: activity.leaderboard ?? [],
+        ownerAgentId: ownerAgent?.id ?? null,
+        ownerAgentIds: activity.ownerAgentIds ?? []
       });
     },
-    [publicActivity]
+    [ownerAgent?.id, publicActivity]
   );
   const chartMarketReference = useMemo(
     () =>
@@ -149,6 +170,55 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }
     pollIntervalMs: 500,
     refreshLoader: liveMarketLoader ? undefined : defaultLiveMarketRefreshLoader
   });
+
+  useEffect(() => {
+    if (state.activeView !== "arena" || claimRegistrationCode || !connectedOwnerAddress) {
+      setOwnerAgentProfile(null);
+      setOwnerAgentProfileAddress(null);
+      return;
+    }
+
+    let cancelled = false;
+    let requestPending = false;
+    const normalizedOwnerAddress = normalizeAddress(connectedOwnerAddress);
+    setOwnerAgentProfile(null);
+    setOwnerAgentProfileAddress(null);
+
+    const loadOwnerAgentProfile = async () => {
+      if (requestPending) {
+        return;
+      }
+
+      requestPending = true;
+      const requestSequence = ownerAgentProfileRequestSequenceRef.current + 1;
+      ownerAgentProfileRequestSequenceRef.current = requestSequence;
+
+      try {
+        const nextOwnerAgentProfile = await platformClient.getOwnerAgentProfile(connectedOwnerAddress);
+        if (!cancelled && ownerAgentProfileRequestSequenceRef.current === requestSequence) {
+          setOwnerAgentProfile(nextOwnerAgentProfile);
+          setOwnerAgentProfileAddress(normalizedOwnerAddress);
+        }
+      } catch {
+        if (!cancelled && ownerAgentProfileRequestSequenceRef.current === requestSequence) {
+          setOwnerAgentProfile(null);
+          setOwnerAgentProfileAddress(normalizedOwnerAddress);
+        }
+      } finally {
+        requestPending = false;
+      }
+    };
+
+    void loadOwnerAgentProfile();
+    const intervalId = window.setInterval(() => {
+      void loadOwnerAgentProfile();
+    }, OWNER_AGENT_PROFILE_REFRESH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [claimRegistrationCode, connectedOwnerAddress, platformClient, state.activeView]);
 
   useEffect(() => {
     if (state.activeView !== "arena" || !selectedCompetition) {
@@ -212,7 +282,10 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }
       publicActivityRequestSequenceRef.current = requestSequence;
 
       try {
-        const nextPublicActivity = await platformClient.listCompetitionPublicActivity(selectedCompetition.id);
+        const nextPublicActivity = await platformClient.listCompetitionPublicActivity(
+          selectedCompetition.id,
+          connectedOwnerAddress
+        );
         if (!cancelled && publicActivityRequestSequenceRef.current === requestSequence) {
           setPublicActivity(nextPublicActivity);
         }
@@ -234,7 +307,7 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [platformClient, selectedCompetition, state.activeView]);
+  }, [connectedOwnerAddress, platformClient, selectedCompetition, state.activeView]);
 
   function navigate(view: PlatformView) {
     const clearedClaimRoute = Boolean(claimRegistrationCode) && typeof window !== "undefined";
@@ -284,11 +357,30 @@ function findOwnerAgent(agents: AgentProfile[], ownerAddress: string | null): Ag
   }
 
   const normalizedOwnerAddress = normalizeAddress(ownerAddress);
-  return agents.find((agent) => normalizeAddress(agent.ownerAddress) === normalizedOwnerAddress) ?? null;
+  return agents
+    .filter((agent) => normalizeAddress(agent.ownerAddress) === normalizedOwnerAddress)
+    .sort((left, right) => compareOwnerAgentPriority(right, left))[0] ?? null;
 }
 
 function normalizeAddress(address: string): string {
   return address.trim().toLowerCase();
+}
+
+function compareOwnerAgentPriority(left: AgentProfile, right: AgentProfile): number {
+  const leftTime = Date.parse(left.createdAt);
+  const rightTime = Date.parse(right.createdAt);
+  const safeLeftTime = Number.isFinite(leftTime) ? leftTime : 0;
+  const safeRightTime = Number.isFinite(rightTime) ? rightTime : 0;
+  if (safeLeftTime !== safeRightTime) {
+    return safeLeftTime - safeRightTime;
+  }
+
+  return getAgentNumericId(left.id) - getAgentNumericId(right.id);
+}
+
+function getAgentNumericId(agentId: string): number {
+  const match = agentId.match(/_(\d+)$/);
+  return match ? Number(match[1]) : 0;
 }
 
 function getClaimRegistrationCode(): string | null {

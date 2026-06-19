@@ -29,10 +29,11 @@ export function UserAgentProfilePanel({ className = "", profile, summary, varian
         </div>
       </div>
 
-      <div className="mt-4 grid gap-2 md:grid-cols-4">
+      <div className="mt-4 grid gap-2 md:grid-cols-5">
         <ProfileMetric label="Runtime" value={formatToken(profile.runtimeStatus)} />
         <ProfileMetric label="Exposure" value={formatToken(profile.exposureStatus)} />
         <ProfileMetric label="Position" value={profile.positionLabel} />
+        <ProfileMetric label="Wallet balance" value={profile.walletBalanceLabel} />
         <ProfileMetric label="Realized PnL" value={formatPercent(profile.realizedPnlPct)} />
       </div>
 
@@ -51,6 +52,8 @@ export function UserAgentProfilePanel({ className = "", profile, summary, varian
           <DetailLine label="Agent id" value={profile.agentId ?? "unclaimed"} />
           <DetailLine label="Owner" value={profile.ownerAddress ?? "not connected"} />
           <DetailLine label="Trading wallet" value={profile.tradingWalletAddress ?? "not created"} />
+          <DetailLine label="DUSDC balance" value={profile.quoteBalance ?? "not available"} />
+          <DetailLine label="Testnet SUI" value={profile.testnetSuiBalance ?? "not available"} />
           <DetailLine label="Latest Predict tx" value={profile.latestPredictTxDigest ?? "not submitted"} />
           {profile.twitterHandle ? <DetailLine label="Twitter" value={`@${profile.twitterHandle}`} /> : null}
         </section>
