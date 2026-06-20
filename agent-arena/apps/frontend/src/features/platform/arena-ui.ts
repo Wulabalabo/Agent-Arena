@@ -282,7 +282,10 @@ export function createArenaChartMarketReference({
   const openPosition = findNewestByUpdatedAt(
     positions.filter((position) => position.competitionId === competitionId && position.status === "open")
   );
-  const positionReference = openPosition ? marketReferenceFromPosition(openPosition) : null;
+  const positionReference =
+    openPosition && isPositionInCurrentMarket(openPosition, marketState)
+      ? marketReferenceFromPosition(openPosition)
+      : null;
   if (positionReference) {
     return positionReference;
   }
@@ -303,6 +306,17 @@ export function createArenaChartMarketReference({
   );
 
   return latestExecutableIntent?.market ? marketReferenceFromIntentMarket(latestExecutableIntent.market) : null;
+}
+
+function isPositionInCurrentMarket(
+  position: AgentPositionSnapshot,
+  marketState: MarketSnapshot | null | undefined
+): boolean {
+  if (!marketState || marketState.status !== "live" || marketState.oracleStatus !== "active") {
+    return true;
+  }
+
+  return position.oracleId === marketState.oracleId && position.expiryMs === marketState.expiryMs;
 }
 
 function deriveAccountState(input: {

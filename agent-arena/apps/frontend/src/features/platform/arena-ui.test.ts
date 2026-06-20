@@ -127,12 +127,12 @@ describe("arena UI contracts", () => {
         competitionId: mockPlatformSnapshot.competitions[0].id,
         executableMarkets: {
           directional: {
-            expiry: "1781622900000",
-            oracleId: "0xfuture-nearest",
+            expiry: "1781701200000",
+            oracleId: "0xbtc15m",
             strike: "65700000000000"
           }
         },
-        expiryMs: "1781622900000",
+        expiryMs: "1781701200000",
         fetchedAt: "2026-06-16T15:00:55.000Z",
         forwardPriceRaw: "65611186326705",
         lateWindow: {
@@ -140,7 +140,7 @@ describe("arena UI contracts", () => {
           openAllowedByPlatform: true,
           openMayFailOnPredictQuote: true
         },
-        oracleId: "0xfuture-nearest",
+        oracleId: "0xbtc15m",
         oracleStatus: "active",
         priceDecimals: 9,
         serverTimeMs: "1781622000000",
@@ -161,6 +161,58 @@ describe("arena UI contracts", () => {
       kind: "directional",
       strike: 65_000,
       strikeRaw: "65000000000000"
+    });
+  });
+
+  it("uses the new round executable strike when the open position is from a previous oracle", () => {
+    const marketReference = createArenaChartMarketReference({
+      competitionId: mockPlatformSnapshot.competitions[0].id,
+      intents: mockPlatformSnapshot.intents,
+      marketState: {
+        allowedActions: ["hold", "open_directional"],
+        allowedOperations: {
+          canClose: true,
+          canHold: true,
+          canOpen: true,
+          canReduce: true
+        },
+        competitionId: mockPlatformSnapshot.competitions[0].id,
+        executableMarkets: {
+          directional: {
+            expiry: "1781623800000",
+            oracleId: "0xfuture-next-round",
+            strike: "65700000000000"
+          }
+        },
+        expiryMs: "1781623800000",
+        fetchedAt: "2026-06-16T15:15:55.000Z",
+        forwardPriceRaw: "65691186326705",
+        lateWindow: {
+          isFinalMinute: false,
+          openAllowedByPlatform: true,
+          openMayFailOnPredictQuote: true
+        },
+        oracleId: "0xfuture-next-round",
+        oracleStatus: "active",
+        priceDecimals: 9,
+        serverTimeMs: "1781622900000",
+        spotPriceRaw: "65691517258518",
+        status: "live",
+        strikeGrid: {
+          maxStrikeRaw: "80000000000000",
+          minStrikeRaw: "50000000000000",
+          strikeStepRaw: "1000000000"
+        },
+        timeToExpiryMs: "900000",
+        underlyingAsset: "BTC"
+      },
+      positions: mockPlatformSnapshot.positions
+    });
+
+    expect(marketReference).toEqual({
+      kind: "directional",
+      strike: 65_700,
+      strikeRaw: "65700000000000"
     });
   });
 
