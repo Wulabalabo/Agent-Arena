@@ -2,6 +2,48 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LiveBtcMarketSnapshot } from "./features/predict/live-market";
 
+type AppDappKitConnection = {
+  account: { address: string } | null;
+  isConnected: boolean;
+  isConnecting: boolean;
+  isDisconnected: boolean;
+  isReconnecting: boolean;
+  status: "connected" | "connecting" | "disconnected" | "reconnecting";
+  supportedIntents: string[];
+  wallet: unknown;
+};
+
+const dappKitState = vi.hoisted(() => ({
+  connection: {
+    account: null as { address: string } | null,
+    isConnected: false,
+    isConnecting: false,
+    isDisconnected: true,
+    isReconnecting: false,
+    status: "disconnected" as const,
+    supportedIntents: [] as string[],
+    wallet: null as unknown
+  } as AppDappKitConnection,
+  connectWallet: vi.fn(),
+  disconnectWallet: vi.fn(),
+  signAndExecuteTransaction: vi.fn(),
+  wallets: [] as Array<{ name: string }>
+}));
+
+vi.mock("@mysten/dapp-kit-react", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  return {
+    DAppKitContext: React.createContext({}),
+    useDAppKit: () => ({
+      connectWallet: dappKitState.connectWallet,
+      disconnectWallet: dappKitState.disconnectWallet,
+      signAndExecuteTransaction: dappKitState.signAndExecuteTransaction
+    }),
+    useWalletConnection: () => dappKitState.connection,
+    useWallets: () => dappKitState.wallets
+  };
+});
+
 vi.mock("./components/platform/SuiDappKitAgentClaimPanel", async () => {
   const { AgentClaimPanel } = await vi.importActual<typeof import("./components/platform/AgentClaimPanel")>(
     "./components/platform/AgentClaimPanel"
@@ -37,6 +79,7 @@ const testOwnerAddress = "0x0000000000000000000000000000000000000000000000000000
 describe("App", () => {
   beforeEach(() => {
     window.history.pushState({}, "", "/");
+    resetDappKitState();
   });
 
   afterEach(() => {
@@ -446,6 +489,124 @@ describe("App", () => {
       })
     }));
   });
+
+  it("rotates runtime credentials through the connected owner wallet registry transaction", async () => {
+    const ownerAddress = "0x0000000000000000000000000000000000000000000000000000000000000ace";
+    const tradingWalletAddress = "0x0000000000000000000000000000000000000000000000000000000000000bee";
+    dappKitState.connection = createConnectedDappKitConnection(ownerAddress);
+    dappKitState.signAndExecuteTransaction.mockResolvedValue({ digest: "0xrotationdigest" });
+    const registryProof = {
+      kind: "record_runtime_credential_rotation",
+      packageId: "0x0000000000000000000000000000000000000000000000000000000000000abc",
+      registryObjectId: "0x0000000000000000000000000000000000000000000000000000000000000def",
+      agentId: "agent_wallet_owner",
+      ownerAddress,
+      previousCredentialVersion: 1,
+      nextCredentialVersion: 2,
+      rotationHash: "sha256:rotation",
+      nonceBase64: "bm9uY2U=",
+      signatureBase64: "c2lnbmF0dXJl"
+    };
+    const platformFetcher = vi.fn(async (url: string) => {
+      if (url.includes("/owner/agent?")) {
+        return jsonResponse({
+          agent: {
+            ...mockPlatformSnapshot.agents[0],
+            id: "agent_wallet_owner",
+            displayName: "Wallet Bound Agent",
+            ownerAddress,
+            tradingWalletAddress
+          },
+          tradingWallet: {
+            ...mockPlatformSnapshot.tradingWallet,
+            id: "wallet_owner",
+            agentId: "agent_wallet_owner",
+            address: tradingWalletAddress
+          },
+          positions: [],
+          intents: [],
+          executions: [],
+          leaderboard: []
+        });
+      }
+
+      if (url.includes("/runtime-credential/rotation-prepare")) {
+        return jsonResponse({
+          challenge: {
+            agentId: "agent_wallet_owner",
+            ownerAddress,
+            reason: "owner requested runtime credential rotation",
+            domain: "agent-arena-runtime-credential-rotation:v1",
+            chainId: "sui:testnet",
+            currentCredentialVersion: 1,
+            nextCredentialVersion: 2,
+            nonce: "nonce-rotation-1",
+            expiresAt: "2026-06-18T02:10:00.000Z",
+            message: "rotation message"
+          },
+          registryProof
+        }, 201);
+      }
+
+      if (url.includes("/runtime-credential/rotate")) {
+        return jsonResponse({
+          runtimeCredential: {
+            token: "agent_runtime_rotated_from_app",
+            shownOnce: true,
+            credentialVersion: 2,
+            scopes: ["agent:read", "agent:intent:write"]
+          },
+          registry: {
+            status: "submitted",
+            txDigest: "0xrotationdigest"
+          }
+        }, 201);
+      }
+
+      if (url.includes("/public-feed")) {
+        return jsonResponse({
+          agents: [],
+          intents: [],
+          executions: [],
+          leaderboard: []
+        });
+      }
+
+      return jsonResponse({ marketState: appMarketState });
+    });
+
+    render(<App liveMarketLoader={async () => appLiveMarketSnapshot} platformFetcher={platformFetcher} />);
+
+    const profile = await screen.findByRole("region", { name: /My Agent profile/i });
+    fireEvent.click(within(profile).getByRole("button", { name: /rotate runtime credential/i }));
+
+    expect(await screen.findByText("agent_runtime_rotated_from_app")).toBeInTheDocument();
+    expect(dappKitState.signAndExecuteTransaction).toHaveBeenCalledTimes(1);
+    expect(dappKitState.signAndExecuteTransaction).toHaveBeenCalledWith({
+      transaction: expect.any(Object)
+    });
+    expect(platformFetcher).toHaveBeenCalledWith(
+      "http://127.0.0.1:8787/api/arena/owner/agents/agent_wallet_owner/runtime-credential/rotation-prepare",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          ownerAddress,
+          reason: "owner requested runtime credential rotation"
+        })
+      })
+    );
+    expect(platformFetcher).toHaveBeenCalledWith(
+      "http://127.0.0.1:8787/api/arena/owner/agents/agent_wallet_owner/runtime-credential/rotate",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          ownerAddress,
+          nonce: "nonce-rotation-1",
+          txDigest: "0xrotationdigest"
+        })
+      })
+    );
+  });
 });
 
 const appLiveMarketSnapshot: LiveBtcMarketSnapshot = {
@@ -559,6 +720,36 @@ function createMockOwnerAgentProfileResponse(): Response {
     executions: mockPlatformSnapshot.executions,
     leaderboard: mockPlatformSnapshot.leaderboard
   });
+}
+
+function resetDappKitState() {
+  dappKitState.connection = {
+    account: null,
+    isConnected: false,
+    isConnecting: false,
+    isDisconnected: true,
+    isReconnecting: false,
+    status: "disconnected",
+    supportedIntents: [],
+    wallet: null
+  };
+  dappKitState.connectWallet.mockReset();
+  dappKitState.disconnectWallet.mockReset();
+  dappKitState.signAndExecuteTransaction.mockReset();
+  dappKitState.wallets = [];
+}
+
+function createConnectedDappKitConnection(address: string): AppDappKitConnection {
+  return {
+    account: { address },
+    isConnected: true,
+    isConnecting: false,
+    isDisconnected: false,
+    isReconnecting: false,
+    status: "connected",
+    supportedIntents: [],
+    wallet: { name: "Sui Wallet" }
+  };
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
