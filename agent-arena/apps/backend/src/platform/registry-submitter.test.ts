@@ -1,8 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import {
-  buildRegistryWriteTransaction,
-  createSuiRegistrySubmitter,
+  createRegistryAuthorizationProof,
   hashRegistryAuthorization,
   REGISTRY_AUTHORIZATION_DOMAIN
 } from "./registry-submitter";
@@ -27,7 +26,7 @@ const registerRequest: RegistryWriteRequest = {
   platformCreatedAtMs: 1781715000000
 };
 
-describe("Agent Arena Sui registry submitter", () => {
+describe("Agent Arena registry authorization proofs", () => {
   it("matches the Move authorization golden vectors", () => {
     const nonce = new TextEncoder().encode("register_nonce_1");
     const hash = hashRegistryAuthorization({
@@ -49,41 +48,26 @@ describe("Agent Arena Sui registry submitter", () => {
     ]);
   });
 
-  it("builds a signature-authorized register call for deployed registry writes", async () => {
+  it("creates a register proof without building or executing a transaction", async () => {
     const signer = Ed25519Keypair.generate();
-    const tx = await buildRegistryWriteTransaction(registerRequest, signer, fixedNonce);
-    const data = tx.getData() as { commands: Array<Record<string, any>>; inputs: Array<Record<string, any>> };
+    const proof = await createRegistryAuthorizationProof(registerRequest, signer, fixedNonce);
 
-    expect(data.commands).toHaveLength(1);
-    expect(data.commands[0]!.MoveCall).toMatchObject({
-      package: packageId,
-      module: "registry",
-      function: "register_agent",
-      typeArguments: []
+    expect(proof).toMatchObject({
+      kind: "register_agent",
+      packageId,
+      registryObjectId,
+      agentId: "agent_1",
+      ownerAddress,
+      tradingWalletAddress,
+      metadataHash: "sha256:metadata"
     });
-    expect(JSON.stringify(data.inputs)).toContain(registryObjectId);
-    expect(JSON.stringify(data.inputs)).not.toContain("0x0000000000000000000000000000000000000000000000000000000000000ace");
-    expect(data.inputs).toHaveLength(7);
+    expect(proof.nonceBase64).toBe(Buffer.from(fixedNonce).toString("base64"));
+    expect(Buffer.from(proof.signatureBase64, "base64")).toHaveLength(64);
   });
 
-  it("submits runtime credential rotations and returns the transaction digest", async () => {
+  it("creates a runtime credential rotation proof", async () => {
     const signer = Ed25519Keypair.generate();
-    const submitted: unknown[] = [];
-    const submitter = createSuiRegistrySubmitter({
-      getSigner: async () => signer,
-      createNonce: () => fixedNonce,
-      client: {
-        async signAndExecuteTransaction(input: unknown) {
-          submitted.push(input);
-          return {
-            digest: "0xregistrydigest",
-            effects: { status: { status: "success" } }
-          };
-        }
-      }
-    });
-
-    const result = await submitter({
+    const proof = await createRegistryAuthorizationProof({
       kind: "record_runtime_credential_rotation",
       packageId,
       registryObjectId,
@@ -93,16 +77,19 @@ describe("Agent Arena Sui registry submitter", () => {
       nextCredentialVersion: 2,
       rotationHash: "sha256:rotation",
       platformCreatedAtMs: 1781715000000
-    });
+    }, signer, fixedNonce);
 
-    expect(result).toEqual({ txDigest: "0xregistrydigest" });
-    expect(submitted).toHaveLength(1);
-    const transaction = (submitted[0] as { transaction: { getData: () => { commands: Array<Record<string, any>> } } }).transaction;
-    expect(transaction.getData().commands[0]!.MoveCall).toMatchObject({
-      package: packageId,
-      module: "registry",
-      function: "record_runtime_credential_rotation",
-      typeArguments: []
+    expect(proof).toMatchObject({
+      kind: "record_runtime_credential_rotation",
+      packageId,
+      registryObjectId,
+      agentId: "agent_1",
+      ownerAddress,
+      previousCredentialVersion: 1,
+      nextCredentialVersion: 2,
+      rotationHash: "sha256:rotation"
     });
+    expect(proof.nonceBase64).toBe(Buffer.from(fixedNonce).toString("base64"));
+    expect(Buffer.from(proof.signatureBase64, "base64")).toHaveLength(64);
   });
 });

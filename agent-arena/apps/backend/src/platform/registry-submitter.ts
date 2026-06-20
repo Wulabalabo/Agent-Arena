@@ -1,16 +1,16 @@
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { bcs } from "@mysten/sui/bcs";
-import { SuiJsonRpcClient, type SuiTransactionBlockResponse } from "@mysten/sui/jsonRpc";
 import type { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import { Transaction } from "@mysten/sui/transactions";
 import type {
+  RegisterAgentRegistryProof,
+  RegisterAgentRegistryRequest,
   RegistrySubmitter,
-  RegistrySubmitterResult,
-  RegistryWriteRequest
+  RegistryWriteRequest,
+  RuntimeCredentialRotationRegistryProof,
+  RuntimeCredentialRotationRegistryRequest
 } from "./registry";
 
 export interface CreateSuiRegistrySubmitterOptions {
-  client?: Pick<SuiJsonRpcClient, "signAndExecuteTransaction">;
   getSigner: (request: RegistryWriteRequest) => Promise<Ed25519Keypair>;
   createNonce?: () => Uint8Array;
   suiRpcUrl?: string;
@@ -38,69 +38,60 @@ const runtimeCredentialRotationAuthorization = bcs.struct("RuntimeCredentialRota
 });
 
 export function createSuiRegistrySubmitter(options: CreateSuiRegistrySubmitterOptions): RegistrySubmitter {
-  const client = options.client ?? new SuiJsonRpcClient({
-    network: "testnet",
-    url: options.suiRpcUrl ?? "https://fullnode.testnet.sui.io:443"
-  });
-
-  return async (request): Promise<RegistrySubmitterResult> => {
+  return async (request) => {
     const signer = await options.getSigner(request);
-    const transaction = await buildRegistryWriteTransaction(request, signer, options.createNonce?.());
-    transaction.setSenderIfNotSet(signer.toSuiAddress());
-    const response = await client.signAndExecuteTransaction({
-      transaction,
-      signer,
-      options: {
-        showEffects: true,
-        showEvents: true,
-        showObjectChanges: true
-      }
-    });
-    assertSubmitted(response);
-
-    return { txDigest: response.digest };
+    await createRegistryAuthorizationProof(request, signer, options.createNonce?.());
+    throw new Error("REGISTRY_BACKEND_TX_SUBMISSION_DISABLED");
   };
 }
 
-export async function buildRegistryWriteTransaction(
+export async function createRegistryAuthorizationProof(
+  request: RegisterAgentRegistryRequest,
+  authoritySigner: Ed25519Keypair,
+  nonce = createRegistryAuthorizationNonce()
+): Promise<RegisterAgentRegistryProof>;
+export async function createRegistryAuthorizationProof(
+  request: RuntimeCredentialRotationRegistryRequest,
+  authoritySigner: Ed25519Keypair,
+  nonce?: Uint8Array
+): Promise<RuntimeCredentialRotationRegistryProof>;
+export async function createRegistryAuthorizationProof(
+  request: RegistryWriteRequest,
+  authoritySigner: Ed25519Keypair,
+  nonce?: Uint8Array
+): Promise<RegisterAgentRegistryProof | RuntimeCredentialRotationRegistryProof>;
+export async function createRegistryAuthorizationProof(
   request: RegistryWriteRequest,
   authoritySigner: Ed25519Keypair,
   nonce = createRegistryAuthorizationNonce()
-): Promise<Transaction> {
-  const tx = new Transaction();
+): Promise<RegisterAgentRegistryProof | RuntimeCredentialRotationRegistryProof> {
   const authorization = await signRegistryAuthorization(request, authoritySigner, nonce);
-  if (request.kind === "register_agent") {
-    tx.moveCall({
-      target: `${request.packageId}::registry::register_agent`,
-      arguments: [
-        tx.object(request.registryObjectId),
-        tx.pure.vector("u8", utf8Bytes(request.agentId)),
-        tx.pure.address(request.ownerAddress),
-        tx.pure.address(request.tradingWalletAddress),
-        tx.pure.vector("u8", utf8Bytes(request.metadataHash)),
-        tx.pure.vector("u8", bytesToVector(authorization.nonce)),
-        tx.pure.vector("u8", bytesToVector(authorization.signature))
-      ]
-    });
+  const base = {
+    kind: request.kind,
+    packageId: request.packageId,
+    registryObjectId: request.registryObjectId,
+    agentId: request.agentId,
+    ownerAddress: request.ownerAddress,
+    nonceBase64: Buffer.from(authorization.nonce).toString("base64"),
+    signatureBase64: Buffer.from(authorization.signature).toString("base64")
+  };
 
-    return tx;
+  if (request.kind === "register_agent") {
+    return {
+      ...base,
+      kind: "register_agent",
+      tradingWalletAddress: request.tradingWalletAddress,
+      metadataHash: request.metadataHash
+    };
   }
 
-  tx.moveCall({
-    target: `${request.packageId}::registry::record_runtime_credential_rotation`,
-    arguments: [
-      tx.object(request.registryObjectId),
-      tx.pure.vector("u8", utf8Bytes(request.agentId)),
-      tx.pure.address(request.ownerAddress),
-      tx.pure.u64(request.previousCredentialVersion),
-      tx.pure.u64(request.nextCredentialVersion),
-      tx.pure.vector("u8", utf8Bytes(request.rotationHash)),
-      tx.pure.vector("u8", bytesToVector(authorization.nonce)),
-      tx.pure.vector("u8", bytesToVector(authorization.signature))
-    ]
-  });
-
-  return tx;
+  return {
+    ...base,
+    kind: "record_runtime_credential_rotation",
+    previousCredentialVersion: request.previousCredentialVersion,
+    nextCredentialVersion: request.nextCredentialVersion,
+    rotationHash: request.rotationHash
+  };
 }
 
 export const REGISTRY_AUTHORIZATION_DOMAIN = "agent-arena-registry:v1:testnet";
@@ -148,13 +139,6 @@ export function serializeRegistryAuthorization(request: RegistryWriteRequest, no
     rotation_hash: utf8Bytes(request.rotationHash),
     nonce: bytesToVector(nonce)
   }).toBytes();
-}
-
-function assertSubmitted(response: SuiTransactionBlockResponse): void {
-  const status = response.effects?.status;
-  if (status?.status !== "success") {
-    throw new Error(status?.error ?? "Registry transaction failed");
-  }
 }
 
 function utf8Bytes(value: string): number[] {
