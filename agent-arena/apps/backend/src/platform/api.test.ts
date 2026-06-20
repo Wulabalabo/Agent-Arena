@@ -257,7 +257,66 @@ describe("Agent Arena platform API", () => {
       "competition:read",
       "execution:read"
     ]);
+    expect(body.registry).toEqual({
+      status: "disabled",
+      txDigest: null
+    });
     expect(body).not.toHaveProperty("apiKey");
+  });
+
+  it("includes a successful registry tx digest when claim anchoring is configured", async () => {
+    const store = new PlatformMockStore();
+    const registerCalls: unknown[] = [];
+    const fetch = createPlatformFetchHandler(store, {
+      registryService: {
+        registerAgent: async (input) => {
+          registerCalls.push(input);
+          return {
+            status: "submitted",
+            txDigest: "0xregistrydigest"
+          };
+        }
+      }
+    });
+
+    const body = await claimTestAgent(fetch);
+
+    expect(body.registry).toEqual({
+      status: "submitted",
+      txDigest: "0xregistrydigest"
+    });
+    expect(registerCalls).toHaveLength(1);
+    expect(registerCalls[0]).toMatchObject({
+      agentId: body.agent.id,
+      agentDraftId: "draft_1",
+      ownerAddress: "0xowner",
+      tradingWalletAddress: body.tradingWallet.address
+    });
+    expect(JSON.stringify(registerCalls[0])).not.toContain("registrationCode");
+    expect(JSON.stringify(registerCalls[0])).not.toContain(createRegistrationCodeHash("PAIR-2049"));
+  });
+
+  it("keeps claim successful when registry anchoring fails", async () => {
+    const fetch = createPlatformFetchHandler(new PlatformMockStore(), {
+      registryService: {
+        registerAgent: async () => ({
+          status: "failed",
+          txDigest: null,
+          errorCode: "REGISTRY_SUBMIT_FAILED",
+          errorMessage: "mock registry failure"
+        })
+      }
+    });
+
+    const response = await claimTestAgent(fetch);
+
+    expect(response.agent.id).toBe("agent_1");
+    expect(response.runtimeCredential.token).toStartWith("agent_runtime_");
+    expect(response.registry).toMatchObject({
+      status: "failed",
+      txDigest: null,
+      errorCode: "REGISTRY_SUBMIT_FAILED"
+    });
   });
 
   it("claims a pairing code through an injected claimed-Agent wallet service and stores identity ledger rows", async () => {

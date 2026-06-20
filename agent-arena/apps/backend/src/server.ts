@@ -3,6 +3,11 @@ import { handleAttributionRequest, type AttributionStoreLike } from "./attributi
 import { createPlatformFetchHandler } from "./platform/api";
 import { PlatformMockStore } from "./platform/mock-store";
 import { createPredictExecutionAdapter } from "./platform/predict-adapter";
+import {
+  createRegistryConfigFromEnv,
+  createRegistryService,
+  type AgentRegistryService
+} from "./platform/registry";
 import type {
   SettlementClaimExecutionRequest,
   SettlementClaimExecutionResult,
@@ -46,6 +51,7 @@ export function createAgentArenaFetchHandler(options: {
   predictServerClient?: PredictServerClient;
   predictSetupExecutor?: PredictSetupExecutor;
   predictTradeExecutor?: PredictTradeExecutor;
+  registryService?: AgentRegistryService;
 } = {}) {
   const predictEnv = options.predictEnv;
   const env = predictEnv ?? Bun.env;
@@ -68,7 +74,11 @@ export function createAgentArenaFetchHandler(options: {
       predictEnv
     });
   const internalPredictFetch = runtime.internalPredictFetch;
-  const platformFetch = createPlatformFetchHandler(platformStore, runtime.platformOptions);
+  const registryService = options.registryService ?? createRegistryService(createRegistryConfigFromEnv(env));
+  const platformFetch = createPlatformFetchHandler(platformStore, {
+    ...runtime.platformOptions,
+    registryService
+  });
   const attributionFetch = createAttributionFetchHandler(options.attributionStore ?? createDefaultAttributionStore());
   const runtimeReady = runtime.ready ?? Promise.resolve();
 

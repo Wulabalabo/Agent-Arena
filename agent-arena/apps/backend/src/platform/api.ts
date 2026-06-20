@@ -4,6 +4,7 @@ import {
   createAgentRuntimeCredential,
   runtimeTokenHeader
 } from "./auth";
+import { createHash } from "node:crypto";
 import {
   createPredictTxUrl,
   PlatformExecutionError,
@@ -17,6 +18,10 @@ import {
   createPerformanceLedgerRecord,
   createRegistrationCodeHash
 } from "./performance-ledger";
+import type {
+  AgentRegistryService,
+  RegistryWriteResult
+} from "./registry";
 import {
   reconcileSettlements,
   type ReconcileSettlementsOptions
@@ -101,6 +106,7 @@ export interface CreatePlatformFetchHandlerOptions {
   now?: () => number;
   ownerWithdrawalService?: (input: OwnerWithdrawalServiceInput) => Promise<OwnerWithdrawalServiceResult>;
   predictExecutionAdapter?: SubmitIntentExecutionOptions["predictExecutionAdapter"];
+  registryService?: AgentRegistryService;
   settlementClaimExecutor?: ReconcileSettlementsOptions["executeSettlementClaim"];
   settlementRedemptionReader?: ReconcileSettlementsOptions["readSettlementRedemption"];
   settlementInternalToken?: string;
@@ -165,7 +171,11 @@ export function createPlatformFetchHandler(
       }
 
       if (request.method === "POST" && matchesRoute(route, ["owner", "agents", "claim"])) {
-        return await claimAgent(request, store, options.agentWalletService);
+        return await claimAgent(request, store, {
+          agentWalletService: options.agentWalletService,
+          now: options.now,
+          registryService: options.registryService
+        });
       }
 
       if (request.method === "POST" && matchesRoute(route, ["settlements", "reconcile"])) {
@@ -406,7 +416,7 @@ async function initAgentPairing(
 async function claimAgent(
   request: Request,
   store: PlatformMockStore,
-  agentWalletService?: CreatePlatformFetchHandlerOptions["agentWalletService"]
+  options: Pick<CreatePlatformFetchHandlerOptions, "agentWalletService" | "now" | "registryService"> = {}
 ): Promise<Response> {
   const body = await readJsonObject(request);
   const registrationCode = validateNonEmptyString(body.registrationCode, "registrationCode").trim();
@@ -424,8 +434,8 @@ async function claimAgent(
     twitterHandle
   });
   store.markPairingDraftClaimed(draft.id);
-  const walletResult = agentWalletService
-    ? await agentWalletService({
+  const walletResult = options.agentWalletService
+    ? await options.agentWalletService({
       agentId: agent.id,
       displayName: agent.displayName
     })
@@ -512,6 +522,15 @@ async function claimAgent(
     serverReceivedAt: mockNow
   }));
   const credential = createAgentRuntimeCredential(store, agent.id, mockNow);
+  const registry = await registerClaimedAgent({
+    agent,
+    draft,
+    ownerAddress,
+    store,
+    wallet,
+    nowMs: options.now?.() ?? Date.parse(mockNow),
+    registryService: options.registryService
+  });
 
   return jsonResponse({
     agent: store.getAgent(agent.id),
@@ -520,8 +539,50 @@ async function claimAgent(
       token: credential.token,
       shownOnce: true,
       scopes: credential.scopes
-    }
+    },
+    registry
   }, 201);
+}
+
+async function registerClaimedAgent(input: {
+  agent: AgentProfile;
+  draft: { id: string; createdAt: string };
+  ownerAddress: string;
+  store: PlatformMockStore;
+  wallet: TradingWallet;
+  nowMs: number;
+  registryService?: AgentRegistryService;
+}): Promise<RegistryWriteResult> {
+  if (!input.registryService) {
+    return {
+      status: "disabled",
+      txDigest: null
+    };
+  }
+
+  return await input.registryService.registerAgent({
+    agentId: input.agent.id,
+    agentDraftId: input.draft.id,
+    ownerAddress: input.ownerAddress,
+    tradingWalletAddress: input.wallet.address,
+    metadataHash: createAgentRegistryMetadataHash({
+      agentId: input.agent.id,
+      agentDraftId: input.draft.id,
+      displayName: input.agent.displayName,
+      twitterHandle: input.agent.twitterHandle,
+      ownerAddress: input.ownerAddress,
+      tradingWalletAddress: input.wallet.address,
+      createdAt: input.draft.createdAt
+    }),
+    platformCreatedAtMs: input.nowMs
+  });
+}
+
+function createAgentRegistryMetadataHash(value: Record<string, string | null>): string {
+  const canonical = JSON.stringify(Object.fromEntries(
+    Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+  ));
+  return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
 }
 
 async function reconcileSettlementsRoute(
