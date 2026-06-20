@@ -1,4 +1,5 @@
 import { isAbsolute, join } from "node:path";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { handleAttributionRequest, type AttributionStoreLike } from "./attribution";
 import { createPlatformFetchHandler } from "./platform/api";
 import { PlatformMockStore } from "./platform/mock-store";
@@ -6,8 +7,10 @@ import { createPredictExecutionAdapter } from "./platform/predict-adapter";
 import {
   createRegistryConfigFromEnv,
   createRegistryService,
-  type AgentRegistryService
+  type AgentRegistryService,
+  type RegistrySubmitter
 } from "./platform/registry";
+import { createSuiRegistrySubmitter } from "./platform/registry-submitter";
 import type {
   SettlementClaimExecutionRequest,
   SettlementClaimExecutionResult,
@@ -74,7 +77,8 @@ export function createAgentArenaFetchHandler(options: {
       predictEnv
     });
   const internalPredictFetch = runtime.internalPredictFetch;
-  const registryService = options.registryService ?? createRegistryService(createRegistryConfigFromEnv(env));
+  const registryConfig = createRegistryConfigFromEnv(env);
+  const registryService = options.registryService ?? createRegistryService(registryConfig, runtime.registrySubmitter);
   const platformFetch = createPlatformFetchHandler(platformStore, {
     ...runtime.platformOptions,
     registryService
@@ -115,6 +119,7 @@ function createMockRuntime({
 }): {
   internalPredictFetch: ReturnType<typeof createInternalPredictFetchHandler>;
   platformOptions: Parameters<typeof createPlatformFetchHandler>[1];
+  registrySubmitter?: RegistrySubmitter;
   ready?: Promise<void>;
 } {
   return {
@@ -164,6 +169,7 @@ function createRealRuntime({
 }): {
   internalPredictFetch: ReturnType<typeof createInternalPredictFetchHandler>;
   platformOptions: Parameters<typeof createPlatformFetchHandler>[1];
+  registrySubmitter?: RegistrySubmitter;
   ready?: Promise<void>;
 } {
   const config = createPredictConfig(env);
@@ -238,9 +244,17 @@ function createRealRuntime({
     };
   };
 
+  const registrySigner = registrySignerFromEnv(env, walletStore);
+
   return {
     internalPredictFetch,
     ready,
+    registrySubmitter: registrySigner
+      ? createSuiRegistrySubmitter({
+        suiRpcUrl: config.suiRpcUrl,
+        getSigner: registrySigner
+      })
+      : undefined,
     platformOptions: {
       agentWalletService: async ({ agentId, displayName }) => {
         const wallet = await walletStore.createWallet({
@@ -720,6 +734,25 @@ function runtimeModeFromEnv(env: Record<string, string | undefined>): AgentArena
   }
 
   return "mock";
+}
+
+function registrySignerFromEnv(
+  env: Record<string, string | undefined> | undefined,
+  walletStore: MemoryWalletStore
+): (() => Promise<Ed25519Keypair>) | null {
+  const privateKey = env?.AGENT_ARENA_REGISTRY_SIGNER_PRIVATE_KEY?.trim()
+    || Bun.env.AGENT_ARENA_REGISTRY_SIGNER_PRIVATE_KEY?.trim();
+  if (privateKey) {
+    return async () => Ed25519Keypair.fromSecretKey(privateKey);
+  }
+
+  const walletId = env?.AGENT_ARENA_REGISTRY_SIGNER_WALLET_ID?.trim()
+    || Bun.env.AGENT_ARENA_REGISTRY_SIGNER_WALLET_ID?.trim();
+  if (walletId) {
+    return async () => await walletStore.getSigner(walletId);
+  }
+
+  return null;
 }
 
 function createDefaultPlatformStore(

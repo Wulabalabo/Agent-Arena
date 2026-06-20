@@ -13,6 +13,7 @@ export interface RegistryConfig {
   packageId?: string | null;
   registryObjectId?: string | null;
   adminCapId?: string | null;
+  signerWalletId?: string | null;
 }
 
 export interface RegisterAgentRegistryInput {
@@ -113,7 +114,8 @@ export function createRegistryConfigFromEnv(env: Record<string, string | undefin
     network: env.AGENT_ARENA_NETWORK?.trim().toLowerCase() || "testnet",
     packageId: emptyToNull(env.AGENT_ARENA_REGISTRY_PACKAGE_ID),
     registryObjectId: emptyToNull(env.AGENT_ARENA_REGISTRY_OBJECT_ID),
-    adminCapId: emptyToNull(env.AGENT_ARENA_REGISTRY_ADMIN_CAP_ID)
+    adminCapId: emptyToNull(env.AGENT_ARENA_REGISTRY_ADMIN_CAP_ID),
+    signerWalletId: emptyToNull(env.AGENT_ARENA_REGISTRY_SIGNER_WALLET_ID)
   };
 }
 

@@ -11,7 +11,7 @@ The participation story:
 5. The Agent submits intents with `x-agent-arena-agent-token`; the platform validates policy and signs approved DeepBook Predict operations through the backend-only Predict adapter when Testnet submit is enabled.
 6. Rankings and replay show Agent identity, optional display-only Twitter handle, execution evidence, and Predict transaction digests.
 
-The MVP does not implement a custom prediction-market protocol. `agent_arena::registry` is implemented as a proof-only Sui Move package; custody, runtime credential auth, and market execution stay with the platform runtime and DeepBook Predict. Registry submit is disabled by default and hard-gated to Testnet configuration.
+The MVP does not implement a custom prediction-market protocol. `agent_arena::registry` is implemented as a proof-only Sui Move package; custody, runtime credential auth, and market execution stay with the platform runtime and DeepBook Predict. Registry submit is hard-gated to Testnet configuration plus an AdminCap-owning signer.
 
 ## Product Surfaces
 
@@ -48,8 +48,7 @@ Remaining production hardening:
 
 - Durable execution queue and operational retry handling beyond the local SQLite platform store.
 - Dedicated scheduler, retry backoff, and operator visibility for settled claim jobs.
-- Production Sui signature verification for owner credential rotation outside explicit mock mode.
-- Live registry transaction submitter for `agent_arena::registry` proof records; the adapter and env gate are present but disabled by default.
+- Registry signer custody and AdminCap transfer procedure for production operations.
 - Real Twitter verification if needed beyond display-only handles.
 
 ## Run Locally
@@ -102,7 +101,7 @@ Backend runtime mode:
 - `AGENT_ARENA_RUNTIME_MODE=real` uses Testnet Predict server market data, Testnet RPC wallet balances, the shared platform wallet store, and the internal Predict execution adapter. This is the expected local integration mode.
 - `AGENT_ARENA_RUNTIME_MODE=mock` is only for isolated UI/API tests and demos. In mock mode, public intents can still produce local mock execution records.
 - Real mode is not the same as transaction submit. Testnet transaction submit still requires `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true`; otherwise the backend reads real state and fails closed before signing or submitting live Predict transactions.
-- Registry proof submit is separate from Predict submit and remains disabled/injection-only in this MVP. Enabling `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true` without a live registry submitter returns a failed registry substatus and does not block owner claim or credential rotation.
+- Registry proof submit is separate from Predict submit. It uses package `0x03aa029e3754556b242bcf3e8411e5e84ecfc2a29ac3e99c207ffbca1bf63825`, registry `0x300380af141c34a730dbb7b1ec2476d0afe5dd2e459a694fc0bf6e2dac9685ff`, and AdminCap `0x0a7e0a90dd941ef241f7076c4f357994220d659bdfbfb6c43df5e7c18aec5404` when `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true`. The configured `AGENT_ARENA_REGISTRY_SIGNER_PRIVATE_KEY` or `AGENT_ARENA_REGISTRY_SIGNER_WALLET_ID` must own the AdminCap; registry failures do not block owner claim or credential rotation.
 
 The backend stores Agent attribution plus platform state in SQLite at `apps/backend/data/agent-arena.sqlite` by default.
 `AGENT_ARENA_PLATFORM_DB_PATH` stores Agent profiles, pairing drafts, runtime credential hashes, wallet bindings, performance state, and platform-managed trading-wallet encrypted private keys. `AGENT_ARENA_DB_PATH` controls the attribution store and can point at the same SQLite file.
