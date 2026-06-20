@@ -20,7 +20,17 @@ import {
 import { createPlatformClient } from "./features/platform/client";
 import { platformConfig } from "./features/platform/config";
 import { mockPlatformSnapshot } from "./features/platform/mock";
-import type { AgentProfile, MarketSnapshot, OwnerAgentProfile, PublicArenaActivity } from "./features/platform/types";
+import {
+  buildRuntimeCredentialRotationRegistryTransaction,
+  readRegistryTransactionDigest
+} from "./features/platform/registry-transaction";
+import type {
+  AgentProfile,
+  MarketSnapshot,
+  OwnerAgentProfile,
+  PublicArenaActivity,
+  RuntimeCredentialRotationRegistryProof
+} from "./features/platform/types";
 import {
   createInitialPlatformState,
   getSelectedCompetition,
@@ -43,11 +53,16 @@ const emptyPublicArenaActivity: PublicArenaActivity = {
 interface AppProps {
   connectedOwnerAddress?: string | null;
   liveMarketLoader?: () => Promise<LiveBtcMarketSnapshot>;
-  ownerMessageSigner?: (message: string) => Promise<string>;
   platformFetcher?: (url: string, init?: RequestInit) => Promise<Response>;
+  registryTransactionSigner?: (proof: RuntimeCredentialRotationRegistryProof) => Promise<string>;
 }
 
-export default function App({ connectedOwnerAddress, liveMarketLoader, ownerMessageSigner, platformFetcher }: AppProps = {}) {
+export default function App({
+  connectedOwnerAddress,
+  liveMarketLoader,
+  platformFetcher,
+  registryTransactionSigner
+}: AppProps = {}) {
   const dAppKit = useContext(DAppKitContext);
 
   if (!dAppKit) {
@@ -55,8 +70,8 @@ export default function App({ connectedOwnerAddress, liveMarketLoader, ownerMess
       <AppContent
         connectedOwnerAddress={connectedOwnerAddress ?? null}
         liveMarketLoader={liveMarketLoader}
-        ownerMessageSigner={ownerMessageSigner}
         platformFetcher={platformFetcher}
+        registryTransactionSigner={registryTransactionSigner}
       />
     );
   }
@@ -66,43 +81,43 @@ export default function App({ connectedOwnerAddress, liveMarketLoader, ownerMess
       connectedOwnerAddress={connectedOwnerAddress}
       liveMarketLoader={liveMarketLoader}
       platformFetcher={platformFetcher}
+      registryTransactionSigner={registryTransactionSigner}
     />
   );
 }
 
-function WalletAwareApp({ connectedOwnerAddress, liveMarketLoader, ownerMessageSigner, platformFetcher }: AppProps) {
+function WalletAwareApp({ connectedOwnerAddress, liveMarketLoader, platformFetcher, registryTransactionSigner }: AppProps) {
   const connection = useWalletConnection();
   const dAppKit = useDAppKit();
   const ownerAddress =
     connectedOwnerAddress ?? (connection.status === "connected" ? connection.account.address : null);
-  const dappKitOwnerMessageSigner = useCallback(async (message: string) => {
+  const dappKitRegistryTransactionSigner = useCallback(async (proof: RuntimeCredentialRotationRegistryProof) => {
     if (connection.status !== "connected") {
       throw new Error("Owner wallet is not connected");
     }
 
-    const result = await dAppKit.signPersonalMessage({
-      message: new TextEncoder().encode(message),
-      account: connection.account
+    const result = await dAppKit.signAndExecuteTransaction({
+      transaction: buildRuntimeCredentialRotationRegistryTransaction(proof)
     });
-    const signature = readWalletSignature(result);
-    if (!signature) {
-      throw new Error("Owner wallet signature is unavailable");
+    const digest = readRegistryTransactionDigest(result);
+    if (!digest) {
+      throw new Error("Registry transaction digest is unavailable");
     }
 
-    return signature;
+    return digest;
   }, [connection, dAppKit]);
 
   return (
     <AppContent
       connectedOwnerAddress={ownerAddress}
       liveMarketLoader={liveMarketLoader}
-      ownerMessageSigner={ownerMessageSigner ?? dappKitOwnerMessageSigner}
       platformFetcher={platformFetcher}
+      registryTransactionSigner={registryTransactionSigner ?? dappKitRegistryTransactionSigner}
     />
   );
 }
 
-function AppContent({ connectedOwnerAddress, liveMarketLoader, ownerMessageSigner, platformFetcher }: AppProps) {
+function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher, registryTransactionSigner }: AppProps) {
   const [state, setState] = useState(() => createInitialPlatformState(mockPlatformSnapshot));
   const [marketState, setMarketState] = useState<MarketSnapshot | null>(null);
   const [publicActivity, setPublicActivity] = useState<PublicArenaActivity | null>(null);
@@ -381,7 +396,8 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, ownerMessageSigne
               apiBaseUrl,
               connectedOwnerAddress: connectedOwnerAddress ?? null,
               createChallenge: createRuntimeCredentialRotationChallenge,
-              rotateCredential: rotateRuntimeCredential
+              rotateCredential: rotateRuntimeCredential,
+              signAndExecuteRegistryTransaction: registryTransactionSigner
             }}
             userAgentProfile={userAgentProfile}
           />
@@ -423,24 +439,6 @@ function compareOwnerAgentPriority(left: AgentProfile, right: AgentProfile): num
 function getAgentNumericId(agentId: string): number {
   const match = agentId.match(/_(\d+)$/);
   return match ? Number(match[1]) : 0;
-}
-
-function readWalletSignature(value: unknown): string | null {
-  if (typeof value === "string" && value.trim()) {
-    return value.trim();
-  }
-
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  return typeof value.signature === "string" && value.signature.trim()
-    ? value.signature.trim()
-    : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function getClaimRegistrationCode(): string | null {
