@@ -57,6 +57,9 @@ const arenaPrefix = "/api/arena";
 const btc15mDurationMs = 15 * 60 * 1000;
 const defaultFrontendBaseUrl = "http://127.0.0.1:5173";
 const pairingDraftTtlMs = 15 * 60 * 1000;
+const runtimeCredentialRotationDomain = "agent-arena-runtime-credential-rotation:v1";
+const runtimeCredentialRotationChainId = "sui:testnet";
+const runtimeCredentialRotationTtlMs = 10 * 60 * 1000;
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -105,6 +108,7 @@ export interface CreatePlatformFetchHandlerOptions {
   marketDataProvider?: () => Promise<AgentMarketDataResult>;
   now?: () => number;
   ownerWithdrawalService?: (input: OwnerWithdrawalServiceInput) => Promise<OwnerWithdrawalServiceResult>;
+  ownerSignatureMode?: "mock" | "strict";
   predictExecutionAdapter?: SubmitIntentExecutionOptions["predictExecutionAdapter"];
   registryService?: AgentRegistryService;
   settlementClaimExecutor?: ReconcileSettlementsOptions["executeSettlementClaim"];
@@ -142,6 +146,8 @@ export function createPlatformFetchHandler(
             "GET /api/arena/skills",
             "POST /api/arena/agent/init",
             "POST /api/arena/owner/agents/claim",
+            "POST /api/arena/owner/agents/:id/runtime-credential/rotation-challenge",
+            "POST /api/arena/owner/agents/:id/runtime-credential/rotate",
             "GET /api/arena/owner/agent?ownerAddress=...",
             "GET /api/arena/agent/me",
             "GET /api/arena/agent/wallet",
@@ -180,6 +186,28 @@ export function createPlatformFetchHandler(
 
       if (request.method === "POST" && matchesRoute(route, ["settlements", "reconcile"])) {
         return await reconcileSettlementsRoute(request, store, options);
+      }
+
+      if (
+        request.method === "POST" &&
+        route.length === 5 &&
+        route[0] === "owner" &&
+        route[1] === "agents" &&
+        route[3] === "runtime-credential" &&
+        route[4] === "rotation-challenge"
+      ) {
+        return await createRuntimeCredentialRotationChallengeRoute(request, store, route[2], options);
+      }
+
+      if (
+        request.method === "POST" &&
+        route.length === 5 &&
+        route[0] === "owner" &&
+        route[1] === "agents" &&
+        route[3] === "runtime-credential" &&
+        route[4] === "rotate"
+      ) {
+        return await rotateRuntimeCredentialRoute(request, store, route[2], options);
       }
 
       if (request.method === "GET" && matchesRoute(route, ["owner", "agent"])) {
@@ -583,6 +611,200 @@ function createAgentRegistryMetadataHash(value: Record<string, string | null>): 
     Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
   ));
   return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
+}
+
+async function createRuntimeCredentialRotationChallengeRoute(
+  request: Request,
+  store: PlatformMockStore,
+  agentId: string,
+  options: Pick<CreatePlatformFetchHandlerOptions, "now">
+): Promise<Response> {
+  const body = await readJsonObject(request);
+  const ownerAddress = validateNonEmptyString(body.ownerAddress, "ownerAddress").trim();
+  const reason = validateNonEmptyString(body.reason, "reason").trim();
+  const agent = store.getAgent(agentId);
+  if (!agent) {
+    return errorResponse(404, "AGENT_NOT_FOUND", "Agent not found");
+  }
+  if (normalizeAddress(agent.ownerAddress) !== normalizeAddress(ownerAddress)) {
+    return errorResponse(403, "OWNER_MISMATCH", "Owner address does not match the Agent owner");
+  }
+
+  const currentCredential = store.findLatestRuntimeCredentialByAgentId(agentId);
+  if (!currentCredential) {
+    return errorResponse(409, "RUNTIME_CREDENTIAL_NOT_FOUND", "No active runtime credential exists for this Agent");
+  }
+
+  const nowMs = options.now?.() ?? Date.now();
+  const challengeBase = {
+    agentId,
+    ownerAddress,
+    reason,
+    domain: runtimeCredentialRotationDomain,
+    chainId: runtimeCredentialRotationChainId,
+    currentCredentialVersion: currentCredential.credentialVersion,
+    nextCredentialVersion: currentCredential.credentialVersion + 1,
+    nonce: crypto.randomUUID(),
+    expiresAt: new Date(nowMs + runtimeCredentialRotationTtlMs).toISOString(),
+    consumedAt: null
+  };
+  const challenge = store.saveRuntimeCredentialRotationChallenge({
+    ...challengeBase,
+    message: createRuntimeCredentialRotationMessage(challengeBase)
+  });
+
+  return jsonResponse({ challenge }, 201);
+}
+
+async function rotateRuntimeCredentialRoute(
+  request: Request,
+  store: PlatformMockStore,
+  agentId: string,
+  options: Pick<CreatePlatformFetchHandlerOptions, "now" | "ownerSignatureMode" | "registryService">
+): Promise<Response> {
+  const body = await readJsonObject(request);
+  if (typeof body.ownerAddress !== "string" || typeof body.signature !== "string") {
+    return errorResponse(401, "OWNER_AUTH_REQUIRED", "Owner wallet authentication is required");
+  }
+  const ownerAddress = body.ownerAddress.trim();
+  const signature = body.signature.trim();
+  if (!ownerAddress || !signature) {
+    return errorResponse(401, "OWNER_AUTH_REQUIRED", "Owner wallet authentication is required");
+  }
+  const nonce = validateNonEmptyString(body.nonce, "nonce").trim();
+  const expiresAt = validateNonEmptyString(body.expiresAt, "expiresAt").trim();
+  const reason = validateNonEmptyString(body.reason, "reason").trim();
+  const message = validateNonEmptyString(body.message, "message");
+  const domain = validateNonEmptyString(body.domain, "domain").trim();
+  const currentCredentialVersion = validatePositiveInteger(body.currentCredentialVersion, "currentCredentialVersion");
+
+  const agent = store.getAgent(agentId);
+  if (!agent) {
+    return errorResponse(404, "AGENT_NOT_FOUND", "Agent not found");
+  }
+  if (normalizeAddress(agent.ownerAddress) !== normalizeAddress(ownerAddress)) {
+    return errorResponse(403, "OWNER_MISMATCH", "Owner address does not match the Agent owner");
+  }
+
+  const challenge = store.findRuntimeCredentialRotationChallenge(nonce);
+  if (!challenge || challenge.agentId !== agentId || normalizeAddress(challenge.ownerAddress) !== normalizeAddress(ownerAddress)) {
+    return errorResponse(404, "ROTATION_CHALLENGE_NOT_FOUND", "Runtime credential rotation challenge not found");
+  }
+  if (challenge.reason !== reason) {
+    return errorResponse(400, "ROTATION_REASON_MISMATCH", "Rotation reason does not match the challenge");
+  }
+  if (challenge.domain !== domain) {
+    return errorResponse(400, "ROTATION_DOMAIN_MISMATCH", "Rotation domain does not match the challenge");
+  }
+  if (challenge.message !== message) {
+    return errorResponse(400, "ROTATION_MESSAGE_MISMATCH", "Rotation message does not match the challenge");
+  }
+  if (challenge.expiresAt !== expiresAt) {
+    return errorResponse(400, "ROTATION_EXPIRY_MISMATCH", "Rotation expiry does not match the challenge");
+  }
+  if (challenge.chainId !== runtimeCredentialRotationChainId) {
+    return errorResponse(400, "ROTATION_CHAIN_MISMATCH", "Rotation chain does not match Testnet");
+  }
+  if (challenge.currentCredentialVersion !== currentCredentialVersion) {
+    return errorResponse(409, "CREDENTIAL_VERSION_CONFLICT", "Runtime credential version changed");
+  }
+  if ((options.ownerSignatureMode ?? "mock") !== "mock") {
+    return errorResponse(
+      501,
+      "OWNER_SIGNATURE_VERIFICATION_UNAVAILABLE",
+      "Owner signature verification is not enabled for this runtime"
+    );
+  }
+
+  const nowMs = options.now?.() ?? Date.now();
+  const now = new Date(nowMs).toISOString();
+  const rotation = tryRotateRuntimeCredential(store, {
+    agentId,
+    ownerAddress,
+    nonce,
+    reason,
+    domain,
+    chainId: runtimeCredentialRotationChainId,
+    currentCredentialVersion,
+    now,
+    revocationReason: "owner_rotation"
+  });
+  if (rotation instanceof Response) {
+    return rotation;
+  }
+
+  const registry = options.registryService?.recordRuntimeCredentialRotation
+    ? await options.registryService.recordRuntimeCredentialRotation({
+      agentId,
+      ownerAddress,
+      previousCredentialVersion: rotation.previousCredential.credentialVersion,
+      nextCredentialVersion: rotation.credential.credentialVersion,
+      rotationHash: createAgentRegistryMetadataHash({
+        agentId,
+        ownerAddress,
+        nonce,
+        reason,
+        previousCredentialVersion: String(rotation.previousCredential.credentialVersion),
+        nextCredentialVersion: String(rotation.credential.credentialVersion),
+        createdAt: now
+      }),
+      platformCreatedAtMs: nowMs
+    })
+    : { status: "disabled" as const, txDigest: null };
+
+  return jsonResponse({
+    runtimeCredential: {
+      token: rotation.credential.token,
+      shownOnce: true,
+      credentialVersion: rotation.credential.credentialVersion,
+      scopes: rotation.credential.scopes
+    },
+    registry
+  }, 201);
+}
+
+function tryRotateRuntimeCredential(
+  store: PlatformMockStore,
+  input: Parameters<PlatformMockStore["rotateRuntimeCredentialForAgent"]>[0]
+): ReturnType<PlatformMockStore["rotateRuntimeCredentialForAgent"]> | Response {
+  try {
+    return store.rotateRuntimeCredentialForAgent(input);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "ROTATION_FAILED";
+    const status = code === "ROTATION_NONCE_CONSUMED" ||
+      code === "CREDENTIAL_VERSION_CONFLICT" ||
+      code === "ROTATION_CHALLENGE_EXPIRED"
+      ? 409
+      : code === "OWNER_MISMATCH"
+        ? 403
+        : 400;
+    return errorResponse(status, code, code);
+  }
+}
+
+function createRuntimeCredentialRotationMessage(input: {
+  agentId: string;
+  ownerAddress: string;
+  reason: string;
+  domain: string;
+  chainId: string;
+  currentCredentialVersion: number;
+  nextCredentialVersion: number;
+  nonce: string;
+  expiresAt: string;
+}): string {
+  return [
+    "Agent Arena runtime credential rotation",
+    `domain: ${input.domain}`,
+    `chainId: ${input.chainId}`,
+    `agentId: ${input.agentId}`,
+    `ownerAddress: ${input.ownerAddress}`,
+    `currentCredentialVersion: ${input.currentCredentialVersion}`,
+    `nextCredentialVersion: ${input.nextCredentialVersion}`,
+    `nonce: ${input.nonce}`,
+    `reason: ${input.reason}`,
+    `expiresAt: ${input.expiresAt}`
+  ].join("\n");
 }
 
 async function reconcileSettlementsRoute(
@@ -1169,6 +1391,14 @@ function validateOptionalString(value: unknown, field: string): string | null {
 
   if (typeof value !== "string") {
     throw new PlatformInputError(`${field} must be a string`);
+  }
+
+  return value;
+}
+
+function validatePositiveInteger(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new PlatformInputError(`${field} must be a positive integer`);
   }
 
   return value;

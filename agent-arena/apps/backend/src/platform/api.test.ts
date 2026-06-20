@@ -30,6 +30,59 @@ async function claimTestAgent(
   }))).json();
 }
 
+async function createRotationChallenge(
+  fetch: ReturnType<typeof createPlatformFetchHandler>,
+  agentId: string,
+  input: {
+    ownerAddress?: string;
+    reason?: string;
+  } = {}
+) {
+  const response = await fetch(new Request(
+    `http://localhost/api/arena/owner/agents/${agentId}/runtime-credential/rotation-challenge`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ownerAddress: input.ownerAddress ?? "0xowner",
+        reason: input.reason ?? "lost browser session"
+      })
+    }
+  ));
+
+  return await response.json();
+}
+
+async function rotateCredential(
+  fetch: ReturnType<typeof createPlatformFetchHandler>,
+  agentId: string,
+  challenge: {
+    ownerAddress: string;
+    nonce: string;
+    expiresAt: string;
+    reason: string;
+    message: string;
+    domain: string;
+    currentCredentialVersion: number;
+  }
+) {
+  return await fetch(new Request(
+    `http://localhost/api/arena/owner/agents/${agentId}/runtime-credential/rotate`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ownerAddress: challenge.ownerAddress,
+        signature: "mock-owner-signature",
+        nonce: challenge.nonce,
+        expiresAt: challenge.expiresAt,
+        reason: challenge.reason,
+        message: challenge.message,
+        domain: challenge.domain,
+        currentCredentialVersion: challenge.currentCredentialVersion
+      })
+    }
+  ));
+}
+
 function seedExpiredDirectionalPosition(store: PlatformMockStore) {
   const agent = store.createClaimedAgent({
     displayName: "Settlement API Agent",
@@ -562,6 +615,192 @@ describe("Agent Arena platform API", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: {
         code: "OWNER_AUTH_REQUIRED"
+      }
+    });
+  });
+
+  it("creates an owner runtime credential rotation challenge", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch);
+
+    const response = await fetch(new Request(
+      `http://localhost/api/arena/owner/agents/${claimed.agent.id}/runtime-credential/rotation-challenge`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ownerAddress: "0xowner",
+          reason: "lost browser session"
+        })
+      }
+    ));
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      challenge: {
+        agentId: claimed.agent.id,
+        ownerAddress: "0xowner",
+        reason: "lost browser session",
+        domain: "agent-arena-runtime-credential-rotation:v1",
+        chainId: "sui:testnet",
+        currentCredentialVersion: 1,
+        nextCredentialVersion: 2
+      }
+    });
+  });
+
+  it("rejects runtime credential rotation challenges from the wrong owner", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch);
+
+    const response = await fetch(new Request(
+      `http://localhost/api/arena/owner/agents/${claimed.agent.id}/runtime-credential/rotation-challenge`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ownerAddress: "0xother",
+          reason: "lost browser session"
+        })
+      }
+    ));
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "OWNER_MISMATCH"
+      }
+    });
+  });
+
+  it("rejects runtime credential rotation when only an Agent runtime token is supplied", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch);
+
+    const response = await fetch(new Request(
+      `http://localhost/api/arena/owner/agents/${claimed.agent.id}/runtime-credential/rotate`,
+      {
+        method: "POST",
+        headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token },
+        body: JSON.stringify({})
+      }
+    ));
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "OWNER_AUTH_REQUIRED"
+      }
+    });
+  });
+
+  it("rejects runtime credential rotation when the signed reason changes", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch);
+    const { challenge } = await createRotationChallenge(fetch, claimed.agent.id);
+
+    const response = await rotateCredential(fetch, claimed.agent.id, {
+      ...challenge,
+      reason: "different reason"
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "ROTATION_REASON_MISMATCH"
+      }
+    });
+  });
+
+  it("rejects runtime credential rotation when the domain changes", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch);
+    const { challenge } = await createRotationChallenge(fetch, claimed.agent.id);
+
+    const response = await rotateCredential(fetch, claimed.agent.id, {
+      ...challenge,
+      domain: "wrong-domain"
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "ROTATION_DOMAIN_MISMATCH"
+      }
+    });
+  });
+
+  it("rotates runtime credentials and authenticates with the new token only", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch);
+    const { challenge } = await createRotationChallenge(fetch, claimed.agent.id);
+
+    const response = await rotateCredential(fetch, claimed.agent.id, challenge);
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.runtimeCredential).toMatchObject({
+      shownOnce: true,
+      credentialVersion: 2,
+      scopes: [
+        "agent:read",
+        "agent:intent:write",
+        "competition:read",
+        "execution:read"
+      ]
+    });
+    expect(body.runtimeCredential.token).toStartWith("agent_runtime_");
+    expect(body.runtimeCredential.token).not.toBe(claimed.runtimeCredential.token);
+
+    const oldToken = await fetch(new Request("http://localhost/api/arena/agent/me", {
+      headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token }
+    }));
+    const newToken = await fetch(new Request("http://localhost/api/arena/agent/me", {
+      headers: { "x-agent-arena-agent-token": body.runtimeCredential.token }
+    }));
+
+    expect(oldToken.status).toBe(401);
+    expect(newToken.status).toBe(200);
+  });
+
+  it("allows only one runtime credential rotation per challenge nonce", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch);
+    const { challenge } = await createRotationChallenge(fetch, claimed.agent.id);
+
+    const first = await rotateCredential(fetch, claimed.agent.id, challenge);
+    const second = await rotateCredential(fetch, claimed.agent.id, challenge);
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(409);
+    await expect(second.json()).resolves.toMatchObject({
+      error: {
+        code: "ROTATION_NONCE_CONSUMED"
+      }
+    });
+  });
+
+  it("keeps runtime credential rotation successful when registry rotation submit fails", async () => {
+    const fetch = createPlatformFetchHandler(new PlatformMockStore(), {
+      registryService: {
+        registerAgent: async () => ({ status: "disabled", txDigest: null }),
+        recordRuntimeCredentialRotation: async () => ({
+          status: "failed",
+          txDigest: null,
+          errorCode: "REGISTRY_SUBMIT_FAILED",
+          errorMessage: "mock registry failure"
+        })
+      }
+    });
+    const claimed = await claimTestAgent(fetch);
+    const { challenge } = await createRotationChallenge(fetch, claimed.agent.id);
+
+    const response = await rotateCredential(fetch, claimed.agent.id, challenge);
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      registry: {
+        status: "failed",
+        txDigest: null,
+        errorCode: "REGISTRY_SUBMIT_FAILED"
       }
     });
   });

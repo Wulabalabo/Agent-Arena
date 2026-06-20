@@ -24,6 +24,15 @@ export interface RegisterAgentRegistryInput {
   platformCreatedAtMs: number;
 }
 
+export interface RuntimeCredentialRotationRegistryInput {
+  agentId: string;
+  ownerAddress: string;
+  previousCredentialVersion: number;
+  nextCredentialVersion: number;
+  rotationHash: string;
+  platformCreatedAtMs: number;
+}
+
 export interface RegisterAgentRegistryRequest extends RegisterAgentRegistryInput {
   kind: "register_agent";
   packageId: string;
@@ -31,7 +40,14 @@ export interface RegisterAgentRegistryRequest extends RegisterAgentRegistryInput
   adminCapId: string;
 }
 
-export type RegistryWriteRequest = RegisterAgentRegistryRequest;
+export interface RuntimeCredentialRotationRegistryRequest extends RuntimeCredentialRotationRegistryInput {
+  kind: "record_runtime_credential_rotation";
+  packageId: string;
+  registryObjectId: string;
+  adminCapId: string;
+}
+
+export type RegistryWriteRequest = RegisterAgentRegistryRequest | RuntimeCredentialRotationRegistryRequest;
 
 export interface RegistrySubmitterResult {
   txDigest: string;
@@ -41,6 +57,7 @@ export type RegistrySubmitter = (request: RegistryWriteRequest) => Promise<Regis
 
 export interface AgentRegistryService {
   registerAgent(input: RegisterAgentRegistryInput): Promise<RegistryWriteResult>;
+  recordRuntimeCredentialRotation?(input: RuntimeCredentialRotationRegistryInput): Promise<RegistryWriteResult>;
 }
 
 export function createRegistryService(
@@ -48,7 +65,9 @@ export function createRegistryService(
   submitter: RegistrySubmitter = unsupportedRegistrySubmitter
 ): AgentRegistryService {
   return {
-    registerAgent: async (input) => submitRegistryWrite(config, createRegisterAgentRegistryRequest(input), submitter)
+    registerAgent: async (input) => submitRegistryWrite(config, createRegisterAgentRegistryRequest(input), submitter),
+    recordRuntimeCredentialRotation: async (input) =>
+      submitRegistryWrite(config, createRuntimeCredentialRotationRegistryRequest(input), submitter)
   };
 }
 
@@ -66,6 +85,24 @@ export function createRegisterAgentRegistryRequest(
     ownerAddress: input.ownerAddress,
     tradingWalletAddress: input.tradingWalletAddress,
     metadataHash: input.metadataHash,
+    platformCreatedAtMs: input.platformCreatedAtMs
+  };
+}
+
+export function createRuntimeCredentialRotationRegistryRequest(
+  input: RuntimeCredentialRotationRegistryInput,
+  config: Pick<RegistryConfig, "packageId" | "registryObjectId" | "adminCapId"> = {}
+): RuntimeCredentialRotationRegistryRequest {
+  return {
+    kind: "record_runtime_credential_rotation",
+    packageId: requiredConfigValue(config.packageId, "packageId"),
+    registryObjectId: requiredConfigValue(config.registryObjectId, "registryObjectId"),
+    adminCapId: requiredConfigValue(config.adminCapId, "adminCapId"),
+    agentId: input.agentId,
+    ownerAddress: input.ownerAddress,
+    previousCredentialVersion: input.previousCredentialVersion,
+    nextCredentialVersion: input.nextCredentialVersion,
+    rotationHash: input.rotationHash,
     platformCreatedAtMs: input.platformCreatedAtMs
   };
 }

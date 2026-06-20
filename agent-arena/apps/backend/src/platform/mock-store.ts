@@ -1,4 +1,11 @@
-import type { AgentRuntimeCredential } from "./auth";
+import {
+  createRuntimeCredentialToken,
+  runtimeCredentialScopes,
+  type AgentRuntimeCredential,
+  type RuntimeCredentialRotationChallenge,
+  type RuntimeCredentialRotationInput,
+  type RuntimeCredentialRotationResult
+} from "./auth";
 import {
   createMockCompetition,
   type AgentIntent,
@@ -38,6 +45,7 @@ export interface CreatePairingDraftOptions {
 export interface PlatformStoreSnapshot {
   agents: AgentProfile[];
   runtimeCredentials: AgentRuntimeCredential[];
+  runtimeCredentialRotationChallenges?: RuntimeCredentialRotationChallenge[];
   pairingDrafts: AgentPairingDraft[];
   tradingWallets: TradingWallet[];
   identityBindings: AgentIdentityBinding[];
@@ -60,6 +68,7 @@ const defaultPairingTtlMs = 15 * 60 * 1000;
 export class PlatformMockStore {
   private readonly agents = new Map<string, AgentProfile>();
   private readonly credentialsByRuntimeToken = new Map<string, AgentRuntimeCredential>();
+  private readonly runtimeCredentialRotationChallengesByNonce = new Map<string, RuntimeCredentialRotationChallenge>();
   private readonly pairingDrafts = new Map<string, AgentPairingDraft>();
   private readonly pairingDraftIdsByCode = new Map<string, string>();
   private readonly tradingWallets = new Map<string, TradingWallet>();
@@ -394,18 +403,107 @@ export class PlatformMockStore {
   }
 
   saveRuntimeCredential(credential: AgentRuntimeCredential): void {
-    this.credentialsByRuntimeToken.set(credential.token, cloneRuntimeCredential(credential));
+    const normalized = normalizeRuntimeCredential(credential);
+    this.credentialsByRuntimeToken.set(normalized.token, cloneRuntimeCredential(normalized));
   }
 
   findRuntimeCredentialByToken(token: string): AgentRuntimeCredential | undefined {
     const credential = this.credentialsByRuntimeToken.get(token);
+    return credential && !credential.revokedAt ? cloneRuntimeCredential(credential) : undefined;
+  }
+
+  findLatestRuntimeCredentialByAgentId(agentId: string): AgentRuntimeCredential | undefined {
+    const credential = [...this.credentialsByRuntimeToken.values()]
+      .filter((candidate) => candidate.agentId === agentId && !candidate.revokedAt)
+      .sort((left, right) => right.credentialVersion - left.credentialVersion)[0];
     return credential ? cloneRuntimeCredential(credential) : undefined;
+  }
+
+  saveRuntimeCredentialRotationChallenge(
+    challenge: RuntimeCredentialRotationChallenge
+  ): RuntimeCredentialRotationChallenge {
+    this.runtimeCredentialRotationChallengesByNonce.set(challenge.nonce, cloneRuntimeCredentialRotationChallenge(challenge));
+    return cloneRuntimeCredentialRotationChallenge(challenge);
+  }
+
+  findRuntimeCredentialRotationChallenge(nonce: string): RuntimeCredentialRotationChallenge | undefined {
+    const challenge = this.runtimeCredentialRotationChallengesByNonce.get(nonce);
+    return challenge ? cloneRuntimeCredentialRotationChallenge(challenge) : undefined;
+  }
+
+  rotateRuntimeCredentialForAgent(input: RuntimeCredentialRotationInput): RuntimeCredentialRotationResult {
+    const challenge = this.runtimeCredentialRotationChallengesByNonce.get(input.nonce);
+    if (!challenge) {
+      throw new Error("ROTATION_CHALLENGE_NOT_FOUND");
+    }
+    if (challenge.consumedAt) {
+      throw new Error("ROTATION_NONCE_CONSUMED");
+    }
+    if (challenge.agentId !== input.agentId) {
+      throw new Error("ROTATION_AGENT_MISMATCH");
+    }
+    if (normalizeAddress(challenge.ownerAddress) !== normalizeAddress(input.ownerAddress)) {
+      throw new Error("OWNER_MISMATCH");
+    }
+    if (challenge.reason !== input.reason) {
+      throw new Error("ROTATION_REASON_MISMATCH");
+    }
+    if (challenge.domain !== input.domain) {
+      throw new Error("ROTATION_DOMAIN_MISMATCH");
+    }
+    if (challenge.chainId !== input.chainId) {
+      throw new Error("ROTATION_CHAIN_MISMATCH");
+    }
+    if (challenge.currentCredentialVersion !== input.currentCredentialVersion) {
+      throw new Error("CREDENTIAL_VERSION_CONFLICT");
+    }
+    if (Date.parse(challenge.expiresAt) <= Date.parse(input.now)) {
+      throw new Error("ROTATION_CHALLENGE_EXPIRED");
+    }
+
+    const current = [...this.credentialsByRuntimeToken.values()]
+      .filter((candidate) => candidate.agentId === input.agentId && !candidate.revokedAt)
+      .sort((left, right) => right.credentialVersion - left.credentialVersion)[0];
+    if (!current || current.credentialVersion !== input.currentCredentialVersion) {
+      throw new Error("CREDENTIAL_VERSION_CONFLICT");
+    }
+
+    const previousCredential = cloneRuntimeCredential({
+      ...current,
+      revokedAt: input.now,
+      revocationReason: input.revocationReason
+    });
+    this.credentialsByRuntimeToken.set(current.token, cloneRuntimeCredential(previousCredential));
+
+    const credential: AgentRuntimeCredential = {
+      agentId: input.agentId,
+      token: createRuntimeCredentialToken(),
+      createdAt: input.now,
+      credentialVersion: challenge.nextCredentialVersion,
+      scopes: [...runtimeCredentialScopes],
+      revokedAt: null,
+      revocationReason: null
+    };
+    this.credentialsByRuntimeToken.set(credential.token, cloneRuntimeCredential(credential));
+
+    const consumedChallenge = {
+      ...challenge,
+      consumedAt: input.now
+    };
+    this.runtimeCredentialRotationChallengesByNonce.set(input.nonce, cloneRuntimeCredentialRotationChallenge(consumedChallenge));
+
+    return {
+      credential: cloneRuntimeCredential(credential),
+      previousCredential
+    };
   }
 
   exportSnapshot(): PlatformStoreSnapshot {
     return {
       agents: [...this.agents.values()].map(cloneAgent),
       runtimeCredentials: [...this.credentialsByRuntimeToken.values()].map(cloneRuntimeCredential),
+      runtimeCredentialRotationChallenges: [...this.runtimeCredentialRotationChallengesByNonce.values()]
+        .map(cloneRuntimeCredentialRotationChallenge),
       pairingDrafts: [...this.pairingDrafts.values()].map(clonePairingDraft),
       tradingWallets: [...this.tradingWallets.values()].map(cloneTradingWallet),
       identityBindings: [...this.identityBindingsByAgentId.values()].map(cloneIdentityBinding),
@@ -426,6 +524,7 @@ export class PlatformMockStore {
   private restoreSnapshot(snapshot: PlatformStoreSnapshot): void {
     this.agents.clear();
     this.credentialsByRuntimeToken.clear();
+    this.runtimeCredentialRotationChallengesByNonce.clear();
     this.pairingDrafts.clear();
     this.pairingDraftIdsByCode.clear();
     this.tradingWallets.clear();
@@ -444,7 +543,14 @@ export class PlatformMockStore {
       this.agents.set(agent.id, cloneAgent(agent));
     }
     for (const credential of snapshot.runtimeCredentials) {
-      this.credentialsByRuntimeToken.set(credential.token, cloneRuntimeCredential(credential));
+      const normalized = normalizeRuntimeCredential(credential);
+      this.credentialsByRuntimeToken.set(normalized.token, cloneRuntimeCredential(normalized));
+    }
+    for (const challenge of snapshot.runtimeCredentialRotationChallenges ?? []) {
+      this.runtimeCredentialRotationChallengesByNonce.set(
+        challenge.nonce,
+        cloneRuntimeCredentialRotationChallenge(challenge)
+      );
     }
     for (const draft of snapshot.pairingDrafts) {
       this.pairingDrafts.set(draft.id, clonePairingDraft(draft));
@@ -491,8 +597,28 @@ function cloneAgent(agent: AgentProfile): AgentProfile {
 
 function cloneRuntimeCredential(credential: AgentRuntimeCredential): AgentRuntimeCredential {
   return {
-    ...credential,
+    ...normalizeRuntimeCredential(credential),
     scopes: [...credential.scopes]
+  };
+}
+
+function normalizeRuntimeCredential(credential: AgentRuntimeCredential): AgentRuntimeCredential {
+  return {
+    ...credential,
+    credentialVersion: Number.isSafeInteger(credential.credentialVersion) && credential.credentialVersion > 0
+      ? credential.credentialVersion
+      : 1,
+    revokedAt: credential.revokedAt ?? null,
+    revocationReason: credential.revocationReason ?? null
+  };
+}
+
+function cloneRuntimeCredentialRotationChallenge(
+  challenge: RuntimeCredentialRotationChallenge
+): RuntimeCredentialRotationChallenge {
+  return {
+    ...challenge,
+    consumedAt: challenge.consumedAt ?? null
   };
 }
 
@@ -573,4 +699,8 @@ function createIntentKey(intent: AgentIntent): string {
 
 function createIdempotencyKey(agentId: string, competitionId: string, idempotencyKey: string): string {
   return `${agentId}\u0000${competitionId}\u0000${idempotencyKey}`;
+}
+
+function normalizeAddress(address: string): string {
+  return address.trim().toLowerCase();
 }

@@ -3,7 +3,11 @@ import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { PlatformMockStore, type CreatePairingDraftOptions, type PlatformStoreSnapshot } from "./mock-store";
-import type { AgentRuntimeCredential } from "./auth";
+import type {
+  AgentRuntimeCredential,
+  RuntimeCredentialRotationChallenge,
+  RuntimeCredentialRotationInput
+} from "./auth";
 import type {
   AgentIntent,
   AgentPairingDraft,
@@ -132,6 +136,20 @@ export class SQLitePlatformStore extends PlatformMockStore {
     this.persist();
   }
 
+  override saveRuntimeCredentialRotationChallenge(
+    challenge: RuntimeCredentialRotationChallenge
+  ): RuntimeCredentialRotationChallenge {
+    const result = super.saveRuntimeCredentialRotationChallenge(challenge);
+    this.persist();
+    return result;
+  }
+
+  override rotateRuntimeCredentialForAgent(input: RuntimeCredentialRotationInput) {
+    const result = super.rotateRuntimeCredentialForAgent(input);
+    this.persist();
+    return result;
+  }
+
   override findRuntimeCredentialByToken(token: string): AgentRuntimeCredential | undefined {
     return super.findRuntimeCredentialByToken(token)
       ?? super.findRuntimeCredentialByToken(createRuntimeCredentialHash(token));
@@ -179,6 +197,7 @@ function parsePlatformSnapshot(raw: string): PlatformStoreSnapshot {
   return {
     agents: parsed.agents ?? [],
     runtimeCredentials: parsed.runtimeCredentials ?? [],
+    runtimeCredentialRotationChallenges: parsed.runtimeCredentialRotationChallenges ?? [],
     pairingDrafts: parsed.pairingDrafts ?? [],
     tradingWallets: parsed.tradingWallets ?? [],
     identityBindings: parsed.identityBindings ?? [],
