@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { DAppKitContext, useWalletConnection } from "@mysten/dapp-kit-react";
+import { DAppKitContext, useDAppKit, useWalletConnection } from "@mysten/dapp-kit-react";
 import { ArenaPage } from "./components/platform/ArenaPage";
 import { LeaderboardPanel } from "./components/platform/LeaderboardPanel";
 import { SuiDappKitAgentClaimPanel } from "./components/platform/SuiDappKitAgentClaimPanel";
@@ -43,10 +43,11 @@ const emptyPublicArenaActivity: PublicArenaActivity = {
 interface AppProps {
   connectedOwnerAddress?: string | null;
   liveMarketLoader?: () => Promise<LiveBtcMarketSnapshot>;
+  ownerMessageSigner?: (message: string) => Promise<string>;
   platformFetcher?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
-export default function App({ connectedOwnerAddress, liveMarketLoader, platformFetcher }: AppProps = {}) {
+export default function App({ connectedOwnerAddress, liveMarketLoader, ownerMessageSigner, platformFetcher }: AppProps = {}) {
   const dAppKit = useContext(DAppKitContext);
 
   if (!dAppKit) {
@@ -54,6 +55,7 @@ export default function App({ connectedOwnerAddress, liveMarketLoader, platformF
       <AppContent
         connectedOwnerAddress={connectedOwnerAddress ?? null}
         liveMarketLoader={liveMarketLoader}
+        ownerMessageSigner={ownerMessageSigner}
         platformFetcher={platformFetcher}
       />
     );
@@ -68,21 +70,39 @@ export default function App({ connectedOwnerAddress, liveMarketLoader, platformF
   );
 }
 
-function WalletAwareApp({ connectedOwnerAddress, liveMarketLoader, platformFetcher }: AppProps) {
+function WalletAwareApp({ connectedOwnerAddress, liveMarketLoader, ownerMessageSigner, platformFetcher }: AppProps) {
   const connection = useWalletConnection();
+  const dAppKit = useDAppKit();
   const ownerAddress =
     connectedOwnerAddress ?? (connection.status === "connected" ? connection.account.address : null);
+  const dappKitOwnerMessageSigner = useCallback(async (message: string) => {
+    if (connection.status !== "connected") {
+      throw new Error("Owner wallet is not connected");
+    }
+
+    const result = await dAppKit.signPersonalMessage({
+      message: new TextEncoder().encode(message),
+      account: connection.account
+    });
+    const signature = readWalletSignature(result);
+    if (!signature) {
+      throw new Error("Owner wallet signature is unavailable");
+    }
+
+    return signature;
+  }, [connection, dAppKit]);
 
   return (
     <AppContent
       connectedOwnerAddress={ownerAddress}
       liveMarketLoader={liveMarketLoader}
+      ownerMessageSigner={ownerMessageSigner ?? dappKitOwnerMessageSigner}
       platformFetcher={platformFetcher}
     />
   );
 }
 
-function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }: AppProps) {
+function AppContent({ connectedOwnerAddress, liveMarketLoader, ownerMessageSigner, platformFetcher }: AppProps) {
   const [state, setState] = useState(() => createInitialPlatformState(mockPlatformSnapshot));
   const [marketState, setMarketState] = useState<MarketSnapshot | null>(null);
   const [publicActivity, setPublicActivity] = useState<PublicArenaActivity | null>(null);
@@ -153,6 +173,27 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }
   const platformClient = useMemo(
     () => createPlatformClient({ baseUrl: apiBaseUrl, fetcher: platformFetcher }),
     [platformFetcher]
+  );
+  const createRuntimeCredentialRotationChallenge = useCallback(
+    (agentId: string, input: { ownerAddress: string; reason: string }) =>
+      platformClient.createRuntimeCredentialRotationChallenge(agentId, input),
+    [platformClient]
+  );
+  const rotateRuntimeCredential = useCallback(
+    (
+      agentId: string,
+      input: {
+        ownerAddress: string;
+        signature: string;
+        nonce: string;
+        expiresAt: string;
+        reason: string;
+        message: string;
+        domain: string;
+        currentCredentialVersion: number;
+      }
+    ) => platformClient.rotateRuntimeCredential(agentId, input),
+    [platformClient]
   );
   const predictClient = useMemo(() => createPredictClient({ serverUrl: predictConfig.serverUrl }), []);
   const defaultLiveMarketLoader = useCallback(
@@ -341,6 +382,13 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher }
             liveMarketSnapshot={liveMarket.snapshot}
             liveMarketStatus={liveMarket.status}
             marketReference={chartMarketReference}
+            runtimeCredentialRotation={{
+              apiBaseUrl,
+              connectedOwnerAddress: connectedOwnerAddress ?? null,
+              createChallenge: createRuntimeCredentialRotationChallenge,
+              rotateCredential: rotateRuntimeCredential,
+              signMessage: ownerMessageSigner
+            }}
             userAgentProfile={userAgentProfile}
           />
         ) : (
@@ -381,6 +429,24 @@ function compareOwnerAgentPriority(left: AgentProfile, right: AgentProfile): num
 function getAgentNumericId(agentId: string): number {
   const match = agentId.match(/_(\d+)$/);
   return match ? Number(match[1]) : 0;
+}
+
+function readWalletSignature(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  return typeof value.signature === "string" && value.signature.trim()
+    ? value.signature.trim()
+    : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function getClaimRegistrationCode(): string | null {

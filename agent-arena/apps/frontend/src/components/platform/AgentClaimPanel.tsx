@@ -1,7 +1,7 @@
 import { Copy, ShieldCheck, Wallet } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { createPlatformClient, PlatformClientError } from "../../features/platform/client";
-import type { AgentProfile, RuntimeCredential, TradingWallet } from "../../features/platform/types";
+import type { AgentProfile, RegistryWriteSummary, RuntimeCredential, TradingWallet } from "../../features/platform/types";
 
 type PlatformFetcher = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -21,6 +21,7 @@ interface ClaimResult {
   agent: AgentProfile;
   tradingWallet: TradingWallet;
   runtimeCredential: RuntimeCredential;
+  registry?: RegistryWriteSummary;
 }
 
 export interface ClaimWalletOption {
@@ -282,6 +283,7 @@ export function AgentClaimPanel({
             <p>Owner wallet {claimResult.agent.ownerAddress}</p>
             <p>Trading wallet {claimResult.tradingWallet.address}</p>
             <p>PredictManager {claimResult.tradingWallet.predictManagerStatus}</p>
+            {claimResult.registry ? <p>{formatRegistrySummary(claimResult.registry)}</p> : null}
           </div>
           <button
             className="paper-button paper-button-primary inline-flex items-center justify-center gap-2 px-3 py-2 font-display text-xs font-black uppercase"
@@ -301,6 +303,18 @@ export function AgentClaimPanel({
       ) : null}
     </section>
   );
+}
+
+function formatRegistrySummary(registry: RegistryWriteSummary): string {
+  if (registry.status === "submitted" && registry.txDigest) {
+    return `Registry tx ${registry.txDigest}`;
+  }
+
+  if (registry.status === "failed") {
+    return `Registry ${registry.errorCode ?? "failed"}`;
+  }
+
+  return "Registry disabled";
 }
 
 function createAgentRuntimeHandoff({

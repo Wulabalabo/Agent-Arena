@@ -11,7 +11,10 @@ import type {
   PlatformErrorBody,
   PublicArenaActivity,
   ReplayEvent,
+  RegistryWriteSummary,
   RuntimeCredential,
+  RuntimeCredentialRotationChallenge,
+  RuntimeCredentialRotationResponse,
   SubmitIntentInput,
   TradingWallet
 } from "./types";
@@ -40,6 +43,7 @@ interface ClaimAgentResponse {
   agent: AgentProfile;
   tradingWallet: TradingWallet;
   runtimeCredential: RuntimeCredential;
+  registry?: RegistryWriteSummary;
 }
 
 interface CompetitionListResponse {
@@ -94,6 +98,33 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
       requestJson<PairingDraft>(fetcher, `${root}/agent/init`, jsonPost(input)),
     claimAgent: (input: ClaimAgentInput) =>
       requestJson<ClaimAgentResponse>(fetcher, `${root}/owner/agents/claim`, jsonPost(input)),
+    createRuntimeCredentialRotationChallenge: (
+      agentId: string,
+      input: { ownerAddress: string; reason: string }
+    ) =>
+      requestJson<{ challenge: RuntimeCredentialRotationChallenge }>(
+        fetcher,
+        `${root}/owner/agents/${encodeURIComponent(agentId)}/runtime-credential/rotation-challenge`,
+        jsonPost(input)
+      ).then((response) => response.challenge),
+    rotateRuntimeCredential: (
+      agentId: string,
+      input: {
+        ownerAddress: string;
+        signature: string;
+        nonce: string;
+        expiresAt: string;
+        reason: string;
+        message: string;
+        domain: string;
+        currentCredentialVersion: number;
+      }
+    ) =>
+      requestJson<RuntimeCredentialRotationResponse>(
+        fetcher,
+        `${root}/owner/agents/${encodeURIComponent(agentId)}/runtime-credential/rotate`,
+        jsonPost(input)
+      ),
     getOwnerAgentProfile: (ownerAddress: string) =>
       requestJson<OwnerAgentProfile>(
         fetcher,

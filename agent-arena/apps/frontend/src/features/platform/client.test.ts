@@ -44,6 +44,10 @@ describe("createPlatformClient", () => {
             token: "agent_runtime_test_token",
             shownOnce: true,
             scopes: ["agent:read", "agent:intent:write"]
+          },
+          registry: {
+            status: "submitted",
+            txDigest: "0xregistrydigest"
           }
         }),
         { status: 200, headers: { "content-type": "application/json" } }
@@ -73,11 +77,102 @@ describe("createPlatformClient", () => {
       shownOnce: true,
       scopes: ["agent:read", "agent:intent:write"]
     });
+    expect(result.registry).toEqual({
+      status: "submitted",
+      txDigest: "0xregistrydigest"
+    });
     expect(fetcher).toHaveBeenCalledWith("https://platform.test/api/arena/owner/agents/claim", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input)
     });
+  });
+
+  it("creates a runtime credential rotation challenge", async () => {
+    const challenge = {
+      agentId: "agent_1",
+      ownerAddress: "0xowner",
+      reason: "lost browser session",
+      domain: "agent-arena-runtime-credential-rotation:v1",
+      chainId: "sui:testnet",
+      currentCredentialVersion: 1,
+      nextCredentialVersion: 2,
+      nonce: "nonce-1",
+      expiresAt: "2026-06-18T02:10:00.000Z",
+      message: "rotation message"
+    };
+    const fetcher = vi.fn(async () =>
+      new Response(JSON.stringify({ challenge }), {
+        status: 201,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
+
+    await expect(client.createRuntimeCredentialRotationChallenge("agent_1", {
+      ownerAddress: "0xowner",
+      reason: "lost browser session"
+    })).resolves.toEqual(challenge);
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://platform.test/api/arena/owner/agents/agent_1/runtime-credential/rotation-challenge",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ownerAddress: "0xowner",
+          reason: "lost browser session"
+        })
+      }
+    );
+  });
+
+  it("rotates a runtime credential with owner signature material", async () => {
+    const fetcher = vi.fn(async () =>
+      new Response(JSON.stringify({
+        runtimeCredential: {
+          token: "agent_runtime_rotated",
+          shownOnce: true,
+          credentialVersion: 2,
+          scopes: ["agent:read"]
+        },
+        registry: {
+          status: "disabled",
+          txDigest: null
+        }
+      }), {
+        status: 201,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
+    const input = {
+      ownerAddress: "0xowner",
+      signature: "0xsig",
+      nonce: "nonce-1",
+      expiresAt: "2026-06-18T02:10:00.000Z",
+      reason: "lost browser session",
+      message: "rotation message",
+      domain: "agent-arena-runtime-credential-rotation:v1",
+      currentCredentialVersion: 1
+    };
+
+    await expect(client.rotateRuntimeCredential("agent_1", input)).resolves.toMatchObject({
+      runtimeCredential: {
+        token: "agent_runtime_rotated",
+        credentialVersion: 2
+      },
+      registry: {
+        status: "disabled"
+      }
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://platform.test/api/arena/owner/agents/agent_1/runtime-credential/rotate",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input)
+      }
+    );
   });
 
   it("loads a claimed owner Agent profile by owner wallet address", async () => {

@@ -1,4 +1,8 @@
 import type { Competition } from "../../features/platform/types";
+import type {
+  RuntimeCredentialRotationChallenge,
+  RuntimeCredentialRotationResponse
+} from "../../features/platform/types";
 import type { ArenaChartMarketReference, PublicActionFeedItem, UserAgentArenaProfile } from "../../features/platform/arena-ui";
 import type { LiveBtcMarketSnapshot } from "../../features/predict/live-market";
 import type { LiveBtcMarketStatus } from "../../features/predict/use-live-btc-market";
@@ -14,6 +18,28 @@ interface ArenaPageProps {
   liveMarketSnapshot: LiveBtcMarketSnapshot | null;
   liveMarketStatus: LiveBtcMarketStatus;
   marketReference: ArenaChartMarketReference | null;
+  runtimeCredentialRotation?: {
+    apiBaseUrl: string;
+    connectedOwnerAddress: string | null;
+    createChallenge: (
+      agentId: string,
+      input: { ownerAddress: string; reason: string }
+    ) => Promise<RuntimeCredentialRotationChallenge>;
+    rotateCredential: (
+      agentId: string,
+      input: {
+        ownerAddress: string;
+        signature: string;
+        nonce: string;
+        expiresAt: string;
+        reason: string;
+        message: string;
+        domain: string;
+        currentCredentialVersion: number;
+      }
+    ) => Promise<RuntimeCredentialRotationResponse>;
+    signMessage?: (message: string) => Promise<string>;
+  };
   userAgentProfile: UserAgentArenaProfile;
 }
 
@@ -24,6 +50,7 @@ export function ArenaPage({
   liveMarketSnapshot,
   liveMarketStatus,
   marketReference,
+  runtimeCredentialRotation,
   userAgentProfile
 }: ArenaPageProps) {
   const oracleId = competition?.oracleId ?? liveMarketSnapshot?.oracle?.oracleId ?? "waiting";
@@ -39,7 +66,16 @@ export function ArenaPage({
           </div>
         </div>
         {userAgentProfile.agentId ? (
-          <UserAgentProfilePanel profile={userAgentProfile} summary={statusSummary} variant="compact" />
+          <UserAgentProfilePanel
+            apiBaseUrl={runtimeCredentialRotation?.apiBaseUrl}
+            connectedOwnerAddress={runtimeCredentialRotation?.connectedOwnerAddress}
+            onCreateRuntimeCredentialRotationChallenge={runtimeCredentialRotation?.createChallenge}
+            onRotateRuntimeCredential={runtimeCredentialRotation?.rotateCredential}
+            onSignRuntimeCredentialRotationMessage={runtimeCredentialRotation?.signMessage}
+            profile={userAgentProfile}
+            summary={statusSummary}
+            variant="compact"
+          />
         ) : (
           <CopyAgentPromptPanel summary={statusSummary} />
         )}

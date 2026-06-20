@@ -35,6 +35,10 @@ describe("AgentClaimPanel", () => {
         token: "agent_runtime_claimed",
         shownOnce: true,
         scopes: ["competition:read"]
+      },
+      registry: {
+        status: "submitted",
+        txDigest: "0xregistrydigest"
       }
     }), {
       status: 201,
@@ -57,6 +61,7 @@ describe("AgentClaimPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Connect wallet and claim/i }));
 
     expect(await screen.findByText("agent_runtime_claimed")).toBeInTheDocument();
+    expect(screen.getByText("Registry tx 0xregistrydigest")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Copy Agent handoff/i }));
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledTimes(1);

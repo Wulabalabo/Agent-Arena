@@ -1,18 +1,68 @@
-import { Copy } from "lucide-react";
+import { Copy, KeyRound } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { UserAgentArenaProfile } from "../../features/platform/arena-ui";
+import type {
+  RuntimeCredential,
+  RuntimeCredentialRotationChallenge,
+  RuntimeCredentialRotationResponse
+} from "../../features/platform/types";
 
 interface UserAgentProfilePanelProps {
+  apiBaseUrl?: string;
   className?: string;
+  connectedOwnerAddress?: string | null;
+  onCreateRuntimeCredentialRotationChallenge?: (
+    agentId: string,
+    input: { ownerAddress: string; reason: string }
+  ) => Promise<RuntimeCredentialRotationChallenge>;
+  onRotateRuntimeCredential?: (
+    agentId: string,
+    input: {
+      ownerAddress: string;
+      signature: string;
+      nonce: string;
+      expiresAt: string;
+      reason: string;
+      message: string;
+      domain: string;
+      currentCredentialVersion: number;
+    }
+  ) => Promise<RuntimeCredentialRotationResponse>;
+  onSignRuntimeCredentialRotationMessage?: (message: string) => Promise<string>;
   profile: UserAgentArenaProfile;
   summary?: ReactNode;
   variant?: "full" | "compact";
 }
 
-export function UserAgentProfilePanel({ className = "", profile, summary, variant = "full" }: UserAgentProfilePanelProps) {
+export function UserAgentProfilePanel({
+  apiBaseUrl,
+  className = "",
+  connectedOwnerAddress,
+  onCreateRuntimeCredentialRotationChallenge,
+  onRotateRuntimeCredential,
+  onSignRuntimeCredentialRotationMessage,
+  profile,
+  summary,
+  variant = "full"
+}: UserAgentProfilePanelProps) {
   const compact = variant === "compact";
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const [handoffCopyStatus, setHandoffCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const [rotationStatus, setRotationStatus] = useState<"idle" | "rotating" | "rotated" | "failed">("idle");
+  const [rotationError, setRotationError] = useState<string | null>(null);
+  const [rotatedCredential, setRotatedCredential] = useState<RuntimeCredential | null>(null);
   const tradingWalletAddress = profile.tradingWalletAddress;
+  const rotationReason = "owner requested runtime credential rotation";
+  const ownerAddress = connectedOwnerAddress?.trim() ?? "";
+  const canRotateRuntimeCredential = Boolean(
+    profile.agentId &&
+    ownerAddress &&
+    profile.ownerAddress &&
+    normalizeAddress(profile.ownerAddress) === normalizeAddress(ownerAddress) &&
+    onCreateRuntimeCredentialRotationChallenge &&
+    onRotateRuntimeCredential &&
+    onSignRuntimeCredentialRotationMessage
+  );
 
   async function copyTradingWallet() {
     const clipboard = navigator.clipboard;
@@ -26,6 +76,67 @@ export function UserAgentProfilePanel({ className = "", profile, summary, varian
       setCopyStatus("copied");
     } catch {
       setCopyStatus("failed");
+    }
+  }
+
+  async function rotateRuntimeCredential() {
+    if (
+      !profile.agentId ||
+      !ownerAddress ||
+      !onCreateRuntimeCredentialRotationChallenge ||
+      !onRotateRuntimeCredential ||
+      !onSignRuntimeCredentialRotationMessage
+    ) {
+      return;
+    }
+
+    setRotationStatus("rotating");
+    setRotationError(null);
+    setHandoffCopyStatus("idle");
+
+    try {
+      const challenge = await onCreateRuntimeCredentialRotationChallenge(profile.agentId, {
+        ownerAddress,
+        reason: rotationReason
+      });
+      const signature = await onSignRuntimeCredentialRotationMessage(challenge.message);
+      const response = await onRotateRuntimeCredential(profile.agentId, {
+        ownerAddress: challenge.ownerAddress,
+        signature,
+        nonce: challenge.nonce,
+        expiresAt: challenge.expiresAt,
+        reason: challenge.reason,
+        message: challenge.message,
+        domain: challenge.domain,
+        currentCredentialVersion: challenge.currentCredentialVersion
+      });
+      setRotatedCredential(response.runtimeCredential);
+      setRotationStatus("rotated");
+    } catch (error) {
+      setRotationStatus("failed");
+      setRotationError(error instanceof Error ? error.message : "Runtime credential rotation failed");
+    }
+  }
+
+  async function copyRotatedHandoff() {
+    if (!rotatedCredential || !profile.agentId || !navigator.clipboard?.writeText) {
+      setHandoffCopyStatus("failed");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify({
+        baseUrl: apiBaseUrl ?? "",
+        agentId: profile.agentId,
+        token: rotatedCredential.token,
+        credentialVersion: rotatedCredential.credentialVersion,
+        scopes: rotatedCredential.scopes,
+        walletAddress: tradingWalletAddress,
+        savedAt: new Date().toISOString()
+      }, null, 2));
+      setHandoffCopyStatus("copied");
+    } catch {
+      setHandoffCopyStatus("failed");
     }
   }
 
@@ -45,6 +156,41 @@ export function UserAgentProfilePanel({ className = "", profile, summary, varian
       {copyStatus === "copied" ? "Trading wallet copied" : copyStatus === "failed" ? "Trading wallet copy failed" : ""}
     </p>
   );
+  const runtimeCredentialRotationControl = canRotateRuntimeCredential ? (
+    <div className="mt-3 grid gap-2">
+      <button
+        aria-label="Rotate runtime credential"
+        className="paper-button inline-flex items-center justify-center gap-2 px-3 py-2 font-display text-[10px] font-black uppercase"
+        disabled={rotationStatus === "rotating"}
+        onClick={() => void rotateRuntimeCredential()}
+        type="button"
+      >
+        <KeyRound aria-hidden="true" size={14} />
+        {rotationStatus === "rotating" ? "Rotating" : "Rotate credential"}
+      </button>
+      {rotatedCredential ? (
+        <div className="paper-inset grid gap-2 p-3">
+          <p className="paper-label text-on-surface-variant">New runtime credential</p>
+          <p className="break-all font-mono text-[11px] font-bold text-on-surface">{rotatedCredential.token}</p>
+          <button
+            className="paper-button paper-button-primary inline-flex items-center justify-center gap-2 px-3 py-2 font-display text-[10px] font-black uppercase"
+            onClick={() => void copyRotatedHandoff()}
+            type="button"
+          >
+            <Copy aria-hidden="true" size={14} />
+            Copy Agent handoff
+          </button>
+          {handoffCopyStatus === "copied" ? (
+            <p className="text-[11px] font-bold text-on-surface-variant">Runtime handoff copied.</p>
+          ) : null}
+          {handoffCopyStatus === "failed" ? (
+            <p className="text-[11px] font-bold text-error">Copy failed.</p>
+          ) : null}
+        </div>
+      ) : null}
+      {rotationError ? <p className="text-[11px] font-bold text-error">{rotationError}</p> : null}
+    </div>
+  ) : null;
 
   return (
     <section aria-label="My Agent profile" className={`paper-card-sm p-4 ${className}`}>
@@ -76,6 +222,7 @@ export function UserAgentProfilePanel({ className = "", profile, summary, varian
         <section aria-label="My Agent funding wallet" className="paper-inset mt-3 p-3">
           <DetailLine label="Trading wallet" value={tradingWalletAddress ?? "not created"} action={tradingWalletCopyAction} />
           {tradingWalletCopyStatus}
+          {runtimeCredentialRotationControl}
         </section>
       ) : null}
 
@@ -103,6 +250,7 @@ export function UserAgentProfilePanel({ className = "", profile, summary, varian
           <DetailLine label="Latest Predict tx" value={profile.latestPredictTxDigest ?? "not submitted"} />
           {profile.twitterHandle ? <DetailLine label="Twitter" value={`@${profile.twitterHandle}`} /> : null}
           {tradingWalletCopyStatus}
+          {runtimeCredentialRotationControl}
         </section>
       </div> : null}
     </section>
@@ -146,4 +294,8 @@ function accountStateClass(value: UserAgentArenaProfile["accountState"]): string
   }
 
   return "paper-chip-orange";
+}
+
+function normalizeAddress(address: string): string {
+  return address.trim().toLowerCase();
 }

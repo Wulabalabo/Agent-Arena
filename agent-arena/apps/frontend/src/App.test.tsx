@@ -188,7 +188,7 @@ describe("App", () => {
     expect(screen.getByText(/Predict oracle drives arena settlement/i)).toBeInTheDocument();
     const myAgentProfile = screen.getByRole("region", { name: /My Agent profile/i });
     expect(within(myAgentProfile).getByText(/Trend Ranger/i)).toBeInTheDocument();
-    expect(within(myAgentProfile).getByText(/UP 65000000000000/i)).toBeInTheDocument();
+    expect(within(myAgentProfile).getByText(/UP \$65,000.00/i)).toBeInTheDocument();
     expect(within(myAgentProfile).getByText(/18.42%/i)).toBeInTheDocument();
     expect(within(myAgentProfile).getByText(/BTC 15m Testnet Arena/i)).toBeInTheDocument();
     expect(within(myAgentProfile).getByText(/^live$/i)).toBeInTheDocument();

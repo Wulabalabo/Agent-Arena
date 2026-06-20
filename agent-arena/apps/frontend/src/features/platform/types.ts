@@ -40,7 +40,33 @@ export interface PairingDraft {
 export interface RuntimeCredential {
   token: string;
   shownOnce: boolean;
+  credentialVersion?: number;
   scopes: string[];
+}
+
+export interface RegistryWriteSummary {
+  status: "disabled" | "submitted" | "failed";
+  txDigest: string | null;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface RuntimeCredentialRotationChallenge {
+  agentId: string;
+  ownerAddress: string;
+  reason: string;
+  domain: string;
+  chainId: string;
+  currentCredentialVersion: number;
+  nextCredentialVersion: number;
+  nonce: string;
+  expiresAt: string;
+  message: string;
+}
+
+export interface RuntimeCredentialRotationResponse {
+  runtimeCredential: RuntimeCredential;
+  registry?: RegistryWriteSummary;
 }
 
 export interface TradingWallet {
