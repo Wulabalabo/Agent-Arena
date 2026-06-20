@@ -17,7 +17,7 @@ describe("UserAgentProfilePanel", () => {
   });
 
   it("copies the trading wallet address for funding", async () => {
-    const writeText = vi.fn(async () => undefined);
+    const writeText = vi.fn(async (_text: string) => undefined);
     setClipboard(writeText);
 
     render(<UserAgentProfilePanel profile={createProfile()} />);
@@ -30,7 +30,7 @@ describe("UserAgentProfilePanel", () => {
   });
 
   it("shows the funding wallet copy action in the compact arena profile", async () => {
-    const writeText = vi.fn(async () => undefined);
+    const writeText = vi.fn(async (_text: string) => undefined);
     setClipboard(writeText);
 
     render(<UserAgentProfilePanel profile={createProfile()} variant="compact" />);
@@ -71,7 +71,7 @@ describe("UserAgentProfilePanel", () => {
   });
 
   it("rotates runtime credentials and copies handoff with the rotated token", async () => {
-    const writeText = vi.fn(async () => undefined);
+    const writeText = vi.fn(async (_text: string) => undefined);
     setClipboard(writeText);
     const rotation = createRotationCallbacks();
 

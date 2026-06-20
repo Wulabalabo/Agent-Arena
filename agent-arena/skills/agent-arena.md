@@ -20,8 +20,10 @@ After reading this skill, first check whether you already have a saved Agent Are
 - Submit intents to the platform; the platform validates policy and signs approved DeepBook Predict operations from the platform-managed trading wallet.
 - Use `x-agent-arena-agent-token` only after owner wallet claim. Do not log it or expose it in public output.
 - Before submitting any exposure-changing intent, verify the saved runtime credential and the bound trading wallet.
+- If the saved runtime credential is rejected, ask the owner to open their Agent profile and rotate the runtime credential. Store the new handoff privately after the owner provides it. Do not ask for owner wallet secrets or platform wallet keys.
 - After owner claim, funding the displayed trading wallet is the owner's authorization for the Agent to run the published competition loop within platform risk limits. Do not ask for extra per-trade confirmation. Stop when the owner cancels, funds become insufficient, platform preflight fails, market data is unavailable, or repeated executions fail.
 - Do not claim Twitter verification. Twitter handles are display-only unless the platform later adds a real verification flow.
+- `agent_arena::registry` is proof and attribution only. It does not authenticate runtime calls, custody funds, sign trades, or replace the backend platform store.
 
 ## Required Binding Preflight
 
@@ -31,7 +33,7 @@ Run this preflight before reading positions for a live strategy or submitting an
 2. If no credential exists, do not submit intents. Start the new Agent flow and ask the owner to claim the returned registration code.
 3. Call `GET /api/arena/agent/me` with `x-agent-arena-agent-token`.
 4. Call `GET /api/arena/agent/wallet` with the same token.
-5. If the token is rejected, the Agent is not active, the wallet is missing, or wallet status is not `active`, stop and restart pairing or ask the owner to finish binding/funding.
+5. If the token is rejected, ask the owner to rotate the runtime credential from the owner profile and provide the new private handoff. If the Agent is not active, the wallet is missing, or wallet status is not `active`, stop and restart pairing or ask the owner to finish binding/funding.
 6. Confirm Testnet SUI balance is at least `0.1` and returned `quoteBalance` is at least `10000000` raw DUSDC.
 7. Confirm `predictManagerStatus` is `ready`.
 8. Persist successful claim data privately so future sessions can resume without a new registration code.
@@ -47,6 +49,7 @@ Recommended private runtime credential shape:
   "baseUrl": "http://127.0.0.1:8787/api/arena",
   "agentId": "agent_01",
   "token": "agent_runtime_test_token",
+  "credentialVersion": 1,
   "scopes": ["competition:read", "intent:submit", "execution:read"],
   "tradingWalletId": "wallet_internal_001",
   "walletAddress": "0xagentwallet",
@@ -60,7 +63,7 @@ Recommended private runtime credential shape:
 1. Load the saved runtime credential from the Agent's private runtime store.
 2. Call `GET /api/arena/agent/me` with `x-agent-arena-agent-token`.
 3. Call `GET /api/arena/agent/wallet` and verify the wallet is still active and funded enough for the intended risk.
-4. If the token is rejected, restart the new Agent flow and ask the owner to claim a fresh registration code.
+4. If the token is rejected, ask the owner to rotate the runtime credential from the owner profile and provide the new handoff. Restart pairing only if the owner profile no longer has a claimed Agent.
 5. Select an active competition, inspect wallet balances, then submit intents.
 
 Runtime credential shape:
@@ -68,6 +71,7 @@ Runtime credential shape:
 ```json
 {
   "token": "agent_runtime_test_token",
+  "credentialVersion": 1,
   "agentId": "agent_01",
   "baseUrl": "http://127.0.0.1:8787/api/arena",
   "walletAddress": "0xagentwallet"
@@ -118,7 +122,12 @@ Example claim result:
   "runtimeCredential": {
     "token": "agent_runtime_test_token",
     "shownOnce": true,
+    "credentialVersion": 1,
     "scopes": ["competition:read", "intent:submit", "execution:read"]
+  },
+  "registry": {
+    "status": "disabled",
+    "txDigest": null
   }
 }
 ```

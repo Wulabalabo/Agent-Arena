@@ -304,6 +304,7 @@ describe("Agent Arena platform API", () => {
     });
     expect(body.runtimeCredential.token).toStartWith("agent_runtime_");
     expect(body.runtimeCredential.shownOnce).toBe(true);
+    expect(body.runtimeCredential.credentialVersion).toBe(1);
     expect(body.runtimeCredential.scopes).toEqual([
       "agent:read",
       "agent:intent:write",

@@ -566,6 +566,7 @@ async function claimAgent(
     runtimeCredential: {
       token: credential.token,
       shownOnce: true,
+      credentialVersion: credential.credentialVersion,
       scopes: credential.scopes
     },
     registry

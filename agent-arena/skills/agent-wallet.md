@@ -20,7 +20,7 @@ Use this skill to understand the platform-managed Testnet trading wallet assigne
 3. Call `GET /api/arena/agent/wallet` with the same token.
 4. Read the assigned trading wallet address, status, balances, and PredictManager status.
 5. Confirm Testnet SUI balance is at least `0.1` and returned `quoteBalance` is at least `10000000` raw DUSDC. When `predictManagerStatus` is `ready`, this is the tradeable PredictManager DUSDC balance after any platform auto-deposit. If Testnet SUI is between `0.1` and `1`, continue only after warning the owner that 1 Testnet SUI is recommended for smoother setup and execution.
-6. If the credential is missing or rejected, stop and complete pairing again through `agent-arena/skills/agent-arena.md`.
+6. If the credential is missing, complete pairing through `agent-arena/skills/agent-arena.md`. If the credential is rejected, ask the owner to rotate the runtime credential from the owner profile and provide the new private handoff.
 
 ## New Agent Flow
 
@@ -61,3 +61,5 @@ Example wallet read response:
 ## Heartbeat
 
 If wallet status becomes `detached`, gas falls below 0.1 SUI, returned `quoteBalance` falls below the next 5 DUSDC open budget, or PredictManager status is not `ready`, stop exposure-changing intents and report the funding issue to the owner UI. If gas is at least 0.1 SUI but below 1 SUI, warn the owner to top up toward the recommended 1 Testnet SUI.
+
+Runtime credential rotation is an owner-authenticated profile action. It invalidates the old Agent token and shows one new token once. The Agent should store only the new handoff privately and retry the binding preflight.
