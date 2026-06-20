@@ -13,6 +13,7 @@ const E_WALLET_ALREADY_BOUND: u64 = 3;
 const E_INVALID_VERSION: u64 = 4;
 const E_INVALID_SIGNATURE: u64 = 5;
 const E_AUTHORIZATION_REPLAYED: u64 = 6;
+const E_SENDER_MISMATCH: u64 = 7;
 
 const AUTHORIZATION_DOMAIN: vector<u8> = vector[
     97, 103, 101, 110, 116, 45, 97, 114,
@@ -103,8 +104,9 @@ public fun register_agent(
     metadata_hash: vector<u8>,
     nonce: vector<u8>,
     sig: vector<u8>,
-    _ctx: &mut TxContext,
+    ctx: &mut TxContext,
 ) {
+    assert!(ctx.sender() == owner, E_SENDER_MISMATCH);
     verify_register_agent_authorization(
         registry,
         agent_id,
@@ -145,8 +147,9 @@ public fun record_runtime_credential_rotation(
     rotation_hash: vector<u8>,
     nonce: vector<u8>,
     sig: vector<u8>,
-    _ctx: &mut TxContext,
+    ctx: &mut TxContext,
 ) {
+    assert!(ctx.sender() == owner, E_SENDER_MISMATCH);
     verify_runtime_credential_rotation_authorization(
         registry,
         agent_id,

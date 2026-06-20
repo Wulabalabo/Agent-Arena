@@ -9,6 +9,7 @@ module agent_arena::registry_tests {
     const E_OWNER_MISMATCH: u64 = 2;
     const E_INVALID_SIGNATURE: u64 = 5;
     const E_AUTHORIZATION_REPLAYED: u64 = 6;
+    const E_SENDER_MISMATCH: u64 = 7;
 
     fun agent_id(): vector<u8> {
         b"agent_1"
@@ -36,6 +37,24 @@ module agent_arena::registry_tests {
 
     fun rotation_nonce_other_owner(): vector<u8> {
         b"rotation_nonce_other_owner"
+    }
+
+    fun ctx_with_sender(sender: address): tx_context::TxContext {
+        tx_context::new(
+            sender,
+            x"3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532",
+            0,
+            0,
+            0,
+        )
+    }
+
+    fun owner_ctx(): tx_context::TxContext {
+        ctx_with_sender(OWNER)
+    }
+
+    fun other_owner_ctx(): tx_context::TxContext {
+        ctx_with_sender(OTHER_OWNER)
     }
 
     fun register_sig_1(): vector<u8> {
@@ -94,7 +113,7 @@ module agent_arena::registry_tests {
 
     #[test]
     fun test_authorized_register_agent_binds_wallet_and_version_increments() {
-        let ctx = &mut tx_context::dummy();
+        let ctx = &mut owner_ctx();
         let mut registry = registry::new_for_testing(ctx);
 
         registry::register_agent(
@@ -115,7 +134,7 @@ module agent_arena::registry_tests {
 
     #[test, expected_failure(abort_code = E_AGENT_ALREADY_REGISTERED, location = agent_arena::registry)]
     fun test_duplicate_register_agent_fails() {
-        let ctx = &mut tx_context::dummy();
+        let ctx = &mut owner_ctx();
         let mut registry = registry::new_for_testing(ctx);
 
         registry::register_agent(
@@ -144,7 +163,7 @@ module agent_arena::registry_tests {
 
     #[test, expected_failure(abort_code = E_AUTHORIZATION_REPLAYED, location = agent_arena::registry)]
     fun test_replayed_authorization_fails() {
-        let ctx = &mut tx_context::dummy();
+        let ctx = &mut owner_ctx();
         let mut registry = registry::new_for_testing(ctx);
 
         registry::register_agent(
@@ -173,7 +192,7 @@ module agent_arena::registry_tests {
 
     #[test, expected_failure(abort_code = E_INVALID_SIGNATURE, location = agent_arena::registry)]
     fun test_invalid_register_signature_fails() {
-        let ctx = &mut tx_context::dummy();
+        let ctx = &mut owner_ctx();
         let mut registry = registry::new_for_testing(ctx);
 
         registry::register_agent(
@@ -190,8 +209,8 @@ module agent_arena::registry_tests {
         registry::destroy_for_testing(registry);
     }
 
-    #[test, expected_failure(abort_code = E_OWNER_MISMATCH, location = agent_arena::registry)]
-    fun test_wrong_owner_record_runtime_credential_rotation_fails() {
+    #[test, expected_failure(abort_code = E_SENDER_MISMATCH, location = agent_arena::registry)]
+    fun test_register_agent_requires_owner_sender() {
         let ctx = &mut tx_context::dummy();
         let mut registry = registry::new_for_testing(ctx);
 
@@ -205,6 +224,26 @@ module agent_arena::registry_tests {
             register_sig_1(),
             ctx
         );
+
+        registry::destroy_for_testing(registry);
+    }
+
+    #[test, expected_failure(abort_code = E_OWNER_MISMATCH, location = agent_arena::registry)]
+    fun test_wrong_owner_record_runtime_credential_rotation_fails() {
+        let ctx = &mut owner_ctx();
+        let mut registry = registry::new_for_testing(ctx);
+
+        registry::register_agent(
+            &mut registry,
+            agent_id(),
+            OWNER,
+            WALLET,
+            metadata_hash(),
+            register_nonce_1(),
+            register_sig_1(),
+            ctx
+        );
+        let other_ctx = &mut other_owner_ctx();
         registry::record_runtime_credential_rotation(
             &mut registry,
             agent_id(),
@@ -214,6 +253,26 @@ module agent_arena::registry_tests {
             rotation_hash(),
             rotation_nonce_other_owner(),
             rotation_sig_other_owner(),
+            other_ctx
+        );
+
+        registry::destroy_for_testing(registry);
+    }
+
+    #[test, expected_failure(abort_code = E_SENDER_MISMATCH, location = agent_arena::registry)]
+    fun test_rotation_requires_owner_sender() {
+        let ctx = &mut tx_context::dummy();
+        let mut registry = registry::new_for_testing(ctx);
+
+        registry::record_runtime_credential_rotation(
+            &mut registry,
+            agent_id(),
+            OWNER,
+            1,
+            2,
+            rotation_hash(),
+            rotation_nonce_1(),
+            rotation_sig_1(),
             ctx
         );
 
@@ -222,7 +281,7 @@ module agent_arena::registry_tests {
 
     #[test]
     fun test_successful_writes_increment_version() {
-        let ctx = &mut tx_context::dummy();
+        let ctx = &mut owner_ctx();
         let mut registry = registry::new_for_testing(ctx);
 
         registry::register_agent(
