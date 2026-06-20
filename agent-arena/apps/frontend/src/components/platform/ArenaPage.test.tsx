@@ -35,7 +35,7 @@ describe("ArenaPage", () => {
     expect(screen.getByRole("heading", { name: /My Agent/i })).toBeInTheDocument();
     expect(screen.getAllByText(/Trend Ranger/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/125.00 DUSDC \/ 4.20 SUI/i)).toBeInTheDocument();
-    expect(screen.getByText(/UP 65000000000000/i)).toBeInTheDocument();
+    expect(screen.getByText(/UP \$65,000.00/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Public action feed/i })).toBeInTheDocument();
     expect(screen.getByText(/Trend Ranger bought UP/i)).toBeInTheDocument();
     expect(screen.getAllByText(/My wallet/i).length).toBeGreaterThan(0);
