@@ -21,8 +21,10 @@ import {
 } from "./performance-ledger";
 import type {
   AgentRegistryService,
+  RegisterAgentRegistryProof,
   RegistryWriteResult
 } from "./registry";
+import type { RegistryTransactionVerifier } from "./registry-verifier";
 import {
   reconcileSettlements,
   type ReconcileSettlementsOptions
@@ -42,6 +44,7 @@ import {
   type Competition,
   type ExecutionRecord,
   type MarketSnapshot,
+  type PendingAgentClaim,
   type OwnerWithdrawalStatus,
   type TradingWallet
 } from "./types";
@@ -120,6 +123,7 @@ export interface CreatePlatformFetchHandlerOptions {
   ownerSignatureVerifier?: OwnerSignatureVerifier;
   predictExecutionAdapter?: SubmitIntentExecutionOptions["predictExecutionAdapter"];
   registryService?: AgentRegistryService;
+  registryTransactionVerifier?: RegistryTransactionVerifier;
   settlementClaimExecutor?: ReconcileSettlementsOptions["executeSettlementClaim"];
   settlementRedemptionReader?: ReconcileSettlementsOptions["readSettlementRedemption"];
   settlementInternalToken?: string;
@@ -154,6 +158,8 @@ export function createPlatformFetchHandler(
             "GET /api/arena/__introspection",
             "GET /api/arena/skills",
             "POST /api/arena/agent/init",
+            "POST /api/arena/owner/agents/claim/prepare",
+            "POST /api/arena/owner/agents/claim/finalize",
             "POST /api/arena/owner/agents/claim",
             "POST /api/arena/owner/agents/:id/runtime-credential/rotation-challenge",
             "POST /api/arena/owner/agents/:id/runtime-credential/rotate",
@@ -185,11 +191,26 @@ export function createPlatformFetchHandler(
         return await initAgentPairing(request, store, options);
       }
 
+      if (request.method === "POST" && matchesRoute(route, ["owner", "agents", "claim", "prepare"])) {
+        return await prepareAgentClaim(request, store, {
+          agentWalletService: options.agentWalletService,
+          now: options.now,
+          registryService: options.registryService
+        });
+      }
+
+      if (request.method === "POST" && matchesRoute(route, ["owner", "agents", "claim", "finalize"])) {
+        return await finalizeAgentClaim(request, store, {
+          registryTransactionVerifier: options.registryTransactionVerifier
+        });
+      }
+
       if (request.method === "POST" && matchesRoute(route, ["owner", "agents", "claim"])) {
         return await claimAgent(request, store, {
           agentWalletService: options.agentWalletService,
           now: options.now,
-          registryService: options.registryService
+          registryService: options.registryService,
+          registryTransactionVerifier: options.registryTransactionVerifier
         });
       }
 
@@ -450,12 +471,90 @@ async function initAgentPairing(
   }, 201);
 }
 
-async function claimAgent(
+async function prepareAgentClaim(
   request: Request,
   store: PlatformMockStore,
   options: Pick<CreatePlatformFetchHandlerOptions, "agentWalletService" | "now" | "registryService"> = {}
 ): Promise<Response> {
   const body = await readJsonObject(request);
+  const registrationCode = validateNonEmptyString(body.registrationCode, "registrationCode").trim();
+  const ownerAddress = validateNonEmptyString(body.ownerAddress, "ownerAddress").trim();
+  const twitterHandle = validateOptionalString(body.twitterHandle, "twitterHandle");
+  const draft = store.findPairingDraftByRegistrationCode(registrationCode);
+  if (!draft || draft.status !== "pending") {
+    return errorResponse(400, "INVALID_REGISTRATION_CODE", "Registration code is invalid or already claimed");
+  }
+
+  const existingPendingClaim = store.findPendingClaimByDraftId(draft.id);
+  if (existingPendingClaim) {
+    if (normalizeAddress(existingPendingClaim.ownerAddress) !== normalizeAddress(ownerAddress)) {
+      return errorResponse(409, "PENDING_CLAIM_OWNER_MISMATCH", "Registration code already has a pending owner claim");
+    }
+
+    return pendingClaimResponse(store, existingPendingClaim);
+  }
+
+  if (!options.registryService) {
+    return errorResponse(503, "REGISTRY_PROOF_REQUIRED", "Registry proof service is not configured");
+  }
+
+  const agent = store.createClaimedAgent({
+    displayName: draft.displayName,
+    ownerAddress,
+    twitterHandle,
+    runtimeStatus: "waiting"
+  });
+  const wallet = await createTradingWalletForAgent(store, agent, options.agentWalletService);
+  let registryProof: RegisterAgentRegistryProof;
+  try {
+    registryProof = await createRegisterAgentProof({
+      agent,
+      draft,
+      ownerAddress,
+      wallet,
+      nowMs: options.now?.() ?? Date.parse(mockNow),
+      registryService: options.registryService
+    });
+  } catch (error) {
+    return errorResponse(
+      503,
+      "REGISTRY_PROOF_REQUIRED",
+      error instanceof Error ? error.message : "Registry proof could not be created"
+    );
+  }
+  const pendingClaim = store.createPendingClaim({
+    agentDraftId: draft.id,
+    registrationCodeHash: createRegistrationCodeHash(registrationCode),
+    agentId: agent.id,
+    ownerAddress,
+    twitterHandle: agent.twitterHandle,
+    tradingWalletId: wallet.id,
+    walletAddress: wallet.address,
+    predictManagerId: wallet.predictManagerId,
+    registryProof,
+    now: mockNow
+  });
+
+  return pendingClaimResponse(store, pendingClaim);
+}
+
+async function claimAgent(
+  request: Request,
+  store: PlatformMockStore,
+  options: Pick<
+    CreatePlatformFetchHandlerOptions,
+    "agentWalletService" | "now" | "registryService" | "registryTransactionVerifier"
+  > = {}
+): Promise<Response> {
+  const body = await readJsonObject(request);
+  if (options.registryTransactionVerifier) {
+    return errorResponse(
+      409,
+      "CLAIM_FINALIZE_REQUIRED",
+      "Use POST /api/arena/owner/agents/claim/prepare and /api/arena/owner/agents/claim/finalize"
+    );
+  }
+
   const registrationCode = validateNonEmptyString(body.registrationCode, "registrationCode").trim();
   const ownerAddress = validateNonEmptyString(body.ownerAddress, "ownerAddress").trim();
   validateNonEmptyString(body.signature, "signature");
@@ -470,95 +569,17 @@ async function claimAgent(
     ownerAddress,
     twitterHandle
   });
-  store.markPairingDraftClaimed(draft.id);
-  const walletResult = options.agentWalletService
-    ? await options.agentWalletService({
-      agentId: agent.id,
-      displayName: agent.displayName
-    })
-    : {
-      id: `wallet_${agent.id}`,
-      address: `0xagentwallet_${agent.id}`,
-      testnetSuiBalance: "0",
-      quoteBalance: "0",
-      predictManagerStatus: "missing" as const,
-      predictManagerId: null
-    };
-  const wallet = store.bindTradingWallet(agent.id, walletResult.address, {
-    id: walletResult.id,
-    testnetSuiBalance: walletResult.testnetSuiBalance ?? "0",
-    quoteBalance: walletResult.quoteBalance ?? "0",
-    predictManagerStatus: walletResult.predictManagerStatus ?? "missing",
-    predictManagerId: walletResult.predictManagerId ?? null
-  });
-  const registrationCodeHash = createRegistrationCodeHash(registrationCode);
-  store.saveIdentityBinding({
-    agentDraftId: draft.id,
-    registrationCodeHash,
+  const wallet = await createTradingWalletForAgent(store, agent, options.agentWalletService);
+  const credential = completeClaimedAgent({
+    store,
+    draft,
+    registrationCodeHash: createRegistrationCodeHash(registrationCode),
     agentId: agent.id,
     ownerAddress,
     twitterHandle: agent.twitterHandle,
-    tradingWalletId: wallet.id,
-    walletAddress: wallet.address,
-    predictManagerId: wallet.predictManagerId,
-    createdAt: draft.createdAt,
+    wallet,
     claimedAt: mockNow
   });
-  store.recordPerformanceLedger(createPerformanceLedgerRecord({
-    kind: "pairing",
-    agentDraftId: draft.id,
-    registrationCodeHash,
-    agentId: agent.id,
-    ownerAddress,
-    tradingWalletId: wallet.id,
-    walletAddress: wallet.address,
-    predictManagerId: wallet.predictManagerId,
-    competitionId: null,
-    oracleId: null,
-    expiryMs: null,
-    intentId: null,
-    riskDecisionId: null,
-    executionId: null,
-    txDigest: null,
-    action: null,
-    positionKind: null,
-    quantityRaw: null,
-    costRaw: null,
-    proceedsRaw: null,
-    status: "claimed",
-    errorCode: null,
-    policyDrift: "none",
-    createdAt: draft.createdAt,
-    serverReceivedAt: mockNow
-  }));
-  store.recordPerformanceLedger(createPerformanceLedgerRecord({
-    kind: "wallet_binding",
-    agentDraftId: draft.id,
-    registrationCodeHash,
-    agentId: agent.id,
-    ownerAddress,
-    tradingWalletId: wallet.id,
-    walletAddress: wallet.address,
-    predictManagerId: wallet.predictManagerId,
-    competitionId: null,
-    oracleId: null,
-    expiryMs: null,
-    intentId: null,
-    riskDecisionId: null,
-    executionId: null,
-    txDigest: null,
-    action: null,
-    positionKind: null,
-    quantityRaw: null,
-    costRaw: null,
-    proceedsRaw: null,
-    status: wallet.status,
-    errorCode: null,
-    policyDrift: "none",
-    createdAt: wallet.createdAt,
-    serverReceivedAt: mockNow
-  }));
-  const credential = createAgentRuntimeCredential(store, agent.id, mockNow);
   const registry = await registerClaimedAgent({
     agent,
     draft,
@@ -582,6 +603,202 @@ async function claimAgent(
   }, 201);
 }
 
+async function finalizeAgentClaim(
+  request: Request,
+  store: PlatformMockStore,
+  options: Pick<CreatePlatformFetchHandlerOptions, "registryTransactionVerifier"> = {}
+): Promise<Response> {
+  const body = await readJsonObject(request);
+  const pendingClaimId = validateNonEmptyString(body.pendingClaimId, "pendingClaimId").trim();
+  const txDigest = validateNonEmptyString(body.txDigest, "txDigest").trim();
+  const pendingClaim = store.findPendingClaimById(pendingClaimId);
+  if (!pendingClaim) {
+    return errorResponse(404, "PENDING_CLAIM_NOT_FOUND", "Pending claim not found");
+  }
+  if (pendingClaim.status === "finalized") {
+    return errorResponse(409, "PENDING_CLAIM_ALREADY_FINALIZED", "Pending claim has already been finalized");
+  }
+  if (!options.registryTransactionVerifier) {
+    return errorResponse(503, "REGISTRY_VERIFIER_REQUIRED", "Registry transaction verifier is not configured");
+  }
+
+  try {
+    await options.registryTransactionVerifier.verifyRegisterAgentTx({
+      txDigest,
+      proof: pendingClaim.registryProof
+    });
+  } catch (error) {
+    return errorResponse(
+      400,
+      "REGISTRY_TX_VERIFICATION_FAILED",
+      error instanceof Error ? error.message : "Registry transaction verification failed"
+    );
+  }
+
+  const draft = store.getPairingDraftById(pendingClaim.agentDraftId);
+  const agent = store.getAgent(pendingClaim.agentId);
+  const wallet = store.getTradingWalletById(pendingClaim.tradingWalletId);
+  if (!draft || !agent || !wallet) {
+    return errorResponse(409, "PENDING_CLAIM_STATE_MISSING", "Pending claim reservation is incomplete");
+  }
+  if (draft.status !== "pending") {
+    return errorResponse(409, "PAIRING_DRAFT_ALREADY_CLAIMED", "Pairing draft has already been claimed");
+  }
+
+  const credential = completeClaimedAgent({
+    store,
+    draft,
+    registrationCodeHash: pendingClaim.registrationCodeHash,
+    agentId: pendingClaim.agentId,
+    ownerAddress: pendingClaim.ownerAddress,
+    twitterHandle: pendingClaim.twitterHandle,
+    wallet,
+    claimedAt: mockNow
+  });
+  const finalized = store.markPendingClaimFinalized(pendingClaim.id, {
+    txDigest,
+    finalizedAt: mockNow
+  });
+
+  return jsonResponse({
+    agent: store.getAgent(agent.id),
+    tradingWallet: wallet,
+    runtimeCredential: {
+      token: credential.token,
+      shownOnce: true,
+      credentialVersion: credential.credentialVersion,
+      scopes: credential.scopes
+    },
+    registry: {
+      status: "submitted",
+      txDigest: finalized?.txDigest ?? txDigest
+    }
+  }, 201);
+}
+
+async function createTradingWalletForAgent(
+  store: PlatformMockStore,
+  agent: AgentProfile,
+  agentWalletService: CreatePlatformFetchHandlerOptions["agentWalletService"]
+): Promise<TradingWallet> {
+  const walletResult = agentWalletService
+    ? await agentWalletService({
+      agentId: agent.id,
+      displayName: agent.displayName
+    })
+    : {
+      id: `wallet_${agent.id}`,
+      address: `0xagentwallet_${agent.id}`,
+      testnetSuiBalance: "0",
+      quoteBalance: "0",
+      predictManagerStatus: "missing" as const,
+      predictManagerId: null
+    };
+  return store.bindTradingWallet(agent.id, walletResult.address, {
+    id: walletResult.id,
+    testnetSuiBalance: walletResult.testnetSuiBalance ?? "0",
+    quoteBalance: walletResult.quoteBalance ?? "0",
+    predictManagerStatus: walletResult.predictManagerStatus ?? "missing",
+    predictManagerId: walletResult.predictManagerId ?? null
+  });
+}
+
+function completeClaimedAgent(input: {
+  store: PlatformMockStore;
+  draft: { id: string; createdAt: string };
+  registrationCodeHash: string;
+  agentId: string;
+  ownerAddress: string;
+  twitterHandle: string | null;
+  wallet: TradingWallet;
+  claimedAt: string;
+}) {
+  input.store.markPairingDraftClaimed(input.draft.id);
+  input.store.updateAgentRuntimeStatus(input.agentId, "active");
+  input.store.saveIdentityBinding({
+    agentDraftId: input.draft.id,
+    registrationCodeHash: input.registrationCodeHash,
+    agentId: input.agentId,
+    ownerAddress: input.ownerAddress,
+    twitterHandle: input.twitterHandle,
+    tradingWalletId: input.wallet.id,
+    walletAddress: input.wallet.address,
+    predictManagerId: input.wallet.predictManagerId,
+    createdAt: input.draft.createdAt,
+    claimedAt: input.claimedAt
+  });
+  input.store.recordPerformanceLedger(createPerformanceLedgerRecord({
+    kind: "pairing",
+    agentDraftId: input.draft.id,
+    registrationCodeHash: input.registrationCodeHash,
+    agentId: input.agentId,
+    ownerAddress: input.ownerAddress,
+    tradingWalletId: input.wallet.id,
+    walletAddress: input.wallet.address,
+    predictManagerId: input.wallet.predictManagerId,
+    competitionId: null,
+    oracleId: null,
+    expiryMs: null,
+    intentId: null,
+    riskDecisionId: null,
+    executionId: null,
+    txDigest: null,
+    action: null,
+    positionKind: null,
+    quantityRaw: null,
+    costRaw: null,
+    proceedsRaw: null,
+    status: "claimed",
+    errorCode: null,
+    policyDrift: "none",
+    createdAt: input.draft.createdAt,
+    serverReceivedAt: input.claimedAt
+  }));
+  input.store.recordPerformanceLedger(createPerformanceLedgerRecord({
+    kind: "wallet_binding",
+    agentDraftId: input.draft.id,
+    registrationCodeHash: input.registrationCodeHash,
+    agentId: input.agentId,
+    ownerAddress: input.ownerAddress,
+    tradingWalletId: input.wallet.id,
+    walletAddress: input.wallet.address,
+    predictManagerId: input.wallet.predictManagerId,
+    competitionId: null,
+    oracleId: null,
+    expiryMs: null,
+    intentId: null,
+    riskDecisionId: null,
+    executionId: null,
+    txDigest: null,
+    action: null,
+    positionKind: null,
+    quantityRaw: null,
+    costRaw: null,
+    proceedsRaw: null,
+    status: input.wallet.status,
+    errorCode: null,
+    policyDrift: "none",
+    createdAt: input.wallet.createdAt,
+    serverReceivedAt: input.claimedAt
+  }));
+  return createAgentRuntimeCredential(input.store, input.agentId, input.claimedAt);
+}
+
+function pendingClaimResponse(store: PlatformMockStore, pendingClaim: PendingAgentClaim): Response {
+  const agent = store.getAgent(pendingClaim.agentId);
+  const tradingWallet = store.getTradingWalletById(pendingClaim.tradingWalletId);
+  if (!agent || !tradingWallet) {
+    return errorResponse(409, "PENDING_CLAIM_STATE_MISSING", "Pending claim reservation is incomplete");
+  }
+
+  return jsonResponse({
+    pendingClaimId: pendingClaim.id,
+    agent,
+    tradingWallet,
+    registryProof: pendingClaim.registryProof
+  }, 201);
+}
+
 async function registerClaimedAgent(input: {
   agent: AgentProfile;
   draft: { id: string; createdAt: string };
@@ -598,7 +815,28 @@ async function registerClaimedAgent(input: {
     };
   }
 
-  return await input.registryService.registerAgent({
+  return await input.registryService.registerAgent(createRegisterAgentRegistryInput(input));
+}
+
+async function createRegisterAgentProof(input: {
+  agent: AgentProfile;
+  draft: { id: string; createdAt: string };
+  ownerAddress: string;
+  wallet: TradingWallet;
+  nowMs: number;
+  registryService: AgentRegistryService;
+}): Promise<RegisterAgentRegistryProof> {
+  return await input.registryService.createRegisterAgentProof(createRegisterAgentRegistryInput(input));
+}
+
+function createRegisterAgentRegistryInput(input: {
+  agent: AgentProfile;
+  draft: { id: string; createdAt: string };
+  ownerAddress: string;
+  wallet: TradingWallet;
+  nowMs: number;
+}) {
+  return {
     agentId: input.agent.id,
     agentDraftId: input.draft.id,
     ownerAddress: input.ownerAddress,
@@ -613,7 +851,7 @@ async function registerClaimedAgent(input: {
       createdAt: input.draft.createdAt
     }),
     platformCreatedAtMs: input.nowMs
-  });
+  };
 }
 
 function createAgentRegistryMetadataHash(value: Record<string, string | null>): string {

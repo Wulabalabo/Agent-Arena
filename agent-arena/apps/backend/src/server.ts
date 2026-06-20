@@ -1,5 +1,6 @@
 import { isAbsolute, join } from "node:path";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { handleAttributionRequest, type AttributionStoreLike } from "./attribution";
 import { createPlatformFetchHandler } from "./platform/api";
 import { PlatformMockStore } from "./platform/mock-store";
@@ -11,6 +12,10 @@ import {
   type RegistrySubmitter
 } from "./platform/registry";
 import { createSuiRegistrySubmitter } from "./platform/registry-submitter";
+import {
+  createRegistryTransactionVerifier,
+  type RegistryTransactionVerifier
+} from "./platform/registry-verifier";
 import type {
   SettlementClaimExecutionRequest,
   SettlementClaimExecutionResult,
@@ -55,6 +60,7 @@ export function createAgentArenaFetchHandler(options: {
   predictSetupExecutor?: PredictSetupExecutor;
   predictTradeExecutor?: PredictTradeExecutor;
   registryService?: AgentRegistryService;
+  registryTransactionVerifier?: RegistryTransactionVerifier;
 } = {}) {
   const predictEnv = options.predictEnv;
   const env = predictEnv ?? Bun.env;
@@ -79,9 +85,12 @@ export function createAgentArenaFetchHandler(options: {
   const internalPredictFetch = runtime.internalPredictFetch;
   const registryConfig = createRegistryConfigFromEnv(env);
   const registryService = options.registryService ?? createRegistryService(registryConfig, runtime.registrySubmitter);
+  const registryTransactionVerifier = options.registryTransactionVerifier
+    ?? createRegistryTransactionVerifierFromEnv(env, registryConfig.enabled);
   const platformFetch = createPlatformFetchHandler(platformStore, {
     ...runtime.platformOptions,
-    registryService
+    registryService,
+    registryTransactionVerifier
   });
   const attributionFetch = createAttributionFetchHandler(options.attributionStore ?? createDefaultAttributionStore());
   const runtimeReady = runtime.ready ?? Promise.resolve();
@@ -106,6 +115,23 @@ export function createAgentArenaFetchHandler(options: {
 
     return attributionFetch(request);
   };
+}
+
+function createRegistryTransactionVerifierFromEnv(
+  env: Record<string, string | undefined>,
+  registryEnabled: boolean
+): RegistryTransactionVerifier | undefined {
+  const suiRpcUrl = env.AGENT_ARENA_SUI_RPC_URL?.trim();
+  if (!registryEnabled || !suiRpcUrl) {
+    return undefined;
+  }
+
+  return createRegistryTransactionVerifier({
+    client: new SuiJsonRpcClient({
+      network: "testnet",
+      url: suiRpcUrl
+    })
+  });
 }
 
 function createMockRuntime({

@@ -17,6 +17,7 @@ import type {
   ExecutionRecord,
   ExposureStatus,
   OwnerWithdrawalRecord,
+  PendingAgentClaim,
   PerformanceLedgerRecord,
   RiskDecision
 } from "./types";
@@ -64,6 +65,12 @@ export class SQLitePlatformStore extends PlatformMockStore {
     return result;
   }
 
+  override updateAgentRuntimeStatus(agentId: string, runtimeStatus: Parameters<PlatformMockStore["updateAgentRuntimeStatus"]>[1]) {
+    const result = super.updateAgentRuntimeStatus(agentId, runtimeStatus);
+    this.persist();
+    return result;
+  }
+
   override bindTradingWallet(
     agentId: string,
     address: string,
@@ -85,6 +92,21 @@ export class SQLitePlatformStore extends PlatformMockStore {
 
   override saveIdentityBinding(binding: AgentIdentityBinding): AgentIdentityBinding {
     const result = super.saveIdentityBinding(binding);
+    this.persist();
+    return result;
+  }
+
+  override createPendingClaim(input: Parameters<PlatformMockStore["createPendingClaim"]>[0]): PendingAgentClaim {
+    const result = super.createPendingClaim(input);
+    this.persist();
+    return result;
+  }
+
+  override markPendingClaimFinalized(
+    pendingClaimId: string,
+    input: Parameters<PlatformMockStore["markPendingClaimFinalized"]>[1]
+  ): PendingAgentClaim | undefined {
+    const result = super.markPendingClaimFinalized(pendingClaimId, input);
     this.persist();
     return result;
   }
@@ -199,6 +221,7 @@ function parsePlatformSnapshot(raw: string): PlatformStoreSnapshot {
     runtimeCredentials: parsed.runtimeCredentials ?? [],
     runtimeCredentialRotationChallenges: parsed.runtimeCredentialRotationChallenges ?? [],
     pairingDrafts: parsed.pairingDrafts ?? [],
+    pendingClaims: parsed.pendingClaims ?? [],
     tradingWallets: parsed.tradingWallets ?? [],
     identityBindings: parsed.identityBindings ?? [],
     performanceLedger: parsed.performanceLedger ?? [],
@@ -210,6 +233,9 @@ function parsePlatformSnapshot(raw: string): PlatformStoreSnapshot {
     ownerWithdrawals: parsed.ownerWithdrawals ?? [],
     nextAgentNumber: normalizeCounter(parsed.nextAgentNumber),
     nextDraftNumber: normalizeCounter(parsed.nextDraftNumber),
+    nextPendingClaimNumber: parsed.nextPendingClaimNumber === undefined
+      ? undefined
+      : normalizeCounter(parsed.nextPendingClaimNumber),
     nextWalletNumber: normalizeCounter(parsed.nextWalletNumber),
     nextOwnerWithdrawalNumber: normalizeCounter(parsed.nextOwnerWithdrawalNumber)
   };

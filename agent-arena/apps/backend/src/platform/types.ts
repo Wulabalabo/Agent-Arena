@@ -1,3 +1,5 @@
+import type { RegisterAgentRegistryProof } from "./registry";
+
 export const agentActions = Object.freeze([
   "hold",
   "open_directional",
@@ -92,6 +94,23 @@ export interface AgentIdentityBinding {
   predictManagerId: string | null;
   createdAt: string;
   claimedAt: string;
+}
+
+export interface PendingAgentClaim {
+  id: string;
+  agentDraftId: string;
+  registrationCodeHash: string;
+  agentId: string;
+  ownerAddress: string;
+  twitterHandle: string | null;
+  tradingWalletId: string;
+  walletAddress: string;
+  predictManagerId: string | null;
+  registryProof: RegisterAgentRegistryProof;
+  status: "pending" | "finalized";
+  txDigest: string | null;
+  createdAt: string;
+  finalizedAt: string | null;
 }
 
 export interface PerformanceLedgerRecord {

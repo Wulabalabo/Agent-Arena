@@ -1,12 +1,28 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createAgentArenaFetchHandler } from "../server";
 import { createPlatformFetchHandler } from "./api";
 import { PlatformMockStore } from "./mock-store";
 import { createPerformanceLedgerRecord, createRegistrationCodeHash } from "./performance-ledger";
+import type { AgentRegistryService, RegisterAgentRegistryProof } from "./registry";
+import type { RegistryTransactionVerifier } from "./registry-verifier";
+import { SQLitePlatformStore } from "./sqlite-store";
 import { createMockCompetition } from "./types";
 
 const acceptOwnerSignature = async () => true;
+const tempPlatformDirs: string[] = [];
+
+afterEach(() => {
+  while (tempPlatformDirs.length > 0) {
+    const dir = tempPlatformDirs.pop();
+    if (dir) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
 
 async function claimTestAgent(
   fetch: ReturnType<typeof createPlatformFetchHandler>,
@@ -31,6 +47,117 @@ async function claimTestAgent(
       ...(input.twitterHandle === undefined ? {} : { twitterHandle: input.twitterHandle })
     })
   }))).json();
+}
+
+async function initPairingDraft(
+  fetch: ReturnType<typeof createPlatformFetchHandler>,
+  displayName = "Trend Ranger"
+) {
+  return await (await fetch(new Request("http://localhost/api/arena/agent/init", {
+    method: "POST",
+    body: JSON.stringify({ displayName })
+  }))).json();
+}
+
+async function prepareClaim(
+  fetch: ReturnType<typeof createPlatformFetchHandler>,
+  input: {
+    displayName?: string;
+    ownerAddress?: string;
+    registrationCode?: string;
+    twitterHandle?: string | null;
+  } = {}
+) {
+  const draft = input.registrationCode
+    ? { registrationCode: input.registrationCode }
+    : await initPairingDraft(fetch, input.displayName);
+  const response = await fetch(new Request("http://localhost/api/arena/owner/agents/claim/prepare", {
+    method: "POST",
+    body: JSON.stringify({
+      registrationCode: draft.registrationCode,
+      ownerAddress: input.ownerAddress ?? "0xowner",
+      ...(input.twitterHandle === undefined ? {} : { twitterHandle: input.twitterHandle })
+    })
+  }));
+
+  return {
+    draft,
+    response,
+    body: await response.json()
+  };
+}
+
+async function finalizeClaim(
+  fetch: ReturnType<typeof createPlatformFetchHandler>,
+  input: {
+    pendingClaimId: string;
+    txDigest?: string;
+  }
+) {
+  const response = await fetch(new Request("http://localhost/api/arena/owner/agents/claim/finalize", {
+    method: "POST",
+    body: JSON.stringify({
+      pendingClaimId: input.pendingClaimId,
+      txDigest: input.txDigest ?? "0xregistrydigest"
+    })
+  }));
+
+  return {
+    response,
+    body: await response.json()
+  };
+}
+
+function createProofRegistryService(): AgentRegistryService {
+  return {
+    registerAgent: async () => ({
+      status: "disabled",
+      txDigest: null
+    }),
+    createRegisterAgentProof: async (input) => ({
+      kind: "register_agent",
+      packageId: "0xpackage",
+      registryObjectId: "0xregistry",
+      agentId: input.agentId,
+      ownerAddress: input.ownerAddress,
+      tradingWalletAddress: input.tradingWalletAddress,
+      metadataHash: input.metadataHash,
+      nonceBase64: "bm9uY2U=",
+      signatureBase64: "c2lnbmF0dXJl"
+    }),
+    createRuntimeCredentialRotationProof: async (input) => ({
+      kind: "record_runtime_credential_rotation",
+      packageId: "0xpackage",
+      registryObjectId: "0xregistry",
+      agentId: input.agentId,
+      ownerAddress: input.ownerAddress,
+      previousCredentialVersion: input.previousCredentialVersion,
+      nextCredentialVersion: input.nextCredentialVersion,
+      rotationHash: input.rotationHash,
+      nonceBase64: "bm9uY2U=",
+      signatureBase64: "c2lnbmF0dXJl"
+    })
+  };
+}
+
+function createAcceptingVerifier(
+  calls: Array<{ txDigest: string; proof: RegisterAgentRegistryProof }> = []
+): RegistryTransactionVerifier {
+  return {
+    verifyRegisterAgentTx: async (input) => {
+      calls.push(input);
+    },
+    verifyRuntimeCredentialRotationTx: async () => {}
+  };
+}
+
+function createRejectingVerifier(): RegistryTransactionVerifier {
+  return {
+    verifyRegisterAgentTx: async () => {
+      throw new Error("REGISTRY_TX_EVENT_MISMATCH");
+    },
+    verifyRuntimeCredentialRotationTx: async () => {}
+  };
 }
 
 async function createRotationChallenge(
@@ -322,59 +449,175 @@ describe("Agent Arena platform API", () => {
     expect(body).not.toHaveProperty("apiKey");
   });
 
-  it("includes a successful registry tx digest when claim anchoring is configured", async () => {
+  it("rejects the legacy claim endpoint when registry transaction verification is configured", async () => {
     const store = new PlatformMockStore();
-    const registerCalls: unknown[] = [];
     const fetch = createPlatformFetchHandler(store, {
-      registryService: {
-        registerAgent: async (input) => {
-          registerCalls.push(input);
-          return {
-            status: "submitted",
-            txDigest: "0xregistrydigest"
-          };
-        }
+      registryService: createProofRegistryService(),
+      registryTransactionVerifier: createAcceptingVerifier()
+    });
+    const draft = await initPairingDraft(fetch, "Legacy Registry Agent");
+
+    const response = await fetch(new Request("http://localhost/api/arena/owner/agents/claim", {
+      method: "POST",
+      body: JSON.stringify({
+        registrationCode: draft.registrationCode,
+        ownerAddress: "0xowner",
+        signature: "0xsignedClaimMessage"
+      })
+    }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "CLAIM_FINALIZE_REQUIRED"
       }
     });
-
-    const body = await claimTestAgent(fetch);
-
-    expect(body.registry).toEqual({
-      status: "submitted",
-      txDigest: "0xregistrydigest"
+    expect(store.findPairingDraftByRegistrationCode(draft.registrationCode)).toMatchObject({
+      status: "pending"
     });
-    expect(registerCalls).toHaveLength(1);
-    expect(registerCalls[0]).toMatchObject({
-      agentId: body.agent.id,
-      agentDraftId: "draft_1",
-      ownerAddress: "0xowner",
-      tradingWalletAddress: body.tradingWallet.address
-    });
-    expect(JSON.stringify(registerCalls[0])).not.toContain("registrationCode");
-    expect(JSON.stringify(registerCalls[0])).not.toContain(createRegistrationCodeHash("PAIR-2049"));
+    expect(store.listAgents()).toEqual([]);
   });
 
-  it("keeps claim successful when registry anchoring fails", async () => {
-    const fetch = createPlatformFetchHandler(new PlatformMockStore(), {
-      registryService: {
-        registerAgent: async () => ({
-          status: "failed",
-          txDigest: null,
-          errorCode: "REGISTRY_SUBMIT_FAILED",
-          errorMessage: "mock registry failure"
-        })
-      }
+  it("prepares an owner claim with registry proof without issuing a runtime credential", async () => {
+    const store = new PlatformMockStore();
+    const fetch = createPlatformFetchHandler(store, {
+      registryService: createProofRegistryService()
     });
 
-    const response = await claimTestAgent(fetch);
-
-    expect(response.agent.id).toBe("agent_1");
-    expect(response.runtimeCredential.token).toStartWith("agent_runtime_");
-    expect(response.registry).toMatchObject({
-      status: "failed",
-      txDigest: null,
-      errorCode: "REGISTRY_SUBMIT_FAILED"
+    const prepared = await prepareClaim(fetch, {
+      displayName: "Prepared Agent",
+      twitterHandle: "@Prepared_AI"
     });
+
+    expect(prepared.response.status).toBe(201);
+    expect(prepared.body.pendingClaimId).toStartWith("pending_claim_");
+    expect(prepared.body.agent).toMatchObject({
+      displayName: "Prepared Agent",
+      ownerAddress: "0xowner",
+      twitterHandle: "Prepared_AI"
+    });
+    expect(prepared.body.tradingWallet).toMatchObject({
+      agentId: prepared.body.agent.id,
+      status: "active"
+    });
+    expect(prepared.body.registryProof).toMatchObject({
+      kind: "register_agent",
+      agentId: prepared.body.agent.id,
+      ownerAddress: "0xowner",
+      tradingWalletAddress: prepared.body.tradingWallet.address
+    });
+    expect(prepared.body).not.toHaveProperty("runtimeCredential");
+    expect(store.findLatestRuntimeCredentialByAgentId(prepared.body.agent.id)).toBeUndefined();
+    expect(store.findPairingDraftByRegistrationCode(prepared.draft.registrationCode)).toMatchObject({
+      status: "pending"
+    });
+    expect(store.getIdentityBindingByAgentId(prepared.body.agent.id)).toBeUndefined();
+    expect(store.listPerformanceLedger({ agentId: prepared.body.agent.id })).toEqual([]);
+    expect(JSON.stringify(prepared.body.registryProof)).not.toContain(prepared.draft.registrationCode);
+    expect(JSON.stringify(prepared.body.registryProof)).not.toContain(createRegistrationCodeHash(prepared.draft.registrationCode));
+  });
+
+  it("finalizes a prepared owner claim only after verifying the saved registry proof", async () => {
+    const store = new PlatformMockStore();
+    const verifierCalls: Array<{ txDigest: string; proof: RegisterAgentRegistryProof }> = [];
+    const fetch = createPlatformFetchHandler(store, {
+      registryService: createProofRegistryService(),
+      registryTransactionVerifier: createAcceptingVerifier(verifierCalls)
+    });
+
+    const prepared = await prepareClaim(fetch);
+    const finalized = await finalizeClaim(fetch, {
+      pendingClaimId: prepared.body.pendingClaimId,
+      txDigest: "0xaccepted"
+    });
+
+    expect(finalized.response.status).toBe(201);
+    expect(verifierCalls).toEqual([{
+      txDigest: "0xaccepted",
+      proof: prepared.body.registryProof
+    }]);
+    expect(finalized.body.runtimeCredential.token).toStartWith("agent_runtime_");
+    expect(finalized.body.registry).toEqual({
+      status: "submitted",
+      txDigest: "0xaccepted"
+    });
+    expect(store.findLatestRuntimeCredentialByAgentId(prepared.body.agent.id)?.token)
+      .toBe(finalized.body.runtimeCredential.token);
+    expect(store.findPairingDraftByRegistrationCode(prepared.draft.registrationCode)).toMatchObject({
+      status: "claimed"
+    });
+    expect(store.getIdentityBindingByAgentId(prepared.body.agent.id)).toMatchObject({
+      agentDraftId: prepared.draft.agentDraftId,
+      agentId: prepared.body.agent.id,
+      ownerAddress: "0xowner",
+      tradingWalletId: prepared.body.tradingWallet.id
+    });
+    expect(store.listPerformanceLedger({ agentId: prepared.body.agent.id })).toMatchObject([
+      { kind: "pairing", status: "claimed" },
+      { kind: "wallet_binding", status: "active" }
+    ]);
+  });
+
+  it("does not issue a runtime credential when finalize registry verification fails", async () => {
+    const store = new PlatformMockStore();
+    const fetch = createPlatformFetchHandler(store, {
+      registryService: createProofRegistryService(),
+      registryTransactionVerifier: createRejectingVerifier()
+    });
+
+    const prepared = await prepareClaim(fetch);
+    const finalized = await finalizeClaim(fetch, {
+      pendingClaimId: prepared.body.pendingClaimId,
+      txDigest: "0xrejected"
+    });
+
+    expect(finalized.response.status).toBe(400);
+    expect(finalized.body.error).toMatchObject({
+      code: "REGISTRY_TX_VERIFICATION_FAILED"
+    });
+    expect(store.findLatestRuntimeCredentialByAgentId(prepared.body.agent.id)).toBeUndefined();
+    expect(store.findPairingDraftByRegistrationCode(prepared.draft.registrationCode)).toMatchObject({
+      status: "pending"
+    });
+    expect(store.getIdentityBindingByAgentId(prepared.body.agent.id)).toBeUndefined();
+    expect(store.listPerformanceLedger({ agentId: prepared.body.agent.id })).toEqual([]);
+  });
+
+  it("persists pending owner claims across SQLite store reloads", async () => {
+    const dbPath = createTempPlatformDbPath();
+    const firstStore = new SQLitePlatformStore(dbPath);
+    const firstFetch = createPlatformFetchHandler(firstStore, {
+      registryService: createProofRegistryService()
+    });
+    let prepared: any;
+    try {
+      prepared = await prepareClaim(firstFetch, { displayName: "SQLite Pending Agent" });
+      expect(prepared.response.status).toBe(201);
+    } finally {
+      firstStore.close();
+    }
+
+    const secondStore = new SQLitePlatformStore(dbPath);
+    const verifierCalls: Array<{ txDigest: string; proof: RegisterAgentRegistryProof }> = [];
+    const secondFetch = createPlatformFetchHandler(secondStore, {
+      registryService: createProofRegistryService(),
+      registryTransactionVerifier: createAcceptingVerifier(verifierCalls)
+    });
+    try {
+      const finalized = await finalizeClaim(secondFetch, {
+        pendingClaimId: prepared.body.pendingClaimId,
+        txDigest: "0xsqlite"
+      });
+
+      expect(finalized.response.status).toBe(201);
+      expect(verifierCalls).toEqual([{
+        txDigest: "0xsqlite",
+        proof: prepared.body.registryProof
+      }]);
+      expect(finalized.body.runtimeCredential.token).toStartWith("agent_runtime_");
+    } finally {
+      secondStore.close();
+    }
   });
 
   it("claims a pairing code through an injected claimed-Agent wallet service and stores identity ledger rows", async () => {
@@ -1838,3 +2081,9 @@ describe("Agent Arena combined backend handler", () => {
     });
   });
 });
+
+function createTempPlatformDbPath(): string {
+  const dir = mkdtempSync(join(tmpdir(), "agent-arena-platform-api-"));
+  tempPlatformDirs.push(dir);
+  return join(dir, "platform.sqlite");
+}

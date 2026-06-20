@@ -15,6 +15,7 @@ import {
   type ExecutionRecord,
   type ExposureStatus,
   type AgentIdentityBinding,
+  type PendingAgentClaim,
   type AgentPositionSnapshot,
   type IntentMarket,
   type OwnerWithdrawalRecord,
@@ -34,6 +35,7 @@ export interface CreateClaimedAgentInput {
   displayName: string;
   ownerAddress: string;
   twitterHandle?: string | null;
+  runtimeStatus?: AgentProfile["runtimeStatus"];
 }
 
 export interface CreatePairingDraftOptions {
@@ -42,11 +44,25 @@ export interface CreatePairingDraftOptions {
   ttlMs?: number;
 }
 
+export interface CreatePendingClaimInput {
+  agentDraftId: string;
+  registrationCodeHash: string;
+  agentId: string;
+  ownerAddress: string;
+  twitterHandle: string | null;
+  tradingWalletId: string;
+  walletAddress: string;
+  predictManagerId: string | null;
+  registryProof: PendingAgentClaim["registryProof"];
+  now?: string;
+}
+
 export interface PlatformStoreSnapshot {
   agents: AgentProfile[];
   runtimeCredentials: AgentRuntimeCredential[];
   runtimeCredentialRotationChallenges?: RuntimeCredentialRotationChallenge[];
   pairingDrafts: AgentPairingDraft[];
+  pendingClaims?: PendingAgentClaim[];
   tradingWallets: TradingWallet[];
   identityBindings: AgentIdentityBinding[];
   performanceLedger: PerformanceLedgerRecord[];
@@ -58,6 +74,7 @@ export interface PlatformStoreSnapshot {
   ownerWithdrawals: OwnerWithdrawalRecord[];
   nextAgentNumber: number;
   nextDraftNumber: number;
+  nextPendingClaimNumber?: number;
   nextWalletNumber: number;
   nextOwnerWithdrawalNumber: number;
 }
@@ -71,6 +88,8 @@ export class PlatformMockStore {
   private readonly runtimeCredentialRotationChallengesByNonce = new Map<string, RuntimeCredentialRotationChallenge>();
   private readonly pairingDrafts = new Map<string, AgentPairingDraft>();
   private readonly pairingDraftIdsByCode = new Map<string, string>();
+  private readonly pendingClaims = new Map<string, PendingAgentClaim>();
+  private readonly pendingClaimIdsByDraftId = new Map<string, string>();
   private readonly tradingWallets = new Map<string, TradingWallet>();
   private readonly tradingWalletIdsByAgentId = new Map<string, string>();
   private readonly identityBindingsByAgentId = new Map<string, AgentIdentityBinding>();
@@ -84,6 +103,7 @@ export class PlatformMockStore {
   private readonly ownerWithdrawals = new Map<string, OwnerWithdrawalRecord>();
   private nextAgentNumber = 1;
   private nextDraftNumber = 1;
+  private nextPendingClaimNumber = 1;
   private nextWalletNumber = 1;
   private nextOwnerWithdrawalNumber = 1;
 
@@ -120,6 +140,10 @@ export class PlatformMockStore {
       return undefined;
     }
 
+    return this.getPairingDraftById(draftId);
+  }
+
+  getPairingDraftById(draftId: string): AgentPairingDraft | undefined {
     const draft = this.pairingDrafts.get(draftId);
     return draft ? clonePairingDraft(draft) : undefined;
   }
@@ -162,13 +186,27 @@ export class PlatformMockStore {
       ownerAddress: input.ownerAddress,
       tradingWalletAddress: "",
       tradingWalletId: null,
-      runtimeStatus: "active",
+      runtimeStatus: input.runtimeStatus ?? "active",
       exposureStatus: "flat",
       createdAt: "2026-06-15T00:00:00.000Z"
     };
 
     this.agents.set(agent.id, cloneAgent(agent));
     return cloneAgent(agent);
+  }
+
+  updateAgentRuntimeStatus(agentId: string, runtimeStatus: AgentProfile["runtimeStatus"]): AgentProfile {
+    const agent = this.agents.get(agentId);
+    if (!agent) {
+      throw new Error("AGENT_NOT_FOUND");
+    }
+
+    const updated = {
+      ...agent,
+      runtimeStatus
+    };
+    this.agents.set(agentId, cloneAgent(updated));
+    return cloneAgent(updated);
   }
 
   getAgent(agentId: string): AgentProfile | undefined {
@@ -285,6 +323,64 @@ export class PlatformMockStore {
   getIdentityBindingByAgentId(agentId: string): AgentIdentityBinding | undefined {
     const binding = this.identityBindingsByAgentId.get(agentId);
     return binding ? cloneIdentityBinding(binding) : undefined;
+  }
+
+  createPendingClaim(input: CreatePendingClaimInput): PendingAgentClaim {
+    const existing = this.findPendingClaimByDraftId(input.agentDraftId);
+    if (existing) {
+      throw new Error("PENDING_CLAIM_EXISTS");
+    }
+
+    const now = input.now ?? "2026-06-15T00:00:00.000Z";
+    const pendingClaim: PendingAgentClaim = {
+      id: `pending_claim_${this.nextPendingClaimNumber}`,
+      agentDraftId: input.agentDraftId,
+      registrationCodeHash: input.registrationCodeHash,
+      agentId: input.agentId,
+      ownerAddress: input.ownerAddress,
+      twitterHandle: input.twitterHandle,
+      tradingWalletId: input.tradingWalletId,
+      walletAddress: input.walletAddress,
+      predictManagerId: input.predictManagerId,
+      registryProof: cloneRegisterAgentRegistryProof(input.registryProof),
+      status: "pending",
+      txDigest: null,
+      createdAt: now,
+      finalizedAt: null
+    };
+    this.nextPendingClaimNumber += 1;
+    this.pendingClaims.set(pendingClaim.id, clonePendingClaim(pendingClaim));
+    this.pendingClaimIdsByDraftId.set(pendingClaim.agentDraftId, pendingClaim.id);
+    return clonePendingClaim(pendingClaim);
+  }
+
+  findPendingClaimById(pendingClaimId: string): PendingAgentClaim | undefined {
+    const pendingClaim = this.pendingClaims.get(pendingClaimId);
+    return pendingClaim ? clonePendingClaim(pendingClaim) : undefined;
+  }
+
+  findPendingClaimByDraftId(agentDraftId: string): PendingAgentClaim | undefined {
+    const pendingClaimId = this.pendingClaimIdsByDraftId.get(agentDraftId);
+    return pendingClaimId ? this.findPendingClaimById(pendingClaimId) : undefined;
+  }
+
+  markPendingClaimFinalized(
+    pendingClaimId: string,
+    input: { txDigest: string; finalizedAt: string }
+  ): PendingAgentClaim | undefined {
+    const pendingClaim = this.pendingClaims.get(pendingClaimId);
+    if (!pendingClaim) {
+      return undefined;
+    }
+
+    const finalized = {
+      ...pendingClaim,
+      status: "finalized" as const,
+      txDigest: input.txDigest,
+      finalizedAt: input.finalizedAt
+    };
+    this.pendingClaims.set(pendingClaimId, clonePendingClaim(finalized));
+    return clonePendingClaim(finalized);
   }
 
   recordPerformanceLedger(record: PerformanceLedgerRecord): PerformanceLedgerRecord {
@@ -505,6 +601,7 @@ export class PlatformMockStore {
       runtimeCredentialRotationChallenges: [...this.runtimeCredentialRotationChallengesByNonce.values()]
         .map(cloneRuntimeCredentialRotationChallenge),
       pairingDrafts: [...this.pairingDrafts.values()].map(clonePairingDraft),
+      pendingClaims: [...this.pendingClaims.values()].map(clonePendingClaim),
       tradingWallets: [...this.tradingWallets.values()].map(cloneTradingWallet),
       identityBindings: [...this.identityBindingsByAgentId.values()].map(cloneIdentityBinding),
       performanceLedger: this.performanceLedger.map(clonePerformanceLedgerRecord),
@@ -516,6 +613,7 @@ export class PlatformMockStore {
       ownerWithdrawals: [...this.ownerWithdrawals.values()].map(cloneOwnerWithdrawal),
       nextAgentNumber: this.nextAgentNumber,
       nextDraftNumber: this.nextDraftNumber,
+      nextPendingClaimNumber: this.nextPendingClaimNumber,
       nextWalletNumber: this.nextWalletNumber,
       nextOwnerWithdrawalNumber: this.nextOwnerWithdrawalNumber
     };
@@ -527,6 +625,8 @@ export class PlatformMockStore {
     this.runtimeCredentialRotationChallengesByNonce.clear();
     this.pairingDrafts.clear();
     this.pairingDraftIdsByCode.clear();
+    this.pendingClaims.clear();
+    this.pendingClaimIdsByDraftId.clear();
     this.tradingWallets.clear();
     this.tradingWalletIdsByAgentId.clear();
     this.identityBindingsByAgentId.clear();
@@ -555,6 +655,10 @@ export class PlatformMockStore {
     for (const draft of snapshot.pairingDrafts) {
       this.pairingDrafts.set(draft.id, clonePairingDraft(draft));
       this.pairingDraftIdsByCode.set(draft.registrationCode, draft.id);
+    }
+    for (const pendingClaim of snapshot.pendingClaims ?? []) {
+      this.pendingClaims.set(pendingClaim.id, clonePendingClaim(pendingClaim));
+      this.pendingClaimIdsByDraftId.set(pendingClaim.agentDraftId, pendingClaim.id);
     }
     for (const wallet of snapshot.tradingWallets) {
       this.tradingWallets.set(wallet.id, cloneTradingWallet(wallet));
@@ -586,6 +690,10 @@ export class PlatformMockStore {
 
     this.nextAgentNumber = snapshot.nextAgentNumber;
     this.nextDraftNumber = snapshot.nextDraftNumber;
+    this.nextPendingClaimNumber = snapshot.nextPendingClaimNumber ?? inferNextNumber(
+      [...this.pendingClaims.keys()],
+      "pending_claim_"
+    );
     this.nextWalletNumber = snapshot.nextWalletNumber;
     this.nextOwnerWithdrawalNumber = snapshot.nextOwnerWithdrawalNumber;
   }
@@ -624,6 +732,21 @@ function cloneRuntimeCredentialRotationChallenge(
 
 function clonePairingDraft(draft: AgentPairingDraft): AgentPairingDraft {
   return { ...draft };
+}
+
+function clonePendingClaim(pendingClaim: PendingAgentClaim): PendingAgentClaim {
+  return {
+    ...pendingClaim,
+    registryProof: cloneRegisterAgentRegistryProof(pendingClaim.registryProof),
+    txDigest: pendingClaim.txDigest ?? null,
+    finalizedAt: pendingClaim.finalizedAt ?? null
+  };
+}
+
+function cloneRegisterAgentRegistryProof(
+  proof: PendingAgentClaim["registryProof"]
+): PendingAgentClaim["registryProof"] {
+  return { ...proof };
 }
 
 function cloneTradingWallet(wallet: TradingWallet): TradingWallet {
@@ -703,4 +826,15 @@ function createIdempotencyKey(agentId: string, competitionId: string, idempotenc
 
 function normalizeAddress(address: string): string {
   return address.trim().toLowerCase();
+}
+
+function inferNextNumber(ids: string[], prefix: string): number {
+  const max = ids.reduce((highest, id) => {
+    if (!id.startsWith(prefix)) {
+      return highest;
+    }
+    const value = Number(id.slice(prefix.length));
+    return Number.isSafeInteger(value) && value > highest ? value : highest;
+  }, 0);
+  return max + 1;
 }
