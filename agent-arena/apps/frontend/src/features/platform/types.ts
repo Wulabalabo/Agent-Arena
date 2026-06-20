@@ -51,6 +51,18 @@ export interface RegistryWriteSummary {
   errorMessage?: string;
 }
 
+export interface RegisterAgentRegistryProof {
+  kind: "register_agent";
+  packageId: string;
+  registryObjectId: string;
+  agentId: string;
+  ownerAddress: string;
+  tradingWalletAddress: string;
+  metadataHash: string;
+  nonceBase64: string;
+  signatureBase64: string;
+}
+
 export interface RuntimeCredentialRotationChallenge {
   agentId: string;
   ownerAddress: string;
@@ -76,6 +88,17 @@ export interface RuntimeCredentialRotationRegistryProof {
   rotationHash: string;
   nonceBase64: string;
   signatureBase64: string;
+}
+
+export type RegistryAuthorizationProof =
+  | RegisterAgentRegistryProof
+  | RuntimeCredentialRotationRegistryProof;
+
+export interface PrepareAgentClaimResponse {
+  pendingClaimId: string;
+  agent: AgentProfile;
+  tradingWallet: TradingWallet;
+  registryProof: RegisterAgentRegistryProof;
 }
 
 export interface RuntimeCredentialRotationPrepareResponse {

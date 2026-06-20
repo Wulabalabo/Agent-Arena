@@ -9,6 +9,7 @@ import type {
   OwnerAgentProfile,
   PairingDraft,
   PlatformErrorBody,
+  PrepareAgentClaimResponse,
   PublicArenaActivity,
   ReplayEvent,
   RegistryWriteSummary,
@@ -38,6 +39,17 @@ interface ClaimAgentInput {
   ownerAddress: string;
   signature: string;
   twitterHandle?: string;
+}
+
+interface PrepareAgentClaimInput {
+  registrationCode: string;
+  ownerAddress: string;
+  twitterHandle?: string;
+}
+
+interface FinalizeAgentClaimInput {
+  pendingClaimId: string;
+  txDigest: string;
 }
 
 interface ClaimAgentResponse {
@@ -105,6 +117,10 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
       requestJson<PairingDraft>(fetcher, `${root}/agent/init`, jsonPost(input)),
     claimAgent: (input: ClaimAgentInput) =>
       requestJson<ClaimAgentResponse>(fetcher, `${root}/owner/agents/claim`, jsonPost(input)),
+    prepareAgentClaim: (input: PrepareAgentClaimInput) =>
+      requestJson<PrepareAgentClaimResponse>(fetcher, `${root}/owner/agents/claim/prepare`, jsonPost(input)),
+    finalizeAgentClaim: (input: FinalizeAgentClaimInput) =>
+      requestJson<ClaimAgentResponse>(fetcher, `${root}/owner/agents/claim/finalize`, jsonPost(input)),
     prepareRuntimeCredentialRotation: (
       agentId: string,
       input: { ownerAddress: string; reason: string }

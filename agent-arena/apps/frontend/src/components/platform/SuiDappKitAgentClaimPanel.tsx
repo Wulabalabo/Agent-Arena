@@ -4,6 +4,7 @@ import {
   useDAppKit,
   type UiWalletAccount
 } from "@mysten/dapp-kit-react";
+import type { Transaction } from "@mysten/sui/transactions";
 import {
   AgentClaimPanel,
   type ClaimWalletProvider
@@ -28,10 +29,10 @@ export function SuiDappKitAgentClaimPanel({
     () => currentAccount
       ? createDappKitWalletProvider({
       currentAccount,
-        signPersonalMessage: dAppKit.signPersonalMessage
+        signAndExecuteTransaction: dAppKit.signAndExecuteTransaction
       })
       : null,
-    [currentAccount, dAppKit.signPersonalMessage]
+    [currentAccount, dAppKit.signAndExecuteTransaction]
   );
 
   return (
@@ -50,18 +51,15 @@ export function SuiDappKitAgentClaimPanel({
 
 interface CreateDappKitWalletProviderArgs {
   currentAccount: UiWalletAccount | null;
-  signPersonalMessage: (input: { message: Uint8Array; account?: UiWalletAccount }) => Promise<unknown>;
+  signAndExecuteTransaction: (input: { transaction: Transaction }) => Promise<unknown>;
 }
 
 function createDappKitWalletProvider({
   currentAccount,
-  signPersonalMessage
+  signAndExecuteTransaction
 }: CreateDappKitWalletProviderArgs): ClaimWalletProvider {
   return {
     getAccounts: () => currentAccount ? [currentAccount] : [],
-    signPersonalMessage: async ({ message }) => await signPersonalMessage({
-      message,
-      ...(currentAccount ? { account: currentAccount } : {})
-    })
+    signAndExecuteTransaction: async ({ transaction }) => await signAndExecuteTransaction({ transaction })
   };
 }

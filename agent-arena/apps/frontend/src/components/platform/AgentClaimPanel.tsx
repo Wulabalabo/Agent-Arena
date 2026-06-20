@@ -1,9 +1,12 @@
 import { Copy, ShieldCheck, Wallet } from "lucide-react";
+import type { Transaction } from "@mysten/sui/transactions";
 import { type FormEvent, useMemo, useState } from "react";
 import { createPlatformClient, PlatformClientError } from "../../features/platform/client";
+import { buildRegistryTransaction, readRegistryTransactionDigest } from "../../features/platform/registry-transaction";
 import type { AgentProfile, RegistryWriteSummary, RuntimeCredential, TradingWallet } from "../../features/platform/types";
 
 type PlatformFetcher = (url: string, init?: RequestInit) => Promise<Response>;
+type ClaimStatus = "idle" | "preparing" | "confirming" | "finalizing" | "claimed" | "failed";
 
 interface AgentClaimPanelProps {
   apiBaseUrl: string;
@@ -38,6 +41,7 @@ export interface ClaimWalletProvider {
   connect?: () => Promise<unknown>;
   requestPermissions?: (permissions?: string[]) => Promise<unknown>;
   getAccounts?: () => Promise<ClaimWalletAccount[]> | ClaimWalletAccount[];
+  signAndExecuteTransaction?: (input: { transaction: Transaction }) => Promise<unknown>;
   signPersonalMessage?: (input: { message: Uint8Array; account?: ClaimWalletAccount }) => Promise<unknown>;
   signMessage?: (input: { message: Uint8Array; account?: ClaimWalletAccount }) => Promise<unknown>;
 }
@@ -56,7 +60,7 @@ export function AgentClaimPanel({
   const [code, setCode] = useState(registrationCode);
   const [ownerAddress, setOwnerAddress] = useState("");
   const [twitterHandle, setTwitterHandle] = useState("");
-  const [status, setStatus] = useState<"idle" | "claiming" | "claimed" | "failed">("idle");
+  const [status, setStatus] = useState<ClaimStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [claimResult, setClaimResult] = useState<ClaimResult | null>(null);
@@ -67,6 +71,7 @@ export function AgentClaimPanel({
   const shouldOpenWalletDialog = !directWalletProvider && walletOptions.length > 0;
   const canClaim = manualClaimEnabled || Boolean(directWalletProvider) || walletOptions.length > 0;
   const displayedOwnerAddress = ownerAddress || connectedWalletAddress;
+  const claimInProgress = status === "preparing" || status === "confirming" || status === "finalizing";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,17 +84,14 @@ export function AgentClaimPanel({
       return;
     }
 
-    setStatus("claiming");
     setError(null);
 
     try {
-      const signedClaim = directWalletProvider
-        ? await signClaimWithWallet(directWalletProvider, code.trim())
-        : {
-          ownerAddress: ownerAddress.trim(),
-          signature: "local-owner-claim"
-        };
-      await submitSignedClaim(signedClaim);
+      if (!directWalletProvider) {
+        throw new Error("Owner wallet is required to claim on registry");
+      }
+
+      await submitRegistryClaim(directWalletProvider);
     } catch (claimError) {
       handleClaimError(claimError);
     }
@@ -97,23 +99,43 @@ export function AgentClaimPanel({
 
   async function handleWalletOptionClaim(provider: ClaimWalletProvider) {
     setWalletDialogOpen(false);
-    setStatus("claiming");
     setError(null);
 
     try {
-      await submitSignedClaim(await signClaimWithWallet(provider, code.trim()));
+      await submitRegistryClaim(provider);
     } catch (claimError) {
       handleClaimError(claimError);
     }
   }
 
-  async function submitSignedClaim(signedClaim: { ownerAddress: string; signature: string }) {
-    setOwnerAddress(signedClaim.ownerAddress);
-    const result = await client.claimAgent({
+  async function submitRegistryClaim(provider: ClaimWalletProvider) {
+    const account = await resolveWalletAccount(provider);
+    if (!account) {
+      throw new Error("Owner wallet address is unavailable");
+    }
+    if (!provider.signAndExecuteTransaction) {
+      throw new Error("Owner wallet transaction signing is unavailable");
+    }
+
+    setOwnerAddress(account.address);
+    setStatus("preparing");
+    const prepared = await client.prepareAgentClaim({
       registrationCode: code.trim(),
-      ownerAddress: signedClaim.ownerAddress,
-      signature: signedClaim.signature,
+      ownerAddress: account.address,
       ...(twitterHandle.trim() ? { twitterHandle: twitterHandle.trim() } : {})
+    });
+    const transaction = buildRegistryTransaction(prepared.registryProof);
+    setStatus("confirming");
+    const signResult = await provider.signAndExecuteTransaction({ transaction });
+    const txDigest = readRegistryTransactionDigest(signResult);
+    if (!txDigest) {
+      throw new Error("Registry transaction digest is unavailable");
+    }
+
+    setStatus("finalizing");
+    const result = await client.finalizeAgentClaim({
+      pendingClaimId: prepared.pendingClaimId,
+      txDigest
     });
     setClaimResult(result);
     setCopyStatus("idle");
@@ -215,13 +237,13 @@ export function AgentClaimPanel({
 
         <button
           className="paper-button paper-button-primary inline-flex items-center justify-center gap-2 px-3 py-2 font-display text-xs font-black uppercase"
-          disabled={status === "claiming" || !canClaim}
+          disabled={claimInProgress || !canClaim}
           onClick={shouldOpenWalletDialog ? () => setWalletDialogOpen(true) : undefined}
           type={shouldOpenWalletDialog ? "button" : "submit"}
         >
           <Wallet aria-hidden="true" size={14} />
-          {status === "claiming"
-            ? "Claiming…"
+          {claimInProgress
+            ? formatClaimStatus(status)
             : claimButtonLabel
               ? claimButtonLabel
               : !canClaim
@@ -317,6 +339,22 @@ function formatRegistrySummary(registry: RegistryWriteSummary): string {
   return "Registry disabled";
 }
 
+function formatClaimStatus(status: ClaimStatus): string {
+  if (status === "preparing") {
+    return "Preparing";
+  }
+
+  if (status === "confirming") {
+    return "Confirming";
+  }
+
+  if (status === "finalizing") {
+    return "Finalizing";
+  }
+
+  return "Claim Agent";
+}
+
 function createAgentRuntimeHandoff({
   apiBaseUrl,
   claimResult
@@ -341,34 +379,12 @@ function createAgentRuntimeHandoff({
   };
 }
 
-async function signClaimWithWallet(
-  provider: ClaimWalletProvider,
-  registrationCode: string
-): Promise<{ ownerAddress: string; signature: string }> {
+async function resolveWalletAccount(provider: ClaimWalletProvider): Promise<ClaimWalletAccount | null> {
   const connectResult = provider.connect ? await provider.connect() : undefined;
   const permissionResult = connectResult ? undefined : await requestViewAccountPermission(provider);
-  const account = findWalletAccount(connectResult)
+  return findWalletAccount(connectResult)
     ?? findWalletAccount(permissionResult)
     ?? await firstProviderAccount(provider);
-  if (!account) {
-    throw new Error("Owner wallet address is unavailable");
-  }
-
-  const message = new TextEncoder().encode(
-    `Agent Arena owner claim\nregistrationCode:${registrationCode}\nownerAddress:${account.address}`
-  );
-  const signatureResult = provider.signPersonalMessage
-    ? await provider.signPersonalMessage({ message, account })
-    : await provider.signMessage?.({ message, account });
-  const signature = readWalletSignature(signatureResult);
-  if (!signature) {
-    throw new Error("Owner wallet signature is unavailable");
-  }
-
-  return {
-    ownerAddress: account.address,
-    signature
-  };
 }
 
 async function requestViewAccountPermission(provider: ClaimWalletProvider): Promise<unknown> {
@@ -406,20 +422,6 @@ function findWalletAccount(value: unknown): ClaimWalletAccount | null {
   }
 
   return null;
-}
-
-function readWalletSignature(value: unknown): string | null {
-  if (typeof value === "string" && value.trim()) {
-    return value.trim();
-  }
-
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  return typeof value.signature === "string" && value.signature.trim()
-    ? value.signature.trim()
-    : null;
 }
 
 function isWalletAccount(value: unknown): value is ClaimWalletAccount {

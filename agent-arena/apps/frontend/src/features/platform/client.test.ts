@@ -88,6 +88,97 @@ describe("createPlatformClient", () => {
     });
   });
 
+  it("prepares an Agent claim with an owner wallet address and returns a register proof", async () => {
+    const registryProof = {
+      kind: "register_agent",
+      packageId: "0xpackage",
+      registryObjectId: "0xregistry",
+      agentId: "agent_2050",
+      ownerAddress: "0xowner",
+      tradingWalletAddress: "0xwallet",
+      metadataHash: "sha256:metadata",
+      nonceBase64: "bm9uY2U=",
+      signatureBase64: "c2lnbmF0dXJl"
+    };
+    const fetcher = vi.fn(async () =>
+      new Response(JSON.stringify({
+        pendingClaimId: "pending_claim_2050",
+        agent: mockPlatformSnapshot.agents[0],
+        tradingWallet: mockPlatformSnapshot.tradingWallet,
+        registryProof
+      }), {
+        status: 201,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
+
+    await expect(client.prepareAgentClaim({
+      registrationCode: "PAIR-2050",
+      ownerAddress: "0xowner",
+      twitterHandle: "@Prepared_AI"
+    })).resolves.toEqual({
+      pendingClaimId: "pending_claim_2050",
+      agent: mockPlatformSnapshot.agents[0],
+      tradingWallet: mockPlatformSnapshot.tradingWallet,
+      registryProof
+    });
+    expect(fetcher).toHaveBeenCalledWith("https://platform.test/api/arena/owner/agents/claim/prepare", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        registrationCode: "PAIR-2050",
+        ownerAddress: "0xowner",
+        twitterHandle: "@Prepared_AI"
+      })
+    });
+  });
+
+  it("finalizes an Agent claim with the owner registry transaction digest", async () => {
+    const fetcher = vi.fn(async () =>
+      new Response(JSON.stringify({
+        agent: mockPlatformSnapshot.agents[0],
+        tradingWallet: mockPlatformSnapshot.tradingWallet,
+        runtimeCredential: {
+          token: "agent_runtime_claimed",
+          shownOnce: true,
+          credentialVersion: 1,
+          scopes: ["agent:read", "agent:intent:write"]
+        },
+        registry: {
+          status: "submitted",
+          txDigest: "0xclaimdigest"
+        }
+      }), {
+        status: 201,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
+
+    await expect(client.finalizeAgentClaim({
+      pendingClaimId: "pending_claim_2050",
+      txDigest: "0xclaimdigest"
+    })).resolves.toMatchObject({
+      runtimeCredential: {
+        token: "agent_runtime_claimed",
+        credentialVersion: 1
+      },
+      registry: {
+        status: "submitted",
+        txDigest: "0xclaimdigest"
+      }
+    });
+    expect(fetcher).toHaveBeenCalledWith("https://platform.test/api/arena/owner/agents/claim/finalize", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        pendingClaimId: "pending_claim_2050",
+        txDigest: "0xclaimdigest"
+      })
+    });
+  });
+
   it("prepares a runtime credential rotation with registry proof", async () => {
     const challenge = {
       agentId: "agent_1",

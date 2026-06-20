@@ -1,5 +1,36 @@
 import { Transaction } from "@mysten/sui/transactions";
-import type { RuntimeCredentialRotationRegistryProof } from "./types";
+import type {
+  RegisterAgentRegistryProof,
+  RegistryAuthorizationProof,
+  RuntimeCredentialRotationRegistryProof
+} from "./types";
+
+export function buildRegistryTransaction(proof: RegistryAuthorizationProof): Transaction {
+  if (proof.kind === "register_agent") {
+    return buildRegisterAgentRegistryTransaction(proof);
+  }
+
+  return buildRuntimeCredentialRotationRegistryTransaction(proof);
+}
+
+export function buildRegisterAgentRegistryTransaction(
+  proof: RegisterAgentRegistryProof
+): Transaction {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${proof.packageId}::registry::register_agent`,
+    arguments: [
+      tx.object(proof.registryObjectId),
+      tx.pure.vector("u8", utf8Bytes(proof.agentId)),
+      tx.pure.address(proof.ownerAddress),
+      tx.pure.address(proof.tradingWalletAddress),
+      tx.pure.vector("u8", utf8Bytes(proof.metadataHash)),
+      tx.pure.vector("u8", base64Bytes(proof.nonceBase64)),
+      tx.pure.vector("u8", base64Bytes(proof.signatureBase64))
+    ]
+  });
+  return tx;
+}
 
 export function buildRuntimeCredentialRotationRegistryTransaction(
   proof: RuntimeCredentialRotationRegistryProof
