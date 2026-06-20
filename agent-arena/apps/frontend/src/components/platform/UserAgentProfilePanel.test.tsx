@@ -50,7 +50,7 @@ describe("UserAgentProfilePanel", () => {
         connectedOwnerAddress="0xowner"
         onCreateRuntimeCredentialRotationChallenge={rotation.onCreateChallenge}
         onRotateRuntimeCredential={rotation.onRotate}
-        onSignRuntimeCredentialRotationMessage={rotation.onSignMessage}
+        onSignAndExecuteRegistryTransaction={rotation.onSignAndExecuteRegistryTransaction}
         profile={profile}
       />
     );
@@ -62,7 +62,7 @@ describe("UserAgentProfilePanel", () => {
         connectedOwnerAddress="0xother"
         onCreateRuntimeCredentialRotationChallenge={rotation.onCreateChallenge}
         onRotateRuntimeCredential={rotation.onRotate}
-        onSignRuntimeCredentialRotationMessage={rotation.onSignMessage}
+        onSignAndExecuteRegistryTransaction={rotation.onSignAndExecuteRegistryTransaction}
         profile={profile}
       />
     );
@@ -81,7 +81,7 @@ describe("UserAgentProfilePanel", () => {
         connectedOwnerAddress="0xowner"
         onCreateRuntimeCredentialRotationChallenge={rotation.onCreateChallenge}
         onRotateRuntimeCredential={rotation.onRotate}
-        onSignRuntimeCredentialRotationMessage={rotation.onSignMessage}
+        onSignAndExecuteRegistryTransaction={rotation.onSignAndExecuteRegistryTransaction}
         profile={createProfile()}
       />
     );
@@ -93,16 +93,11 @@ describe("UserAgentProfilePanel", () => {
       ownerAddress: "0xowner",
       reason: "owner requested runtime credential rotation"
     });
-    expect(rotation.onSignMessage).toHaveBeenCalledWith("rotation message");
+    expect(rotation.onSignAndExecuteRegistryTransaction).toHaveBeenCalledWith(rotation.registryProof);
     expect(rotation.onRotate).toHaveBeenCalledWith("agent_1", {
       ownerAddress: "0xowner",
-      signature: "0xsigned-rotation",
       nonce: "nonce-1",
-      expiresAt: "2026-06-18T02:10:00.000Z",
-      reason: "owner requested runtime credential rotation",
-      message: "rotation message",
-      domain: "agent-arena-runtime-credential-rotation:v1",
-      currentCredentialVersion: 1
+      txDigest: "0xrotationdigest"
     });
 
     fireEvent.click(screen.getByRole("button", { name: /copy agent handoff/i }));
@@ -135,7 +130,21 @@ function setClipboard(writeText?: (text: string) => Promise<void>) {
 }
 
 function createRotationCallbacks() {
+  const registryProof = {
+    kind: "record_runtime_credential_rotation" as const,
+    packageId: "0xpackage",
+    registryObjectId: "0xregistry",
+    agentId: "agent_1",
+    ownerAddress: "0xowner",
+    previousCredentialVersion: 1,
+    nextCredentialVersion: 2,
+    rotationHash: "sha256:rotation",
+    nonceBase64: "bm9uY2U=",
+    signatureBase64: "c2lnbmF0dXJl"
+  };
+
   return {
+    registryProof,
     onCreateChallenge: vi.fn(async () => ({
       agentId: "agent_1",
       ownerAddress: "0xowner",
@@ -146,9 +155,10 @@ function createRotationCallbacks() {
       nextCredentialVersion: 2,
       nonce: "nonce-1",
       expiresAt: "2026-06-18T02:10:00.000Z",
-      message: "rotation message"
+      message: "rotation message",
+      registryProof
     })),
-    onSignMessage: vi.fn(async () => "0xsigned-rotation"),
+    onSignAndExecuteRegistryTransaction: vi.fn(async () => "0xrotationdigest"),
     onRotate: vi.fn(async () => ({
       runtimeCredential: {
         token: "agent_runtime_rotated",

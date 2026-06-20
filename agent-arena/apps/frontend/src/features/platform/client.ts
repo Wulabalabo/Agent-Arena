@@ -85,17 +85,6 @@ interface RuntimeCredentialRotationTxInput {
   txDigest: string;
 }
 
-interface RuntimeCredentialRotationLegacyInput {
-  ownerAddress: string;
-  signature: string;
-  nonce: string;
-  expiresAt: string;
-  reason: string;
-  message: string;
-  domain: string;
-  currentCredentialVersion: number;
-}
-
 export class PlatformClientError extends Error {
   readonly code: string;
   readonly retryable: boolean;
@@ -136,10 +125,10 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
       ).then((response) => ({
         ...response.challenge,
         registryProof: response.registryProof
-      })),
+    })),
     rotateRuntimeCredential: (
       agentId: string,
-      input: RuntimeCredentialRotationTxInput | RuntimeCredentialRotationLegacyInput
+      input: RuntimeCredentialRotationTxInput
     ) =>
       requestJson<RuntimeCredentialRotationResponse>(
         fetcher,

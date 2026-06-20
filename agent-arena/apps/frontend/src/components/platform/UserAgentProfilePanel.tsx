@@ -4,6 +4,7 @@ import type { UserAgentArenaProfile } from "../../features/platform/arena-ui";
 import type {
   RuntimeCredential,
   RuntimeCredentialRotationChallenge,
+  RuntimeCredentialRotationRegistryProof,
   RuntimeCredentialRotationResponse
 } from "../../features/platform/types";
 
@@ -19,16 +20,11 @@ interface UserAgentProfilePanelProps {
     agentId: string,
     input: {
       ownerAddress: string;
-      signature: string;
       nonce: string;
-      expiresAt: string;
-      reason: string;
-      message: string;
-      domain: string;
-      currentCredentialVersion: number;
+      txDigest: string;
     }
   ) => Promise<RuntimeCredentialRotationResponse>;
-  onSignRuntimeCredentialRotationMessage?: (message: string) => Promise<string>;
+  onSignAndExecuteRegistryTransaction?: (proof: RuntimeCredentialRotationRegistryProof) => Promise<string>;
   profile: UserAgentArenaProfile;
   summary?: ReactNode;
   variant?: "full" | "compact";
@@ -40,7 +36,7 @@ export function UserAgentProfilePanel({
   connectedOwnerAddress,
   onCreateRuntimeCredentialRotationChallenge,
   onRotateRuntimeCredential,
-  onSignRuntimeCredentialRotationMessage,
+  onSignAndExecuteRegistryTransaction,
   profile,
   summary,
   variant = "full"
@@ -61,7 +57,7 @@ export function UserAgentProfilePanel({
     normalizeAddress(profile.ownerAddress) === normalizeAddress(ownerAddress) &&
     onCreateRuntimeCredentialRotationChallenge &&
     onRotateRuntimeCredential &&
-    onSignRuntimeCredentialRotationMessage
+    onSignAndExecuteRegistryTransaction
   );
 
   async function copyTradingWallet() {
@@ -85,7 +81,7 @@ export function UserAgentProfilePanel({
       !ownerAddress ||
       !onCreateRuntimeCredentialRotationChallenge ||
       !onRotateRuntimeCredential ||
-      !onSignRuntimeCredentialRotationMessage
+      !onSignAndExecuteRegistryTransaction
     ) {
       return;
     }
@@ -99,16 +95,14 @@ export function UserAgentProfilePanel({
         ownerAddress,
         reason: rotationReason
       });
-      const signature = await onSignRuntimeCredentialRotationMessage(challenge.message);
+      if (!challenge.registryProof) {
+        throw new Error("Runtime credential rotation registry proof is unavailable");
+      }
+      const txDigest = await onSignAndExecuteRegistryTransaction(challenge.registryProof);
       const response = await onRotateRuntimeCredential(profile.agentId, {
         ownerAddress: challenge.ownerAddress,
-        signature,
         nonce: challenge.nonce,
-        expiresAt: challenge.expiresAt,
-        reason: challenge.reason,
-        message: challenge.message,
-        domain: challenge.domain,
-        currentCredentialVersion: challenge.currentCredentialVersion
+        txDigest
       });
       setRotatedCredential(response.runtimeCredential);
       setRotationStatus("rotated");

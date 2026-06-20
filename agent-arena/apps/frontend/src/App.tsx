@@ -184,13 +184,8 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, ownerMessageSigne
       agentId: string,
       input: {
         ownerAddress: string;
-        signature: string;
         nonce: string;
-        expiresAt: string;
-        reason: string;
-        message: string;
-        domain: string;
-        currentCredentialVersion: number;
+        txDigest: string;
       }
     ) => platformClient.rotateRuntimeCredential(agentId, input),
     [platformClient]
@@ -386,8 +381,7 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, ownerMessageSigne
               apiBaseUrl,
               connectedOwnerAddress: connectedOwnerAddress ?? null,
               createChallenge: createRuntimeCredentialRotationChallenge,
-              rotateCredential: rotateRuntimeCredential,
-              signMessage: ownerMessageSigner
+              rotateCredential: rotateRuntimeCredential
             }}
             userAgentProfile={userAgentProfile}
           />

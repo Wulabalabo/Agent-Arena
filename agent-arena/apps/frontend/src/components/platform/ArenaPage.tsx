@@ -1,6 +1,7 @@
 import type { Competition } from "../../features/platform/types";
 import type {
   RuntimeCredentialRotationChallenge,
+  RuntimeCredentialRotationRegistryProof,
   RuntimeCredentialRotationResponse
 } from "../../features/platform/types";
 import type { ArenaChartMarketReference, PublicActionFeedItem, UserAgentArenaProfile } from "../../features/platform/arena-ui";
@@ -29,16 +30,11 @@ interface ArenaPageProps {
       agentId: string,
       input: {
         ownerAddress: string;
-        signature: string;
         nonce: string;
-        expiresAt: string;
-        reason: string;
-        message: string;
-        domain: string;
-        currentCredentialVersion: number;
+        txDigest: string;
       }
     ) => Promise<RuntimeCredentialRotationResponse>;
-    signMessage?: (message: string) => Promise<string>;
+    signAndExecuteRegistryTransaction?: (proof: RuntimeCredentialRotationRegistryProof) => Promise<string>;
   };
   userAgentProfile: UserAgentArenaProfile;
 }
@@ -71,7 +67,7 @@ export function ArenaPage({
             connectedOwnerAddress={runtimeCredentialRotation?.connectedOwnerAddress}
             onCreateRuntimeCredentialRotationChallenge={runtimeCredentialRotation?.createChallenge}
             onRotateRuntimeCredential={runtimeCredentialRotation?.rotateCredential}
-            onSignRuntimeCredentialRotationMessage={runtimeCredentialRotation?.signMessage}
+            onSignAndExecuteRegistryTransaction={runtimeCredentialRotation?.signAndExecuteRegistryTransaction}
             profile={userAgentProfile}
             summary={statusSummary}
             variant="compact"
