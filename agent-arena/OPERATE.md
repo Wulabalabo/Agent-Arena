@@ -57,15 +57,34 @@ Edit `.env`:
 nano .env
 ```
 
-Minimum fields to set before public deployment:
+Complete production `.env` shape:
 
 ```text
 AGENT_ARENA_SITE_ADDRESS=https://your-domain.example
 AGENT_ARENA_FRONTEND_BASE_URL=https://your-domain.example
+
+AGENT_ARENA_RUNTIME_MODE=real
+AGENT_ARENA_NETWORK=testnet
+AGENT_ARENA_SUI_RPC_URL=https://fullnode.testnet.sui.io:443
+AGENT_ARENA_PREDICT_SERVER_URL=https://predict-server.testnet.mystenlabs.com
+AGENT_ARENA_PREDICT_PACKAGE_ID=0xf5ea2b3749c65d6e56507cc35388719aadb28f9cab873696a2f8687f5c785138
+AGENT_ARENA_PREDICT_OBJECT_ID=0xc8736204d12f0a7277c86388a68bf8a194b0a14c5538ad13f22cbd8e2a38028a
+AGENT_ARENA_SUI_CLOCK_OBJECT_ID=0x6
+AGENT_ARENA_QUOTE_ASSET_TYPE=0xe95040085976bfd54a1a07225cd46c8a2b4e8e2b6732f140a0fc49850ba73e1a::dusdc::DUSDC
+AGENT_ARENA_QUOTE_DECIMALS=6
+AGENT_ARENA_PRICE_DECIMALS=9
+
 AGENT_ARENA_INTERNAL_TOKEN=<server-only-random-token>
 AGENT_ARENA_WALLET_SECRET=<server-only-random-secret>
 AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true
+
+AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=false
+AGENT_ARENA_REGISTRY_PACKAGE_ID=
+AGENT_ARENA_REGISTRY_OBJECT_ID=
+AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY=
 ```
+
+Only set `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true` after publishing the signature-authorized registry package and filling `AGENT_ARENA_REGISTRY_PACKAGE_ID`, `AGENT_ARENA_REGISTRY_OBJECT_ID`, and `AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY`.
 
 Start the stack:
 
@@ -192,6 +211,7 @@ Restores should be done deliberately with a known backup file and a written note
 
 - Keep `.env` server-only and out of git.
 - Keep `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` only while live Testnet submit is intentional.
+- Keep `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=false` until the current signature-authorized registry package is published and the authority key is installed server-side.
 - Do not copy `backend-data` into git.
 - Do not expose `/api/arena/internal/*` through docs, frontend code, or external Agent instructions.
 - Do not use Mainnet assets with this MVP.
