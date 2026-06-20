@@ -14,6 +14,7 @@ import type {
   RegistryWriteSummary,
   RuntimeCredential,
   RuntimeCredentialRotationChallenge,
+  RuntimeCredentialRotationPrepareResponse,
   RuntimeCredentialRotationResponse,
   SubmitIntentInput,
   TradingWallet
@@ -78,6 +79,23 @@ interface ReplayResponse {
   events: ReplayEvent[];
 }
 
+interface RuntimeCredentialRotationTxInput {
+  ownerAddress: string;
+  nonce: string;
+  txDigest: string;
+}
+
+interface RuntimeCredentialRotationLegacyInput {
+  ownerAddress: string;
+  signature: string;
+  nonce: string;
+  expiresAt: string;
+  reason: string;
+  message: string;
+  domain: string;
+  currentCredentialVersion: number;
+}
+
 export class PlatformClientError extends Error {
   readonly code: string;
   readonly retryable: boolean;
@@ -98,27 +116,30 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
       requestJson<PairingDraft>(fetcher, `${root}/agent/init`, jsonPost(input)),
     claimAgent: (input: ClaimAgentInput) =>
       requestJson<ClaimAgentResponse>(fetcher, `${root}/owner/agents/claim`, jsonPost(input)),
+    prepareRuntimeCredentialRotation: (
+      agentId: string,
+      input: { ownerAddress: string; reason: string }
+    ) =>
+      requestJson<RuntimeCredentialRotationPrepareResponse>(
+        fetcher,
+        `${root}/owner/agents/${encodeURIComponent(agentId)}/runtime-credential/rotation-prepare`,
+        jsonPost(input)
+      ),
     createRuntimeCredentialRotationChallenge: (
       agentId: string,
       input: { ownerAddress: string; reason: string }
     ) =>
-      requestJson<{ challenge: RuntimeCredentialRotationChallenge }>(
+      requestJson<RuntimeCredentialRotationPrepareResponse>(
         fetcher,
-        `${root}/owner/agents/${encodeURIComponent(agentId)}/runtime-credential/rotation-challenge`,
+        `${root}/owner/agents/${encodeURIComponent(agentId)}/runtime-credential/rotation-prepare`,
         jsonPost(input)
-      ).then((response) => response.challenge),
+      ).then((response) => ({
+        ...response.challenge,
+        registryProof: response.registryProof
+      })),
     rotateRuntimeCredential: (
       agentId: string,
-      input: {
-        ownerAddress: string;
-        signature: string;
-        nonce: string;
-        expiresAt: string;
-        reason: string;
-        message: string;
-        domain: string;
-        currentCredentialVersion: number;
-      }
+      input: RuntimeCredentialRotationTxInput | RuntimeCredentialRotationLegacyInput
     ) =>
       requestJson<RuntimeCredentialRotationResponse>(
         fetcher,

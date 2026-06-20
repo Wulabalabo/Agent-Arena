@@ -22,6 +22,7 @@ import {
 import type {
   AgentRegistryService,
   RegisterAgentRegistryProof,
+  RuntimeCredentialRotationRegistryProof,
   RegistryWriteResult
 } from "./registry";
 import type { RegistryTransactionVerifier } from "./registry-verifier";
@@ -162,6 +163,7 @@ export function createPlatformFetchHandler(
             "POST /api/arena/owner/agents/claim/prepare",
             "POST /api/arena/owner/agents/claim/finalize",
             "POST /api/arena/owner/agents/claim",
+            "POST /api/arena/owner/agents/:id/runtime-credential/rotation-prepare",
             "POST /api/arena/owner/agents/:id/runtime-credential/rotation-challenge",
             "POST /api/arena/owner/agents/:id/runtime-credential/rotate",
             "GET /api/arena/owner/agent?ownerAddress=...",
@@ -218,6 +220,20 @@ export function createPlatformFetchHandler(
 
       if (request.method === "POST" && matchesRoute(route, ["settlements", "reconcile"])) {
         return await reconcileSettlementsRoute(request, store, options);
+      }
+
+      if (
+        request.method === "POST" &&
+        route.length === 5 &&
+        route[0] === "owner" &&
+        route[1] === "agents" &&
+        route[3] === "runtime-credential" &&
+        route[4] === "rotation-prepare"
+      ) {
+        return await prepareRuntimeCredentialRotationRoute(request, store, route[2], {
+          now: options.now,
+          registryService: options.registryService
+        });
       }
 
       if (
@@ -865,6 +881,73 @@ function createAgentRegistryMetadataHash(value: Record<string, string | null>): 
   return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
 }
 
+async function prepareRuntimeCredentialRotationRoute(
+  request: Request,
+  store: PlatformMockStore,
+  agentId: string,
+  options: Pick<CreatePlatformFetchHandlerOptions, "now" | "registryService">
+): Promise<Response> {
+  const body = await readJsonObject(request);
+  const ownerAddress = validateNonEmptyString(body.ownerAddress, "ownerAddress").trim();
+  const reason = validateNonEmptyString(body.reason, "reason").trim();
+  const agent = store.getAgent(agentId);
+  if (!agent) {
+    return errorResponse(404, "AGENT_NOT_FOUND", "Agent not found");
+  }
+  if (normalizeAddress(agent.ownerAddress) !== normalizeAddress(ownerAddress)) {
+    return errorResponse(403, "OWNER_MISMATCH", "Owner address does not match the Agent owner");
+  }
+
+  const currentCredential = store.findLatestRuntimeCredentialByAgentId(agentId);
+  if (!currentCredential) {
+    return errorResponse(409, "RUNTIME_CREDENTIAL_NOT_FOUND", "No active runtime credential exists for this Agent");
+  }
+  if (!options.registryService) {
+    return errorResponse(503, "REGISTRY_PROOF_REQUIRED", "Registry proof service is not configured");
+  }
+
+  const nowMs = options.now?.() ?? Date.now();
+  const challengeBase = {
+    agentId,
+    ownerAddress,
+    reason,
+    domain: runtimeCredentialRotationDomain,
+    chainId: runtimeCredentialRotationChainId,
+    currentCredentialVersion: currentCredential.credentialVersion,
+    nextCredentialVersion: currentCredential.credentialVersion + 1,
+    nonce: crypto.randomUUID(),
+    expiresAt: new Date(nowMs + runtimeCredentialRotationTtlMs).toISOString(),
+    consumedAt: null
+  };
+  let registryProof: RuntimeCredentialRotationRegistryProof;
+  try {
+    registryProof = await options.registryService.createRuntimeCredentialRotationProof({
+      agentId,
+      ownerAddress,
+      previousCredentialVersion: currentCredential.credentialVersion,
+      nextCredentialVersion: challengeBase.nextCredentialVersion,
+      rotationHash: createRuntimeCredentialRotationHash(challengeBase),
+      platformCreatedAtMs: nowMs
+    });
+  } catch (error) {
+    return errorResponse(
+      503,
+      "REGISTRY_PROOF_REQUIRED",
+      error instanceof Error ? error.message : "Registry proof could not be created"
+    );
+  }
+
+  const challenge = store.saveRuntimeCredentialRotationChallenge({
+    ...challengeBase,
+    message: createRuntimeCredentialRotationMessage(challengeBase),
+    registryProof
+  });
+  const challengeResponse = { ...challenge };
+  delete challengeResponse.registryProof;
+
+  return jsonResponse({ challenge: challengeResponse, registryProof }, 201);
+}
+
 async function createRuntimeCredentialRotationChallengeRoute(
   request: Request,
   store: PlatformMockStore,
@@ -912,23 +995,20 @@ async function rotateRuntimeCredentialRoute(
   request: Request,
   store: PlatformMockStore,
   agentId: string,
-  options: Pick<CreatePlatformFetchHandlerOptions, "now" | "ownerSignatureVerifier" | "registryService">
+  options: Pick<
+    CreatePlatformFetchHandlerOptions,
+    "now" | "ownerSignatureVerifier" | "registryProofRequired" | "registryService" | "registryTransactionVerifier"
+  >
 ): Promise<Response> {
   const body = await readJsonObject(request);
-  if (typeof body.ownerAddress !== "string" || typeof body.signature !== "string") {
+  if (typeof body.ownerAddress !== "string") {
     return errorResponse(401, "OWNER_AUTH_REQUIRED", "Owner wallet authentication is required");
   }
   const ownerAddress = body.ownerAddress.trim();
-  const signature = body.signature.trim();
-  if (!ownerAddress || !signature) {
+  if (!ownerAddress) {
     return errorResponse(401, "OWNER_AUTH_REQUIRED", "Owner wallet authentication is required");
   }
   const nonce = validateNonEmptyString(body.nonce, "nonce").trim();
-  const expiresAt = validateNonEmptyString(body.expiresAt, "expiresAt").trim();
-  const reason = validateNonEmptyString(body.reason, "reason").trim();
-  const message = validateNonEmptyString(body.message, "message");
-  const domain = validateNonEmptyString(body.domain, "domain").trim();
-  const currentCredentialVersion = validatePositiveInteger(body.currentCredentialVersion, "currentCredentialVersion");
 
   const agent = store.getAgent(agentId);
   if (!agent) {
@@ -942,6 +1022,87 @@ async function rotateRuntimeCredentialRoute(
   if (!challenge || challenge.agentId !== agentId || normalizeAddress(challenge.ownerAddress) !== normalizeAddress(ownerAddress)) {
     return errorResponse(404, "ROTATION_CHALLENGE_NOT_FOUND", "Runtime credential rotation challenge not found");
   }
+  if (challenge.chainId !== runtimeCredentialRotationChainId) {
+    return errorResponse(400, "ROTATION_CHAIN_MISMATCH", "Rotation chain does not match Testnet");
+  }
+
+  if (isRuntimeCredentialRotationRegistryMode(options, challenge)) {
+    const txDigest = typeof body.txDigest === "string" ? body.txDigest.trim() : "";
+    if (!txDigest) {
+      return errorResponse(
+        409,
+        "REGISTRY_TX_REQUIRED",
+        "Registry transaction digest is required for runtime credential rotation"
+      );
+    }
+    if (!challenge.registryProof) {
+      return errorResponse(
+        409,
+        "REGISTRY_PROOF_REQUIRED",
+        "Runtime credential rotation must be prepared with a registry proof"
+      );
+    }
+    if (!options.registryTransactionVerifier) {
+      return errorResponse(503, "REGISTRY_VERIFIER_REQUIRED", "Registry transaction verifier is not configured");
+    }
+
+    try {
+      await options.registryTransactionVerifier.verifyRuntimeCredentialRotationTx({
+        txDigest,
+        proof: challenge.registryProof
+      });
+    } catch (error) {
+      return errorResponse(
+        400,
+        "REGISTRY_TX_VERIFICATION_FAILED",
+        error instanceof Error ? error.message : "Registry transaction verification failed"
+      );
+    }
+
+    const nowMs = options.now?.() ?? Date.now();
+    const now = new Date(nowMs).toISOString();
+    const rotation = tryRotateRuntimeCredential(store, {
+      agentId,
+      ownerAddress,
+      nonce,
+      reason: challenge.reason,
+      domain: challenge.domain,
+      chainId: challenge.chainId,
+      currentCredentialVersion: challenge.currentCredentialVersion,
+      now,
+      revocationReason: "owner_rotation"
+    });
+    if (rotation instanceof Response) {
+      return rotation;
+    }
+
+    return jsonResponse({
+      runtimeCredential: {
+        token: rotation.credential.token,
+        shownOnce: true,
+        credentialVersion: rotation.credential.credentialVersion,
+        scopes: rotation.credential.scopes
+      },
+      registry: {
+        status: "submitted" as const,
+        txDigest
+      }
+    }, 201);
+  }
+
+  if (typeof body.signature !== "string") {
+    return errorResponse(401, "OWNER_AUTH_REQUIRED", "Owner wallet authentication is required");
+  }
+  const signature = body.signature.trim();
+  if (!signature) {
+    return errorResponse(401, "OWNER_AUTH_REQUIRED", "Owner wallet authentication is required");
+  }
+  const expiresAt = validateNonEmptyString(body.expiresAt, "expiresAt").trim();
+  const reason = validateNonEmptyString(body.reason, "reason").trim();
+  const message = validateNonEmptyString(body.message, "message");
+  const domain = validateNonEmptyString(body.domain, "domain").trim();
+  const currentCredentialVersion = validatePositiveInteger(body.currentCredentialVersion, "currentCredentialVersion");
+
   if (challenge.reason !== reason) {
     return errorResponse(400, "ROTATION_REASON_MISMATCH", "Rotation reason does not match the challenge");
   }
@@ -953,9 +1114,6 @@ async function rotateRuntimeCredentialRoute(
   }
   if (challenge.expiresAt !== expiresAt) {
     return errorResponse(400, "ROTATION_EXPIRY_MISMATCH", "Rotation expiry does not match the challenge");
-  }
-  if (challenge.chainId !== runtimeCredentialRotationChainId) {
-    return errorResponse(400, "ROTATION_CHAIN_MISMATCH", "Rotation chain does not match Testnet");
   }
   if (challenge.currentCredentialVersion !== currentCredentialVersion) {
     return errorResponse(409, "CREDENTIAL_VERSION_CONFLICT", "Runtime credential version changed");
@@ -1048,6 +1206,37 @@ function tryRotateRuntimeCredential(
         : 400;
     return errorResponse(status, code, code);
   }
+}
+
+function isRuntimeCredentialRotationRegistryMode(
+  options: Pick<CreatePlatformFetchHandlerOptions, "registryProofRequired" | "registryTransactionVerifier">,
+  challenge: { registryProof?: RuntimeCredentialRotationRegistryProof }
+): boolean {
+  return Boolean(options.registryProofRequired || options.registryTransactionVerifier || challenge.registryProof);
+}
+
+function createRuntimeCredentialRotationHash(input: {
+  agentId: string;
+  ownerAddress: string;
+  reason: string;
+  domain: string;
+  chainId: string;
+  currentCredentialVersion: number;
+  nextCredentialVersion: number;
+  nonce: string;
+  expiresAt: string;
+}): string {
+  return createAgentRegistryMetadataHash({
+    agentId: input.agentId,
+    ownerAddress: input.ownerAddress,
+    reason: input.reason,
+    domain: input.domain,
+    chainId: input.chainId,
+    previousCredentialVersion: String(input.currentCredentialVersion),
+    nextCredentialVersion: String(input.nextCredentialVersion),
+    nonce: input.nonce,
+    expiresAt: input.expiresAt
+  });
 }
 
 function createRuntimeCredentialRotationMessage(input: {

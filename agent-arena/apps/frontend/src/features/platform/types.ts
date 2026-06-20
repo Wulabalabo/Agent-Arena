@@ -62,6 +62,25 @@ export interface RuntimeCredentialRotationChallenge {
   nonce: string;
   expiresAt: string;
   message: string;
+  registryProof?: RuntimeCredentialRotationRegistryProof;
+}
+
+export interface RuntimeCredentialRotationRegistryProof {
+  kind: "record_runtime_credential_rotation";
+  packageId: string;
+  registryObjectId: string;
+  agentId: string;
+  ownerAddress: string;
+  previousCredentialVersion: number;
+  nextCredentialVersion: number;
+  rotationHash: string;
+  nonceBase64: string;
+  signatureBase64: string;
+}
+
+export interface RuntimeCredentialRotationPrepareResponse {
+  challenge: RuntimeCredentialRotationChallenge;
+  registryProof: RuntimeCredentialRotationRegistryProof;
 }
 
 export interface RuntimeCredentialRotationResponse {

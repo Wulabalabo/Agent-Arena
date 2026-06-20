@@ -88,7 +88,7 @@ describe("createPlatformClient", () => {
     });
   });
 
-  it("creates a runtime credential rotation challenge", async () => {
+  it("prepares a runtime credential rotation with registry proof", async () => {
     const challenge = {
       agentId: "agent_1",
       ownerAddress: "0xowner",
@@ -101,20 +101,32 @@ describe("createPlatformClient", () => {
       expiresAt: "2026-06-18T02:10:00.000Z",
       message: "rotation message"
     };
+    const registryProof = {
+      kind: "record_runtime_credential_rotation",
+      packageId: "0xpackage",
+      registryObjectId: "0xregistry",
+      agentId: "agent_1",
+      ownerAddress: "0xowner",
+      previousCredentialVersion: 1,
+      nextCredentialVersion: 2,
+      rotationHash: "sha256:rotation",
+      nonceBase64: "bm9uY2U=",
+      signatureBase64: "c2lnbmF0dXJl"
+    };
     const fetcher = vi.fn(async () =>
-      new Response(JSON.stringify({ challenge }), {
+      new Response(JSON.stringify({ challenge, registryProof }), {
         status: 201,
         headers: { "content-type": "application/json" }
       })
     );
     const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
 
-    await expect(client.createRuntimeCredentialRotationChallenge("agent_1", {
+    await expect(client.prepareRuntimeCredentialRotation("agent_1", {
       ownerAddress: "0xowner",
       reason: "lost browser session"
-    })).resolves.toEqual(challenge);
+    })).resolves.toEqual({ challenge, registryProof });
     expect(fetcher).toHaveBeenCalledWith(
-      "https://platform.test/api/arena/owner/agents/agent_1/runtime-credential/rotation-challenge",
+      "https://platform.test/api/arena/owner/agents/agent_1/runtime-credential/rotation-prepare",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -126,7 +138,7 @@ describe("createPlatformClient", () => {
     );
   });
 
-  it("rotates a runtime credential with owner signature material", async () => {
+  it("rotates a runtime credential with an owner registry transaction digest", async () => {
     const fetcher = vi.fn(async () =>
       new Response(JSON.stringify({
         runtimeCredential: {
@@ -147,13 +159,8 @@ describe("createPlatformClient", () => {
     const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
     const input = {
       ownerAddress: "0xowner",
-      signature: "0xsig",
       nonce: "nonce-1",
-      expiresAt: "2026-06-18T02:10:00.000Z",
-      reason: "lost browser session",
-      message: "rotation message",
-      domain: "agent-arena-runtime-credential-rotation:v1",
-      currentCredentialVersion: 1
+      txDigest: "0xrotationdigest"
     };
 
     await expect(client.rotateRuntimeCredential("agent_1", input)).resolves.toMatchObject({

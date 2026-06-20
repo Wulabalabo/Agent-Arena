@@ -7,7 +7,11 @@ import { createAgentArenaFetchHandler } from "../server";
 import { createPlatformFetchHandler } from "./api";
 import { PlatformMockStore } from "./mock-store";
 import { createPerformanceLedgerRecord, createRegistrationCodeHash } from "./performance-ledger";
-import type { AgentRegistryService, RegisterAgentRegistryProof } from "./registry";
+import type {
+  AgentRegistryService,
+  RegisterAgentRegistryProof,
+  RuntimeCredentialRotationRegistryProof
+} from "./registry";
 import type { RegistryTransactionVerifier } from "./registry-verifier";
 import { SQLitePlatformStore } from "./sqlite-store";
 import { createMockCompetition } from "./types";
@@ -151,12 +155,32 @@ function createAcceptingVerifier(
   };
 }
 
+function createAcceptingRotationVerifier(
+  calls: Array<{ txDigest: string; proof: RuntimeCredentialRotationRegistryProof }> = []
+): RegistryTransactionVerifier {
+  return {
+    verifyRegisterAgentTx: async () => {},
+    verifyRuntimeCredentialRotationTx: async (input) => {
+      calls.push(input);
+    }
+  };
+}
+
 function createRejectingVerifier(): RegistryTransactionVerifier {
   return {
     verifyRegisterAgentTx: async () => {
       throw new Error("REGISTRY_TX_EVENT_MISMATCH");
     },
     verifyRuntimeCredentialRotationTx: async () => {}
+  };
+}
+
+function createRejectingRotationVerifier(): RegistryTransactionVerifier {
+  return {
+    verifyRegisterAgentTx: async () => {},
+    verifyRuntimeCredentialRotationTx: async () => {
+      throw new Error("REGISTRY_TX_EVENT_MISMATCH");
+    }
   };
 }
 
@@ -180,6 +204,31 @@ async function createRotationChallenge(
   ));
 
   return await response.json();
+}
+
+async function prepareRuntimeCredentialRotation(
+  fetch: ReturnType<typeof createPlatformFetchHandler>,
+  agentId: string,
+  input: {
+    ownerAddress?: string;
+    reason?: string;
+  } = {}
+) {
+  const response = await fetch(new Request(
+    `http://localhost/api/arena/owner/agents/${agentId}/runtime-credential/rotation-prepare`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ownerAddress: input.ownerAddress ?? "0xowner",
+        reason: input.reason ?? "lost browser session"
+      })
+    }
+  ));
+
+  return {
+    response,
+    body: await response.json()
+  };
 }
 
 async function rotateCredential(
@@ -210,6 +259,24 @@ async function rotateCredential(
         domain: challenge.domain,
         currentCredentialVersion: challenge.currentCredentialVersion
       })
+    }
+  ));
+}
+
+async function rotateCredentialWithRegistryTx(
+  fetch: ReturnType<typeof createPlatformFetchHandler>,
+  agentId: string,
+  input: {
+    ownerAddress: string;
+    nonce: string;
+    txDigest?: string;
+  }
+) {
+  return await fetch(new Request(
+    `http://localhost/api/arena/owner/agents/${agentId}/runtime-credential/rotate`,
+    {
+      method: "POST",
+      body: JSON.stringify(input)
     }
   ));
 }
@@ -932,6 +999,39 @@ describe("Agent Arena platform API", () => {
     });
   });
 
+  it("prepares runtime credential rotation with a registry proof and no personal-message signature", async () => {
+    const fetch = createPlatformFetchHandler(new PlatformMockStore(), {
+      registryService: createProofRegistryService()
+    });
+    const claimed = await claimTestAgent(fetch);
+
+    const prepared = await prepareRuntimeCredentialRotation(fetch, claimed.agent.id);
+
+    expect(prepared.response.status).toBe(201);
+    expect(prepared.body.challenge).toMatchObject({
+      agentId: claimed.agent.id,
+      ownerAddress: "0xowner",
+      reason: "lost browser session",
+      domain: "agent-arena-runtime-credential-rotation:v1",
+      chainId: "sui:testnet",
+      currentCredentialVersion: 1,
+      nextCredentialVersion: 2
+    });
+    expect(prepared.body.challenge).not.toHaveProperty("signature");
+    expect(prepared.body.registryProof).toMatchObject({
+      kind: "record_runtime_credential_rotation",
+      packageId: "0xpackage",
+      registryObjectId: "0xregistry",
+      agentId: claimed.agent.id,
+      ownerAddress: "0xowner",
+      previousCredentialVersion: 1,
+      nextCredentialVersion: 2,
+      nonceBase64: "bm9uY2U=",
+      signatureBase64: "c2lnbmF0dXJl"
+    });
+    expect(prepared.body.registryProof.rotationHash).toStartWith("sha256:");
+  });
+
   it("rejects runtime credential rotation challenges from the wrong owner", async () => {
     const fetch = createPlatformFetchHandler();
     const claimed = await claimTestAgent(fetch);
@@ -951,6 +1051,102 @@ describe("Agent Arena platform API", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: {
         code: "OWNER_MISMATCH"
+      }
+    });
+  });
+
+  it("rotates credential after verifying owner registry tx", async () => {
+    const verifierCalls: Array<{ txDigest: string; proof: RuntimeCredentialRotationRegistryProof }> = [];
+    const store = new PlatformMockStore();
+    const claimed = await claimTestAgent(createPlatformFetchHandler(store));
+    const fetch = createPlatformFetchHandler(store, {
+      registryService: createProofRegistryService(),
+      registryTransactionVerifier: createAcceptingRotationVerifier(verifierCalls)
+    });
+    const prepared = await prepareRuntimeCredentialRotation(fetch, claimed.agent.id);
+    expect(prepared.response.status).toBe(201);
+
+    const response = await rotateCredentialWithRegistryTx(fetch, claimed.agent.id, {
+      ownerAddress: "0xowner",
+      nonce: prepared.body.challenge.nonce,
+      txDigest: "0xrotationdigest"
+    });
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(verifierCalls).toEqual([{
+      txDigest: "0xrotationdigest",
+      proof: prepared.body.registryProof
+    }]);
+    expect(body.runtimeCredential).toMatchObject({
+      shownOnce: true,
+      credentialVersion: 2
+    });
+    expect(body.runtimeCredential.token).toStartWith("agent_runtime_");
+    expect(body.runtimeCredential.token).not.toBe(claimed.runtimeCredential.token);
+    expect(body.registry).toEqual({
+      status: "submitted",
+      txDigest: "0xrotationdigest"
+    });
+
+    const oldToken = await fetch(new Request("http://localhost/api/arena/agent/me", {
+      headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token }
+    }));
+    const newToken = await fetch(new Request("http://localhost/api/arena/agent/me", {
+      headers: { "x-agent-arena-agent-token": body.runtimeCredential.token }
+    }));
+
+    expect(oldToken.status).toBe(401);
+    expect(newToken.status).toBe(200);
+  });
+
+  it("does not rotate when registry tx verification fails", async () => {
+    const store = new PlatformMockStore();
+    const claimed = await claimTestAgent(createPlatformFetchHandler(store));
+    const fetch = createPlatformFetchHandler(store, {
+      registryService: createProofRegistryService(),
+      registryTransactionVerifier: createRejectingRotationVerifier()
+    });
+    const prepared = await prepareRuntimeCredentialRotation(fetch, claimed.agent.id);
+    expect(prepared.response.status).toBe(201);
+
+    const response = await rotateCredentialWithRegistryTx(fetch, claimed.agent.id, {
+      ownerAddress: "0xowner",
+      nonce: prepared.body.challenge.nonce,
+      txDigest: "0xrotationdigest"
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "REGISTRY_TX_VERIFICATION_FAILED"
+      }
+    });
+    expect(store.findLatestRuntimeCredentialByAgentId(claimed.agent.id)?.token).toBe(claimed.runtimeCredential.token);
+    const oldToken = await fetch(new Request("http://localhost/api/arena/agent/me", {
+      headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token }
+    }));
+
+    expect(oldToken.status).toBe(200);
+  });
+
+  it("registry mode rejects old personal-message rotation without txDigest with REGISTRY_TX_REQUIRED", async () => {
+    const store = new PlatformMockStore();
+    const claimed = await claimTestAgent(createPlatformFetchHandler(store));
+    const fetch = createPlatformFetchHandler(store, {
+      ownerSignatureVerifier: acceptOwnerSignature,
+      registryService: createProofRegistryService(),
+      registryTransactionVerifier: createAcceptingRotationVerifier()
+    });
+    const prepared = await prepareRuntimeCredentialRotation(fetch, claimed.agent.id);
+    expect(prepared.response.status).toBe(201);
+
+    const response = await rotateCredential(fetch, claimed.agent.id, prepared.body.challenge);
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "REGISTRY_TX_REQUIRED"
       }
     });
   });

@@ -1,4 +1,5 @@
 import type { AgentProfile } from "./types";
+import type { RuntimeCredentialRotationRegistryProof } from "./registry";
 
 export interface AgentRuntimeCredential {
   agentId: string;
@@ -21,6 +22,7 @@ export interface RuntimeCredentialRotationChallenge {
   nonce: string;
   expiresAt: string;
   message: string;
+  registryProof?: RuntimeCredentialRotationRegistryProof;
   consumedAt?: string | null;
 }
 
