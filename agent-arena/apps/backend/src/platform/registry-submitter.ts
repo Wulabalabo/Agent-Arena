@@ -37,10 +37,8 @@ const runtimeCredentialRotationAuthorization = bcs.struct("RuntimeCredentialRota
   nonce: bcs.vector(bcs.u8())
 });
 
-export function createSuiRegistrySubmitter(options: CreateSuiRegistrySubmitterOptions): RegistrySubmitter {
-  return async (request) => {
-    const signer = await options.getSigner(request);
-    await createRegistryAuthorizationProof(request, signer, options.createNonce?.());
+export function createSuiRegistrySubmitter(_options: CreateSuiRegistrySubmitterOptions): RegistrySubmitter {
+  return async () => {
     throw new Error("REGISTRY_BACKEND_TX_SUBMISSION_DISABLED");
   };
 }

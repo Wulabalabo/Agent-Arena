@@ -80,6 +80,17 @@ describe("Agent Arena registry transaction verifier", () => {
       .rejects.toThrow("REGISTRY_TX_SENDER_MISMATCH");
   });
 
+  it("rejects register transactions without the registry register call target", async () => {
+    const verifier = createRegistryTransactionVerifier({
+      client: createClient({
+        "0xwrong-target": registerTx({ functionName: "record_runtime_credential_rotation" })
+      })
+    });
+
+    await expect(verifier.verifyRegisterAgentTx({ txDigest: "0xwrong-target", proof: registerProof }))
+      .rejects.toThrow("REGISTRY_TX_CALL_MISMATCH");
+  });
+
   it("rejects register transactions without matching registry events", async () => {
     const verifier = createRegistryTransactionVerifier({
       client: createClient({
@@ -128,6 +139,7 @@ function createClient(
 function registerTx(overrides: {
   effects?: unknown;
   sender?: string;
+  functionName?: string;
   events?: unknown[];
 } = {}) {
   return {
@@ -138,7 +150,7 @@ function registerTx(overrides: {
         transaction: {
           kind: "ProgrammableTransaction",
           transactions: [
-            moveCall("register_agent")
+            moveCall(overrides.functionName ?? "register_agent")
           ]
         }
       }

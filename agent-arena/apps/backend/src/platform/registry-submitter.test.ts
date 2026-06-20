@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import {
+  createSuiRegistrySubmitter,
   createRegistryAuthorizationProof,
   hashRegistryAuthorization,
   REGISTRY_AUTHORIZATION_DOMAIN
@@ -63,6 +64,19 @@ describe("Agent Arena registry authorization proofs", () => {
     });
     expect(proof.nonceBase64).toBe(Buffer.from(fixedNonce).toString("base64"));
     expect(Buffer.from(proof.signatureBase64, "base64")).toHaveLength(64);
+  });
+
+  it("keeps the compatibility submitter fail-fast without touching the signer", async () => {
+    let signerCalls = 0;
+    const submitter = createSuiRegistrySubmitter({
+      getSigner: async () => {
+        signerCalls += 1;
+        return Ed25519Keypair.generate();
+      }
+    });
+
+    await expect(submitter(registerRequest)).rejects.toThrow("REGISTRY_BACKEND_TX_SUBMISSION_DISABLED");
+    expect(signerCalls).toBe(0);
   });
 
   it("creates a runtime credential rotation proof", async () => {
