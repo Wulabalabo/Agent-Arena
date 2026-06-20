@@ -75,16 +75,22 @@ AGENT_ARENA_QUOTE_DECIMALS=6
 AGENT_ARENA_PRICE_DECIMALS=9
 
 AGENT_ARENA_INTERNAL_TOKEN=<server-only-random-token>
-AGENT_ARENA_WALLET_SECRET=<server-only-random-secret>
+AGENT_ARENA_WALLET_SECRET=<server-only-wallet-encryption-secret>
 AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true
 
-AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=false
-AGENT_ARENA_REGISTRY_PACKAGE_ID=
-AGENT_ARENA_REGISTRY_OBJECT_ID=
-AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY=
+AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true
+AGENT_ARENA_REGISTRY_PACKAGE_ID=<agent-arena-registry-package-id>
+AGENT_ARENA_REGISTRY_OBJECT_ID=<agent-arena-registry-object-id>
+AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY=<server-only-authority-suiprivkey>
 ```
 
-Only set `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true` after publishing the signature-authorized registry package and filling `AGENT_ARENA_REGISTRY_PACKAGE_ID`, `AGENT_ARENA_REGISTRY_OBJECT_ID`, and `AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY`.
+`AGENT_ARENA_ENABLE_REGISTRY_SUBMIT` is a legacy variable name. In the current flow, enabling it does not make the backend submit registry transactions or pay registry gas. It enables backend registry authorization proof issuance plus Sui transaction verification. The owner wallet signs and pays gas for the claim and runtime credential rotation registry transactions.
+
+`AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY` signs BCS-encoded registry authorization payload hashes only. Its public key must match the key embedded in `agent_arena::registry`, and the authority address does not need Testnet SUI gas.
+
+`AGENT_ARENA_WALLET_SECRET` encrypts platform-managed Agent trading wallet private keys. It is not a hash and remains required when the backend creates or uses Agent trading wallets.
+
+Only enable registry mode after publishing the owner-sender-enforced registry package and filling `AGENT_ARENA_REGISTRY_PACKAGE_ID`, `AGENT_ARENA_REGISTRY_OBJECT_ID`, and `AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY`.
 
 Start the stack:
 
@@ -158,6 +164,29 @@ git pull --ff-only
 docker compose up -d --build
 ```
 
+## Registry Deployment
+
+Use this sequence whenever the Move registry package or embedded authority public key changes:
+
+1. Generate or select the server-side Ed25519 authority key and embed its public key in `agent_arena::registry`.
+2. Deploy the updated Move package on Sui Testnet.
+3. Create or publish the new registry object.
+4. Record the deployed package id and registry object id.
+5. Set `AGENT_ARENA_REGISTRY_PACKAGE_ID`, `AGENT_ARENA_REGISTRY_OBJECT_ID`, and `AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY` in `.env`.
+6. Keep the authority address unfunded unless another operational use requires gas; it only signs authorization hashes.
+7. Confirm the owner wallet used for claim/rotation has enough Testnet SUI for the registry transaction.
+8. Recreate the backend after env changes:
+
+```bash
+docker compose up -d --force-recreate --no-deps backend
+```
+
+9. Rebuild/recreate the frontend if the public URL or owner-facing copy changed:
+
+```bash
+docker compose up -d --build frontend proxy
+```
+
 Rebuild the frontend after changing `AGENT_ARENA_FRONTEND_BASE_URL`, because the public Join prompt URL is embedded in the Vite build:
 
 ```bash
@@ -211,7 +240,9 @@ Restores should be done deliberately with a known backup file and a written note
 
 - Keep `.env` server-only and out of git.
 - Keep `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` only while live Testnet submit is intentional.
-- Keep `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=false` until the current signature-authorized registry package is published and the authority key is installed server-side.
+- Keep `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=false` until the current owner-sender-enforced registry package is published and the authority key is installed server-side.
+- Do not fund the registry authority address just for registry claim/rotation; owner wallets pay registry gas.
+- Keep `AGENT_ARENA_WALLET_SECRET` server-only because it encrypts platform-managed Agent trading wallet private keys.
 - Do not copy `backend-data` into git.
 - Do not expose `/api/arena/internal/*` through docs, frontend code, or external Agent instructions.
 - Do not use Mainnet assets with this MVP.

@@ -32,6 +32,7 @@ describe("TestnetStatusPanel", () => {
     render(<TestnetStatusPanel loadSnapshot={loadSnapshot} />);
 
     expect(screen.getByText(/Read-only testnet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Owner wallet signs registry binding and credential rotation/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Refresh Predict testnet/i }));
 
