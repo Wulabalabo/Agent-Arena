@@ -478,6 +478,42 @@ describe("Agent Arena platform API", () => {
     expect(store.listAgents()).toEqual([]);
   });
 
+  it("does not leave a local Agent reservation when claim proof creation fails", async () => {
+    const store = new PlatformMockStore();
+    const fetch = createPlatformFetchHandler(store, {
+      registryService: {
+        registerAgent: async () => ({ status: "disabled", txDigest: null }),
+        createRegisterAgentProof: async () => {
+          throw new Error("REGISTRY_CONFIG_INCOMPLETE");
+        },
+        createRuntimeCredentialRotationProof: async () => {
+          throw new Error("REGISTRY_CONFIG_INCOMPLETE");
+        }
+      }
+    });
+    const draft = await initPairingDraft(fetch, "Proof Failure Agent");
+
+    const response = await fetch(new Request("http://localhost/api/arena/owner/agents/claim/prepare", {
+      method: "POST",
+      body: JSON.stringify({
+        registrationCode: draft.registrationCode,
+        ownerAddress: "0xowner"
+      })
+    }));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "REGISTRY_PROOF_REQUIRED"
+      }
+    });
+    expect(store.listAgents()).toEqual([]);
+    expect(store.findPendingClaimByDraftId(draft.agentDraftId)).toBeUndefined();
+    expect(store.findPairingDraftByRegistrationCode(draft.registrationCode)).toMatchObject({
+      status: "pending"
+    });
+  });
+
   it("prepares an owner claim with registry proof without issuing a runtime credential", async () => {
     const store = new PlatformMockStore();
     const fetch = createPlatformFetchHandler(store, {

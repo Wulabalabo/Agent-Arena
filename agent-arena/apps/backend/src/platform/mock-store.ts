@@ -295,6 +295,28 @@ export class PlatformMockStore {
     return wallet ? cloneTradingWallet(wallet) : undefined;
   }
 
+  removeUnfinalizedAgentReservation(agentId: string): void {
+    if (this.identityBindingsByAgentId.has(agentId) || this.findLatestRuntimeCredentialByAgentId(agentId)) {
+      throw new Error("AGENT_ALREADY_CLAIMED");
+    }
+
+    const pendingClaim = [...this.pendingClaims.values()].find((claim) => claim.agentId === agentId);
+    if (pendingClaim?.status === "finalized") {
+      throw new Error("AGENT_ALREADY_CLAIMED");
+    }
+    if (pendingClaim) {
+      this.pendingClaims.delete(pendingClaim.id);
+      this.pendingClaimIdsByDraftId.delete(pendingClaim.agentDraftId);
+    }
+
+    const walletId = this.tradingWalletIdsByAgentId.get(agentId);
+    if (walletId) {
+      this.tradingWallets.delete(walletId);
+      this.tradingWalletIdsByAgentId.delete(agentId);
+    }
+    this.agents.delete(agentId);
+  }
+
   updateTradingWallet(
     walletId: string,
     updates: Partial<Pick<

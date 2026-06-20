@@ -90,6 +90,11 @@ export class SQLitePlatformStore extends PlatformMockStore {
     return result;
   }
 
+  override removeUnfinalizedAgentReservation(agentId: string): void {
+    super.removeUnfinalizedAgentReservation(agentId);
+    this.persist();
+  }
+
   override saveIdentityBinding(binding: AgentIdentityBinding): AgentIdentityBinding {
     const result = super.saveIdentityBinding(binding);
     this.persist();

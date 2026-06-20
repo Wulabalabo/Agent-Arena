@@ -122,6 +122,7 @@ export interface CreatePlatformFetchHandlerOptions {
   ownerWithdrawalService?: (input: OwnerWithdrawalServiceInput) => Promise<OwnerWithdrawalServiceResult>;
   ownerSignatureVerifier?: OwnerSignatureVerifier;
   predictExecutionAdapter?: SubmitIntentExecutionOptions["predictExecutionAdapter"];
+  registryProofRequired?: boolean;
   registryService?: AgentRegistryService;
   registryTransactionVerifier?: RegistryTransactionVerifier;
   settlementClaimExecutor?: ReconcileSettlementsOptions["executeSettlementClaim"];
@@ -209,6 +210,7 @@ export function createPlatformFetchHandler(
         return await claimAgent(request, store, {
           agentWalletService: options.agentWalletService,
           now: options.now,
+          registryProofRequired: options.registryProofRequired,
           registryService: options.registryService,
           registryTransactionVerifier: options.registryTransactionVerifier
         });
@@ -504,9 +506,10 @@ async function prepareAgentClaim(
     twitterHandle,
     runtimeStatus: "waiting"
   });
-  const wallet = await createTradingWalletForAgent(store, agent, options.agentWalletService);
+  let wallet: TradingWallet;
   let registryProof: RegisterAgentRegistryProof;
   try {
+    wallet = await createTradingWalletForAgent(store, agent, options.agentWalletService);
     registryProof = await createRegisterAgentProof({
       agent,
       draft,
@@ -516,6 +519,7 @@ async function prepareAgentClaim(
       registryService: options.registryService
     });
   } catch (error) {
+    store.removeUnfinalizedAgentReservation(agent.id);
     return errorResponse(
       503,
       "REGISTRY_PROOF_REQUIRED",
@@ -543,11 +547,11 @@ async function claimAgent(
   store: PlatformMockStore,
   options: Pick<
     CreatePlatformFetchHandlerOptions,
-    "agentWalletService" | "now" | "registryService" | "registryTransactionVerifier"
+    "agentWalletService" | "now" | "registryProofRequired" | "registryService" | "registryTransactionVerifier"
   > = {}
 ): Promise<Response> {
   const body = await readJsonObject(request);
-  if (options.registryTransactionVerifier) {
+  if (options.registryProofRequired || options.registryTransactionVerifier) {
     return errorResponse(
       409,
       "CLAIM_FINALIZE_REQUIRED",

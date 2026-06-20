@@ -89,6 +89,7 @@ export function createAgentArenaFetchHandler(options: {
     ?? createRegistryTransactionVerifierFromEnv(env, registryConfig.enabled);
   const platformFetch = createPlatformFetchHandler(platformStore, {
     ...runtime.platformOptions,
+    registryProofRequired: registryConfig.enabled,
     registryService,
     registryTransactionVerifier
   });

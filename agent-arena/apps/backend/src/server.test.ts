@@ -221,6 +221,42 @@ describe("createAgentArenaFetchHandler", () => {
     expect(JSON.stringify(body)).not.toContain("encryptedPrivateKey");
   });
 
+  it("rejects legacy owner claim when registry is enabled even if Sui RPC verifier is missing", async () => {
+    const store = new PlatformMockStore();
+    const fetch = createAgentArenaFetchHandler({
+      runtimeMode: "mock",
+      platformStore: store,
+      predictEnv: {
+        AGENT_ARENA_ENABLE_REGISTRY_SUBMIT: "true",
+        AGENT_ARENA_NETWORK: "testnet",
+        AGENT_ARENA_REGISTRY_PACKAGE_ID: "0xpackage",
+        AGENT_ARENA_REGISTRY_OBJECT_ID: "0xregistry",
+        AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY: "suiprivkey1example"
+      }
+    });
+    const draft = await (await fetch(new Request("http://localhost/api/arena/agent/init", {
+      method: "POST",
+      body: JSON.stringify({ displayName: "Registry Guard Agent" })
+    }))).json();
+
+    const response = await fetch(new Request("http://localhost/api/arena/owner/agents/claim", {
+      method: "POST",
+      body: JSON.stringify({
+        registrationCode: draft.registrationCode,
+        ownerAddress: "0xowner",
+        signature: "0xsignedClaimMessage"
+      })
+    }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "CLAIM_FINALIZE_REQUIRED"
+      }
+    });
+    expect(store.listAgents()).toEqual([]);
+  });
+
   it("persists claimed Agents, wallet binding, and runtime credentials across handler restarts", async () => {
     const dbPath = createTempPlatformDbPath();
     const firstStore = new SQLitePlatformStore(dbPath);
