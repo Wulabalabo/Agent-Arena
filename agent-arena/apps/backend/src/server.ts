@@ -244,7 +244,7 @@ function createRealRuntime({
     };
   };
 
-  const registrySigner = registrySignerFromEnv(env, walletStore);
+  const registrySigner = registrySignerFromEnv(env);
 
   return {
     internalPredictFetch,
@@ -737,19 +737,12 @@ function runtimeModeFromEnv(env: Record<string, string | undefined>): AgentArena
 }
 
 function registrySignerFromEnv(
-  env: Record<string, string | undefined> | undefined,
-  walletStore: MemoryWalletStore
+  env: Record<string, string | undefined> | undefined
 ): (() => Promise<Ed25519Keypair>) | null {
-  const privateKey = env?.AGENT_ARENA_REGISTRY_SIGNER_PRIVATE_KEY?.trim()
-    || Bun.env.AGENT_ARENA_REGISTRY_SIGNER_PRIVATE_KEY?.trim();
+  const privateKey = env?.AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY?.trim()
+    || Bun.env.AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY?.trim();
   if (privateKey) {
     return async () => Ed25519Keypair.fromSecretKey(privateKey);
-  }
-
-  const walletId = env?.AGENT_ARENA_REGISTRY_SIGNER_WALLET_ID?.trim()
-    || Bun.env.AGENT_ARENA_REGISTRY_SIGNER_WALLET_ID?.trim();
-  if (walletId) {
-    return async () => await walletStore.getSigner(walletId);
   }
 
   return null;

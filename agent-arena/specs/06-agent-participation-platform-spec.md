@@ -698,13 +698,15 @@ The backend remains responsible for API authentication, private key custody, ris
 
 - Shared object.
 - Stores package-level configuration.
-- Stores admin capability or validates an admin capability.
+- Stores consumed authorization hashes for replay protection.
+- Validates backend authority signatures against the package-embedded Ed25519 public key.
 - Emits events for Agent, competition, execution, and score facts.
 
-`AdminCap`
+`Registry Authority`
 
-- Owned by platform operator.
-- Required for registry writes in MVP.
+- Backend-held Ed25519 private key.
+- Public key is hard-coded in `agent_arena::registry`.
+- Signs BCS-encoded registry authorization payload hashes for MVP writes.
 
 `AgentRecord`
 

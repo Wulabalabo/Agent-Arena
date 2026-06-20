@@ -4,6 +4,8 @@
 
 **Goal:** Implement the reviewed MVP for a proof-only Agent Arena registry contract plus owner-authorized runtime credential rotation.
 
+**Current registry authorization update:** the AdminCap approach in the original draft has been superseded. The implemented MVP uses a shared `Registry`, a package-embedded Ed25519 authority public key, backend-signed BCS authorization payload hashes, and per-registry replay protection.
+
 **Architecture:** Keep the registry as a proof/attribution layer and keep backend SQLite/runtime state authoritative for auth, custody, and execution. Add a contained backend registry adapter, atomic runtime credential rotation in the platform store, and a small frontend owner control that requests a rotation challenge before wallet signing. Registry submit stays disabled by default and hard-gated to Testnet.
 
 **Tech Stack:** Sui Move, Bun test, TypeScript backend, SQLite snapshot store, React/Vite/Vitest frontend.
@@ -68,15 +70,15 @@ Docs/skills:
 
 Create tests that prove:
 
-- package init creates `Registry` and `AdminCap`
-- admin can call `register_agent`
+- package init creates shared `Registry`
+- a valid backend authority signature can call `register_agent`
 - duplicate `register_agent` fails
-- wrong-owner `bind_trading_wallet` fails
-- duplicate `bind_trading_wallet` fails
+- replayed authorizations fail
+- invalid signatures fail
 - wrong-owner `record_runtime_credential_rotation` fails
 - every successful write increments `version`
 
-Use test-only helpers to create `AdminCap` and `Registry` if package-init object capture is too heavy for local tests.
+Use test-only helpers to create `Registry` if package-init object capture is too heavy for local tests. Use fixed signature fixtures generated from the backend BCS/hash helper; do not commit the authority private key.
 
 - [ ] **Step 2: Run contract tests and verify RED**
 
@@ -92,14 +94,14 @@ Expected: fail because the Move package and module do not exist yet.
 
 Implement:
 
-- `AdminCap has key, store`
 - `Registry has key`
 - `version: u64`
 - `registered_agents: table::Table<vector<u8>, address>`
 - `bound_wallets: table::Table<vector<u8>, address>`
+- `consumed_authorizations: table::Table<vector<u8>, bool>`
+- embedded Ed25519 authority public key
 - events from the spec
 - `register_agent`
-- `bind_trading_wallet`
 - `record_runtime_credential_rotation`
 
 The contract must not store registration-code hashes, runtime credentials, signatures, or private key material.

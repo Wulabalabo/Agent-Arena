@@ -39,8 +39,8 @@ Current docs already define `agent_arena::registry` as proof and attribution onl
 Use a backend-first contract anchoring model:
 
 - Add a simple Move package under `agent-arena/contracts`.
-- Publish a shared `Registry` object and platform-owned `AdminCap`.
-- Allow only the platform admin to write registry facts in MVP.
+- Publish a shared `Registry` object with a package-embedded Ed25519 authority public key.
+- Allow only backend-signed authorization payloads to write registry facts in MVP.
 - On owner claim, the backend calls the registry to anchor the Agent owner and trading-wallet binding.
 - On credential rotation, the backend validates owner authorization, invalidates old runtime credentials for that Agent, creates a new shown-once credential, and optionally anchors a credential-rotation fact that contains no token material.
 
@@ -68,20 +68,21 @@ agent_arena::registry
 
 ### Objects
 
-`AdminCap`
+`Registry Authority`
 
-- Owned object minted at package initialization.
-- Held by the platform operator wallet.
-- Required for all registry writes in MVP.
+- Backend-held Ed25519 private key.
+- Public key is embedded in `agent_arena::registry`.
+- Signs BCS-encoded authorization payload hashes that include a domain string, registry object id, transition fields, and nonce.
 
 `Registry`
 
 - Shared object created at package initialization.
 - Stores a monotonic `version`.
-- Increments `version` exactly once for every successful registry write.
+- Increments `version` for each emitted registry fact.
 - Stores the set of registered `agent_id` values to reject duplicate `register_agent` calls.
 - Stores the registered owner for each `agent_id`.
 - Stores the first bound trading wallet for each Agent in MVP.
+- Stores consumed authorization hashes for replay protection.
 - Does not store private keys, runtime credential tokens, raw registration codes, or user funds.
 
 ### Events
@@ -92,11 +93,8 @@ Fields:
 
 - `version`
 - `agent_id`
-- `agent_draft_id`
 - `owner`
-- `trading_wallet`
 - `metadata_hash`
-- `platform_created_at_ms`
 
 `TradingWalletBound`
 
@@ -105,9 +103,7 @@ Fields:
 - `version`
 - `agent_id`
 - `owner`
-- `trading_wallet`
-- `predict_manager_id`
-- `platform_bound_at_ms`
+- `wallet`
 
 `RuntimeCredentialRotated`
 
@@ -116,9 +112,9 @@ Fields:
 - `version`
 - `agent_id`
 - `owner`
-- `credential_version`
-- `platform_rotated_at_ms`
-- `reason_hash`
+- `previous_version`
+- `next_version`
+- `rotation_hash`
 
 No event may include the raw runtime credential, raw registration code, registration-code hash, wallet private key, owner signature, or platform internal token. Registration-code-derived material stays backend-local because registration codes are short bootstrap secrets and public hashes can be brute-forced.
 
@@ -128,60 +124,47 @@ No event may include the raw runtime credential, raw registration code, registra
 
 Inputs:
 
-- `&AdminCap`
 - `&mut Registry`
 - `agent_id: vector<u8>`
-- `agent_draft_id: vector<u8>`
 - `owner: address`
 - `trading_wallet: address`
 - `metadata_hash: vector<u8>`
-- `platform_created_at_ms: u64`
+- `nonce: vector<u8>`
+- `sig: vector<u8>`
 
 Behavior:
 
+- Verifies the backend authority signature over `domain + registry object id + agent_id + owner + trading_wallet + metadata_hash + nonce`.
+- Rejects if the authorization hash was already consumed.
 - Rejects if `agent_id` has already been registered.
-- Increments `Registry.version`.
-- Emits `AgentRegistered`.
-- May also emit `TradingWalletBound` if the first binding is known at claim time.
+- Increments `Registry.version` and emits `AgentRegistered`.
+- Increments `Registry.version` and emits `TradingWalletBound`.
 - Does not create an ownership token.
 
 `bind_trading_wallet`
 
-Inputs:
-
-- `&AdminCap`
-- `&mut Registry`
-- `agent_id: vector<u8>`
-- `owner: address`
-- `trading_wallet: address`
-- `predict_manager_id: option::Option<address>`
-- `platform_bound_at_ms: u64`
-
-Behavior:
-
-- Rejects if the Agent is not registered.
-- Rejects if `owner` does not match the owner registered for `agent_id`.
-- Rejects if the Agent already has a bound wallet in MVP.
-- Increments `Registry.version`.
-- Emits `TradingWalletBound`.
-- Used for the initial claim binding in MVP. Wallet replacement is deferred until a separate owner-maintenance design covers custody, balances, PredictManager ownership, and open exposure handling.
+Not a separate MVP entry function. The initial platform-managed trading wallet is recorded by `register_agent`; wallet replacement is deferred until a separate owner-maintenance design covers custody, balances, PredictManager ownership, and open exposure handling.
 
 `record_runtime_credential_rotation`
 
 Inputs:
 
-- `&AdminCap`
 - `&mut Registry`
 - `agent_id: vector<u8>`
 - `owner: address`
-- `credential_version: u64`
-- `reason_hash: vector<u8>`
-- `platform_rotated_at_ms: u64`
+- `previous_version: u64`
+- `next_version: u64`
+- `rotation_hash: vector<u8>`
+- `nonce: vector<u8>`
+- `sig: vector<u8>`
 
 Behavior:
 
+- Verifies the backend authority signature over `domain + registry object id + agent_id + owner + previous_version + next_version + rotation_hash + nonce`.
+- Rejects if the authorization hash was already consumed.
 - Rejects if the Agent is not registered.
 - Rejects if `owner` does not match the owner registered for `agent_id`.
+- Rejects if `next_version != previous_version + 1`.
 - Increments `Registry.version`.
 - Emits `RuntimeCredentialRotated`.
 - Does not prove the new credential value. It proves that the platform recorded a rotation for that Agent and owner.
@@ -196,7 +179,7 @@ Add backend config for:
 
 - `AGENT_ARENA_REGISTRY_PACKAGE_ID`
 - `AGENT_ARENA_REGISTRY_OBJECT_ID`
-- `AGENT_ARENA_REGISTRY_ADMIN_CAP_ID`
+- `AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY`
 - `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT`
 - `AGENT_ARENA_SUI_NETWORK`
 - `AGENT_ARENA_SIGNING_DOMAIN`
@@ -211,7 +194,9 @@ When registry submit is enabled, startup and submit-time validation must require
 
 Add a contained backend adapter that can:
 
-- Build PTBs for `register_agent`, `bind_trading_wallet`, and `record_runtime_credential_rotation`.
+- Build PTBs for `register_agent` and `record_runtime_credential_rotation`.
+- BCS-serialize authorization payloads with `domain + registry object id + transition fields + nonce`.
+- Sign `keccak256(payload)` with `AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY`.
 - Submit only when `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true`.
 - Refuse to submit unless the configured Sui network is Testnet.
 - Return structured results:
@@ -441,16 +426,15 @@ Owner clicks rotate
 
 Contract tests:
 
-- Package init creates `Registry` and `AdminCap`.
-- Admin can emit `AgentRegistered`.
-- Admin can emit `TradingWalletBound`.
-- Admin can emit `RuntimeCredentialRotated`.
-- Every successful registry write increments `Registry.version` exactly once.
+- Package init creates shared `Registry`.
+- Valid backend authority signature can emit `AgentRegistered` and `TradingWalletBound`.
+- Valid backend authority signature can emit `RuntimeCredentialRotated`.
+- Every emitted registry fact increments `Registry.version`.
 - Duplicate `register_agent` calls for the same `agent_id` fail.
-- Duplicate MVP wallet binding calls for the same `agent_id` fail.
-- Wallet binding with an owner different from the registered Agent owner fails.
+- Reusing the same authorization payload fails.
+- Invalid signatures fail.
 - Credential rotation proof with an owner different from the registered Agent owner fails.
-- Non-admin calls fail.
+- Credential rotation proof with a non-incrementing credential version fails.
 - Events never contain forbidden secret fields or registration-code-derived fields.
 
 Backend tests:

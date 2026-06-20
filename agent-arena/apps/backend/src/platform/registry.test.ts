@@ -33,7 +33,7 @@ describe("Agent Arena registry adapter", () => {
       network: "mainnet",
       packageId: "0xpackage",
       registryObjectId: "0xregistry",
-      adminCapId: "0xadmin"
+      authorityPrivateKey: "configured"
     }, async (request) => {
       submitterCalls.push(request);
       return { txDigest: "0xregistrydigest" };
@@ -43,6 +43,26 @@ describe("Agent Arena registry adapter", () => {
       status: "failed",
       txDigest: null,
       errorCode: "UNSUPPORTED_NETWORK"
+    });
+    expect(submitterCalls).toEqual([]);
+  });
+
+  it("fails closed when the registry authority key is missing", async () => {
+    const submitterCalls: unknown[] = [];
+    const service = createRegistryService({
+      enabled: true,
+      network: "testnet",
+      packageId: "0xpackage",
+      registryObjectId: "0xregistry"
+    }, async (request) => {
+      submitterCalls.push(request);
+      return { txDigest: "0xregistrydigest" };
+    });
+
+    await expect(service.registerAgent(registerInput)).resolves.toMatchObject({
+      status: "failed",
+      txDigest: null,
+      errorCode: "REGISTRY_CONFIG_INCOMPLETE"
     });
     expect(submitterCalls).toEqual([]);
   });
@@ -72,7 +92,7 @@ describe("Agent Arena registry adapter", () => {
       network: "testnet",
       packageId: "0xpackage",
       registryObjectId: "0xregistry",
-      adminCapId: "0xadmin"
+      authorityPrivateKey: "configured"
     }, async (request) => {
       submitterCalls.push(request);
       return { txDigest: "0xregistrydigest" };
@@ -86,8 +106,8 @@ describe("Agent Arena registry adapter", () => {
     expect(submitterCalls[0]).toMatchObject({
       kind: "register_agent",
       packageId: "0xpackage",
-      registryObjectId: "0xregistry",
-      adminCapId: "0xadmin"
+      registryObjectId: "0xregistry"
     });
+    expect(JSON.stringify(submitterCalls[0])).not.toContain("adminCap");
   });
 });

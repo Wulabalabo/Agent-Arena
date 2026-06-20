@@ -12,8 +12,7 @@ export interface RegistryConfig {
   network: string;
   packageId?: string | null;
   registryObjectId?: string | null;
-  adminCapId?: string | null;
-  signerWalletId?: string | null;
+  authorityPrivateKey?: string | null;
 }
 
 export interface RegisterAgentRegistryInput {
@@ -38,14 +37,12 @@ export interface RegisterAgentRegistryRequest extends RegisterAgentRegistryInput
   kind: "register_agent";
   packageId: string;
   registryObjectId: string;
-  adminCapId: string;
 }
 
 export interface RuntimeCredentialRotationRegistryRequest extends RuntimeCredentialRotationRegistryInput {
   kind: "record_runtime_credential_rotation";
   packageId: string;
   registryObjectId: string;
-  adminCapId: string;
 }
 
 export type RegistryWriteRequest = RegisterAgentRegistryRequest | RuntimeCredentialRotationRegistryRequest;
@@ -74,13 +71,12 @@ export function createRegistryService(
 
 export function createRegisterAgentRegistryRequest(
   input: RegisterAgentRegistryInput,
-  config: Pick<RegistryConfig, "packageId" | "registryObjectId" | "adminCapId"> = {}
+  config: Pick<RegistryConfig, "packageId" | "registryObjectId"> = {}
 ): RegisterAgentRegistryRequest {
   return {
     kind: "register_agent",
     packageId: requiredConfigValue(config.packageId, "packageId"),
     registryObjectId: requiredConfigValue(config.registryObjectId, "registryObjectId"),
-    adminCapId: requiredConfigValue(config.adminCapId, "adminCapId"),
     agentId: input.agentId,
     agentDraftId: input.agentDraftId,
     ownerAddress: input.ownerAddress,
@@ -92,13 +88,12 @@ export function createRegisterAgentRegistryRequest(
 
 export function createRuntimeCredentialRotationRegistryRequest(
   input: RuntimeCredentialRotationRegistryInput,
-  config: Pick<RegistryConfig, "packageId" | "registryObjectId" | "adminCapId"> = {}
+  config: Pick<RegistryConfig, "packageId" | "registryObjectId"> = {}
 ): RuntimeCredentialRotationRegistryRequest {
   return {
     kind: "record_runtime_credential_rotation",
     packageId: requiredConfigValue(config.packageId, "packageId"),
     registryObjectId: requiredConfigValue(config.registryObjectId, "registryObjectId"),
-    adminCapId: requiredConfigValue(config.adminCapId, "adminCapId"),
     agentId: input.agentId,
     ownerAddress: input.ownerAddress,
     previousCredentialVersion: input.previousCredentialVersion,
@@ -114,8 +109,7 @@ export function createRegistryConfigFromEnv(env: Record<string, string | undefin
     network: env.AGENT_ARENA_NETWORK?.trim().toLowerCase() || "testnet",
     packageId: emptyToNull(env.AGENT_ARENA_REGISTRY_PACKAGE_ID),
     registryObjectId: emptyToNull(env.AGENT_ARENA_REGISTRY_OBJECT_ID),
-    adminCapId: emptyToNull(env.AGENT_ARENA_REGISTRY_ADMIN_CAP_ID),
-    signerWalletId: emptyToNull(env.AGENT_ARENA_REGISTRY_SIGNER_WALLET_ID)
+    authorityPrivateKey: emptyToNull(env.AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY)
   };
 }
 
@@ -137,12 +131,12 @@ async function submitRegistryWrite(
     };
   }
 
-  if (!config.packageId || !config.registryObjectId || !config.adminCapId) {
+  if (!config.packageId || !config.registryObjectId || !config.authorityPrivateKey) {
     return {
       status: "failed",
       txDigest: null,
       errorCode: "REGISTRY_CONFIG_INCOMPLETE",
-      errorMessage: "Registry package, registry object, and admin cap ids are required"
+      errorMessage: "Registry package, registry object, and authority private key are required"
     };
   }
 
@@ -150,8 +144,7 @@ async function submitRegistryWrite(
     const result = await submitter({
       ...request,
       packageId: config.packageId,
-      registryObjectId: config.registryObjectId,
-      adminCapId: config.adminCapId
+      registryObjectId: config.registryObjectId
     });
     return {
       status: "submitted",

@@ -84,7 +84,7 @@ DeepBook Predict Testnet
   -> remains the source of truth for markets, positions, pricing, redemption, and settlement
 ```
 
-`agent_arena::registry` is a proof and attribution layer for Agent claim and runtime credential rotation facts. Deployed Testnet ids are package `0x03aa029e3754556b242bcf3e8411e5e84ecfc2a29ac3e99c207ffbca1bf63825`, registry `0x300380af141c34a730dbb7b1ec2476d0afe5dd2e459a694fc0bf6e2dac9685ff`, and AdminCap `0x0a7e0a90dd941ef241f7076c4f357994220d659bdfbfb6c43df5e7c18aec5404`. It does not custody funds, authenticate runtime API calls, price markets, calculate scores onchain, or replace DeepBook Predict.
+`agent_arena::registry` is a proof and attribution layer for Agent claim and runtime credential rotation facts. The current registry source uses backend-signed Ed25519 authorization payloads; publish the signature-authorized package and set its package/registry ids before enabling registry submit. It does not custody funds, authenticate runtime API calls, price markets, calculate scores onchain, or replace DeepBook Predict.
 
 ## Run Locally
 
@@ -174,7 +174,7 @@ Deprecated API-key registration is intentionally not the primary flow.
 - `AGENT_ARENA_RUNTIME_MODE=mock` is for isolated UI/API tests and local demos.
 - `AGENT_ARENA_RUNTIME_MODE=real` uses Testnet Predict server market data, Testnet RPC wallet balances, the shared platform wallet store, and the internal Predict execution adapter.
 - Real mode still fails closed for live transaction submit unless `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` is set.
-- Registry proof submit uses the deployed Testnet `agent_arena::registry` ids when `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true` and either `AGENT_ARENA_REGISTRY_SIGNER_PRIVATE_KEY` or `AGENT_ARENA_REGISTRY_SIGNER_WALLET_ID` owns the AdminCap. Registry failures return a failed registry substatus and do not block local claim or credential rotation.
+- Registry proof submit is disabled by default. After publishing the signature-authorized Testnet `agent_arena::registry`, set `AGENT_ARENA_REGISTRY_PACKAGE_ID`, `AGENT_ARENA_REGISTRY_OBJECT_ID`, and `AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY`, then opt in with `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true`. Registry failures return a failed registry substatus and do not block local claim or credential rotation.
 
 ## Verify
 
@@ -205,6 +205,6 @@ bun run --cwd agent-arena build
 
 - Durable execution queue and worker retry handling beyond the local SQLite store.
 - Scheduler and operator visibility for market refresh, execution jobs, and settled claim jobs.
-- Registry signer custody and AdminCap transfer procedure for production operations.
+- Registry authority key custody, rotation, and redeploy procedure for production operations.
 - Production custody hardening if the project moves beyond Testnet.
 - Optional real social verification beyond display-only Twitter handles.
