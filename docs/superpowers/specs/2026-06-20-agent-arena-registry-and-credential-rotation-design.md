@@ -78,7 +78,10 @@ agent_arena::registry
 
 - Shared object created at package initialization.
 - Stores a monotonic `version`.
-- Stores counters if needed for deterministic event sequencing.
+- Increments `version` exactly once for every successful registry write.
+- Stores the set of registered `agent_id` values to reject duplicate `register_agent` calls.
+- Stores the registered owner for each `agent_id`.
+- Stores the first bound trading wallet for each Agent in MVP.
 - Does not store private keys, runtime credential tokens, raw registration codes, or user funds.
 
 ### Events
@@ -90,11 +93,10 @@ Fields:
 - `version`
 - `agent_id`
 - `agent_draft_id`
-- `registration_code_hash`
 - `owner`
 - `trading_wallet`
 - `metadata_hash`
-- `created_at_ms`
+- `platform_created_at_ms`
 
 `TradingWalletBound`
 
@@ -105,7 +107,7 @@ Fields:
 - `owner`
 - `trading_wallet`
 - `predict_manager_id`
-- `bound_at_ms`
+- `platform_bound_at_ms`
 
 `RuntimeCredentialRotated`
 
@@ -115,10 +117,10 @@ Fields:
 - `agent_id`
 - `owner`
 - `credential_version`
-- `rotated_at_ms`
+- `platform_rotated_at_ms`
 - `reason_hash`
 
-No event may include the raw runtime credential, raw registration code, wallet private key, owner signature, or platform internal token.
+No event may include the raw runtime credential, raw registration code, registration-code hash, wallet private key, owner signature, or platform internal token. Registration-code-derived material stays backend-local because registration codes are short bootstrap secrets and public hashes can be brute-forced.
 
 ### Entry Functions
 
@@ -130,14 +132,15 @@ Inputs:
 - `&mut Registry`
 - `agent_id: vector<u8>`
 - `agent_draft_id: vector<u8>`
-- `registration_code_hash: vector<u8>`
 - `owner: address`
 - `trading_wallet: address`
 - `metadata_hash: vector<u8>`
-- `created_at_ms: u64`
+- `platform_created_at_ms: u64`
 
 Behavior:
 
+- Rejects if `agent_id` has already been registered.
+- Increments `Registry.version`.
 - Emits `AgentRegistered`.
 - May also emit `TradingWalletBound` if the first binding is known at claim time.
 - Does not create an ownership token.
@@ -152,12 +155,16 @@ Inputs:
 - `owner: address`
 - `trading_wallet: address`
 - `predict_manager_id: option::Option<address>`
-- `bound_at_ms: u64`
+- `platform_bound_at_ms: u64`
 
 Behavior:
 
+- Rejects if the Agent is not registered.
+- Rejects if `owner` does not match the owner registered for `agent_id`.
+- Rejects if the Agent already has a bound wallet in MVP.
+- Increments `Registry.version`.
 - Emits `TradingWalletBound`.
-- Used after initial claim or after a future wallet replacement.
+- Used for the initial claim binding in MVP. Wallet replacement is deferred until a separate owner-maintenance design covers custody, balances, PredictManager ownership, and open exposure handling.
 
 `record_runtime_credential_rotation`
 
@@ -169,12 +176,17 @@ Inputs:
 - `owner: address`
 - `credential_version: u64`
 - `reason_hash: vector<u8>`
-- `rotated_at_ms: u64`
+- `platform_rotated_at_ms: u64`
 
 Behavior:
 
+- Rejects if the Agent is not registered.
+- Rejects if `owner` does not match the owner registered for `agent_id`.
+- Increments `Registry.version`.
 - Emits `RuntimeCredentialRotated`.
 - Does not prove the new credential value. It proves that the platform recorded a rotation for that Agent and owner.
+
+The `platform_*_at_ms` fields are backend assertions, not Sui consensus time. Event consumers must treat them as platform-reported timestamps. A later contract version may also include `Clock`-derived chain observation time, but that is not required for this MVP proof path.
 
 ## Backend Design
 
@@ -186,8 +198,14 @@ Add backend config for:
 - `AGENT_ARENA_REGISTRY_OBJECT_ID`
 - `AGENT_ARENA_REGISTRY_ADMIN_CAP_ID`
 - `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT`
+- `AGENT_ARENA_SUI_NETWORK`
+- `AGENT_ARENA_SIGNING_DOMAIN`
 
 Registry submit must be disabled by default. When disabled, backend operations still succeed and record a local `registryStatus: "skipped"` or `registryStatus: "disabled"` fact.
+
+When registry submit is enabled, startup and submit-time validation must require `AGENT_ARENA_SUI_NETWORK=testnet`. The adapter must reject Mainnet, devnet, localnet, or unknown network config before building or submitting a transaction. Tests must prove registry submit cannot start or execute against non-Testnet config.
+
+`AGENT_ARENA_SIGNING_DOMAIN` is the configured audience for owner-signed messages. Production should use `arena.mindfrog.xyz`; local and preview deployments may use their own configured value. Signature validation must compare the signed `domain` field to this configured value.
 
 ### Registry Adapter
 
@@ -195,6 +213,7 @@ Add a contained backend adapter that can:
 
 - Build PTBs for `register_agent`, `bind_trading_wallet`, and `record_runtime_credential_rotation`.
 - Submit only when `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true`.
+- Refuse to submit unless the configured Sui network is Testnet.
 - Return structured results:
   - `status: "submitted" | "confirmed" | "failed" | "disabled" | "skipped"`
   - `txDigest`
@@ -208,7 +227,7 @@ Registry write failures must not leak private key material or raw request bodies
 After `POST /api/arena/owner/agents/claim` creates the Agent, binds the trading wallet, stores identity binding, and creates the shown-once runtime credential:
 
 1. Build registry metadata from existing backend records.
-2. Submit or skip `register_agent`.
+2. Submit or skip `register_agent` without public registration-code-derived fields.
 3. Store registry result on the identity binding or ledger row.
 4. Include a small registry summary in the claim response:
 
@@ -238,6 +257,8 @@ Request body:
   "ownerAddress": "0xowner",
   "signature": "0xsignedRotationMessage",
   "message": "Agent Arena credential rotation...",
+  "nonce": "rotation_nonce_01",
+  "expiresAt": "2026-06-20T12:15:00.000Z",
   "reason": "lost_credential"
 }
 ```
@@ -246,29 +267,69 @@ Backend requirements:
 
 1. Validate `agentId` exists.
 2. Validate `ownerAddress` matches the Agent's current owner address.
-3. Validate the owner signature over a deterministic rotation message. Mock mode may keep the current non-empty signature rule, but the message format must be stable so live Sui signature verification can replace it.
+3. Validate the owner signature over a deterministic rotation message using Sui personal-message verification in real mode.
 4. Reject Agent runtime-token-only requests.
-5. Revoke or invalidate all previous runtime credentials for that Agent.
-6. Create a new runtime credential with incremented `credentialVersion`.
-7. Store only a hash of the new credential in persistent storage.
-8. Record a local performance ledger or security audit row.
-9. Submit or skip `record_runtime_credential_rotation`.
-10. Return the new credential exactly once.
+5. Verify the backend-issued nonce exists, is unexpired, is scoped to this Agent and owner, and has not been consumed.
+6. Revoke or invalidate all previous runtime credentials for that Agent.
+7. Create a new runtime credential with incremented `credentialVersion`.
+8. Store only a hash of the new credential in persistent storage.
+9. Record a local performance ledger or security audit row.
+10. Consume the nonce.
+11. Submit or skip `record_runtime_credential_rotation`.
+12. Return the new credential exactly once.
 
-The signed rotation message must bind the request to the Agent and the next credential version so an old signature cannot be replayed after a successful rotation. The frontend can construct this from the owner profile response once the backend exposes `credentialVersion`.
+The signed rotation message must bind the request to the Agent, deployment, route purpose, nonce, expiry, and next credential version so an old signature cannot be replayed after a successful rotation or reused across environments. The frontend must fetch a rotation challenge before asking the owner wallet to sign.
+
+Challenge endpoint:
+
+```text
+POST /api/arena/owner/agents/:agentId/runtime-credential/rotation-challenge
+```
+
+Challenge request body:
+
+```json
+{
+  "ownerAddress": "0xowner",
+  "reason": "lost_credential"
+}
+```
+
+Challenge response:
+
+```json
+{
+  "agentId": "agent_01",
+  "ownerAddress": "0xowner",
+  "reason": "lost_credential",
+  "domain": "arena.mindfrog.xyz",
+  "currentCredentialVersion": 1,
+  "nextCredentialVersion": 2,
+  "nonce": "rotation_nonce_01",
+  "expiresAt": "2026-06-20T12:15:00.000Z",
+  "message": "Agent Arena Credential Rotation\n..."
+}
+```
 
 Canonical message shape:
 
 ```text
 Agent Arena Credential Rotation
+domain: arena.mindfrog.xyz
+chainId: testnet
+route: POST /api/arena/owner/agents/agent_01/runtime-credential/rotate
 agentId: agent_01
 ownerAddress: 0xowner
 currentCredentialVersion: 1
 nextCredentialVersion: 2
+nonce: rotation_nonce_01
+expiresAt: 2026-06-20T12:15:00.000Z
 reason: lost_credential
 ```
 
-Backend validation must reject the request if `currentCredentialVersion` does not match the stored Agent credential version or if `nextCredentialVersion` is not exactly `current + 1`.
+The `domain` value above is illustrative; implementations must use the configured `AGENT_ARENA_SIGNING_DOMAIN`.
+
+Backend validation must reject the request if `currentCredentialVersion` does not match the stored Agent credential version, if `nextCredentialVersion` is not exactly `current + 1`, if the nonce is missing, expired, already consumed, or scoped to another Agent/owner, if the submitted `reason` differs from the challenge record, if the signed `domain` differs from `AGENT_ARENA_SIGNING_DOMAIN`, or if `chainId` is not `testnet`. Mock non-empty-signature behavior is allowed only when the backend is explicitly in mock runtime mode. Real mode must fail closed unless Sui signature verification succeeds.
 
 Response body:
 
@@ -297,10 +358,12 @@ Error cases:
 - `AGENT_NOT_FOUND`
 - `OWNER_MISMATCH`
 - `INVALID_OWNER_SIGNATURE`
-- `REGISTRY_WRITE_FAILED`
+- `ROTATION_NONCE_INVALID`
+- `ROTATION_VERSION_CONFLICT`
+- `UNSUPPORTED_NETWORK`
 - `ROTATION_DISABLED`
 
-`REGISTRY_WRITE_FAILED` should not prevent token rotation in MVP unless strict registry mode is later added.
+Registry failure after token rotation commits returns HTTP success with `registry.status: "failed"` in MVP. `REGISTRY_WRITE_FAILED` is reserved for a future strict registry mode and should not be returned by the default MVP rotation route after the credential transaction commits.
 
 ### Credential Store Changes
 
@@ -309,10 +372,13 @@ The store needs Agent-scoped credential invalidation:
 - `listRuntimeCredentialsByAgentId(agentId)`
 - `revokeRuntimeCredentialsForAgent(agentId, revokedAt, reason)`
 - `saveRuntimeCredential(credential)` with `credentialVersion`
+- `rotateRuntimeCredentialForAgent(agentId, expectedCurrentVersion, newCredential, auditRow, consumedNonce)` as a single transactional operation.
 
 Authentication must reject revoked credentials.
 
 Persistent SQLite snapshots must continue to store credential hashes rather than raw tokens.
+
+Rotation must be atomic inside the platform store. The store must verify the current credential version, revoke old active credentials, insert the new hashed credential, increment the Agent credential version, write the audit row, consume the nonce, and commit as one transaction. Concurrent rotation requests must produce exactly one successful rotation; the loser must receive `ROTATION_VERSION_CONFLICT` or `ROTATION_NONCE_INVALID`. Registry submission happens after the local transaction commits and is recorded as a substatus, so a chain write failure cannot roll back or duplicate the credential rotation.
 
 ## Frontend Design
 
@@ -340,7 +406,7 @@ If there is no connected owner wallet or the wallet does not match the Agent own
 - Runtime credentials are machine credentials for Agents, not owner credentials.
 - Agent runtime credentials cannot rotate credentials.
 - Owner rotation uses owner wallet authorization, not the old Agent token.
-- Registry events must never include runtime credentials, private keys, raw registration codes, or signatures.
+- Registry events must never include runtime credentials, private keys, raw registration codes, registration-code hashes, or signatures.
 - Registry proof does not grant custody or signing rights.
 - The backend remains the source of truth for current owner binding during this MVP.
 - All routes remain Testnet-only.
@@ -363,11 +429,11 @@ Owner claim request
 
 ```text
 Owner clicks rotate
--> frontend asks connected wallet to authorize deterministic rotation message
--> backend verifies owner address and signature
--> backend revokes old Agent credentials
--> backend creates new shown-once runtime credential
--> backend records local audit and optional registry rotation event
+-> frontend requests a backend rotation challenge
+-> frontend asks connected wallet to authorize the challenge message
+-> backend verifies owner address, Sui signature, Testnet chain id, nonce, expiry, and credential version
+-> backend atomically revokes old Agent credentials, creates a new shown-once runtime credential, consumes the nonce, and records local audit
+-> backend records optional registry rotation event after the local transaction commits
 -> frontend shows and copies new handoff once
 ```
 
@@ -379,22 +445,35 @@ Contract tests:
 - Admin can emit `AgentRegistered`.
 - Admin can emit `TradingWalletBound`.
 - Admin can emit `RuntimeCredentialRotated`.
+- Every successful registry write increments `Registry.version` exactly once.
+- Duplicate `register_agent` calls for the same `agent_id` fail.
+- Duplicate MVP wallet binding calls for the same `agent_id` fail.
+- Wallet binding with an owner different from the registered Agent owner fails.
+- Credential rotation proof with an owner different from the registered Agent owner fails.
 - Non-admin calls fail.
-- Events never contain forbidden secret fields.
+- Events never contain forbidden secret fields or registration-code-derived fields.
 
 Backend tests:
 
 - Claim still succeeds when registry submit is disabled.
 - Claim records registry result when adapter succeeds.
+- Registry adapter rejects non-Testnet config when submit is enabled.
 - Claim does not include raw private key material or internal tokens.
+- Rotation challenge accepts a reason and returns a nonce, expiry, current version, next version, reason, configured signing domain, and canonical message.
 - Rotate rejects missing Agent.
 - Rotate rejects owner mismatch.
 - Rotate rejects missing signature.
+- Rotate rejects expired, consumed, or wrong-Agent nonce.
+- Rotate rejects a reason that differs from the challenge record.
+- Rotate rejects a signed domain that differs from `AGENT_ARENA_SIGNING_DOMAIN`.
+- Rotate rejects credential version mismatch.
 - Rotate returns a new shown-once credential.
 - Old credential stops authenticating after rotation.
 - New credential authenticates the same Agent.
-- Rotation records a local audit or ledger row.
-- Rotation can record registry result.
+- Rotation revokes old credentials, stores the new credential hash, increments the version, consumes the nonce, and records local audit in one transaction.
+- Concurrent rotate requests produce one success and one `ROTATION_VERSION_CONFLICT` or `ROTATION_NONCE_INVALID`.
+- Rotation records registry result as a substatus after the credential transaction commits.
+- Registry failure after committed rotation returns success with `registry.status: "failed"`.
 - Agent runtime token cannot call the rotation endpoint.
 
 Frontend tests:
@@ -402,6 +481,7 @@ Frontend tests:
 - Claim page still displays and copies runtime handoff.
 - Claim page displays registry tx digest when present.
 - Owner profile hides rotation action for non-owner wallet.
+- Owner profile requests a rotation challenge before wallet signing.
 - Owner profile rotation displays the new credential once.
 - Copy handoff uses the new token after rotation.
 
