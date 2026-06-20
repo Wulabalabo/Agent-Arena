@@ -105,6 +105,19 @@ The backend stores Agent attribution plus platform state in SQLite at `apps/back
 The backend pairing API uses `AGENT_ARENA_FRONTEND_BASE_URL` for owner claim links and defaults to `http://127.0.0.1:5173`.
 The frontend attribution client reads `VITE_AGENT_ARENA_API_URL` and defaults to `http://127.0.0.1:8787`.
 
+## Deploy With Docker
+
+The production deployment path uses Docker Compose with separate `backend`, `frontend`, and `proxy` services. See [`OPERATE.md`](./OPERATE.md) for the server runbook, domain setup, env template, volume backup commands, and update flow.
+
+Quick local Compose check:
+
+```powershell
+cd agent-arena
+Copy-Item .env.production.example .env
+docker compose config
+docker compose up -d --build
+```
+
 Backend attribution smoke:
 
 1. Start the backend:

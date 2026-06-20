@@ -1,18 +1,26 @@
 import { Check, Clipboard } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { agentArenaJoinPrompt } from "../../features/platform/arena-ui";
+import { createAgentArenaJoinPrompt, createAgentArenaSkillUrl } from "../../features/platform/arena-ui";
+import { platformConfig } from "../../features/platform/config";
 
 type CopyStatus = "idle" | "copied" | "failed";
 
 interface CopyAgentPromptPanelProps {
   className?: string;
+  skillDocsBaseUrl?: string;
   summary?: ReactNode;
 }
 
-export function CopyAgentPromptPanel({ className = "", summary }: CopyAgentPromptPanelProps) {
+export function CopyAgentPromptPanel({
+  className = "",
+  skillDocsBaseUrl = platformConfig.publicBaseUrl,
+  summary
+}: CopyAgentPromptPanelProps) {
   const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
   const copied = copyStatus === "copied";
   const statusMessage = copied ? "Prompt copied" : copyStatus === "failed" ? "Prompt copy failed" : "";
+  const agentArenaJoinPrompt = createAgentArenaJoinPrompt(skillDocsBaseUrl);
+  const skillUrl = createAgentArenaSkillUrl(skillDocsBaseUrl);
 
   async function copyPrompt() {
     const clipboard = navigator.clipboard;
@@ -64,7 +72,7 @@ export function CopyAgentPromptPanel({ className = "", summary }: CopyAgentPromp
       </p>
 
       <p className="mt-3 break-all font-mono text-[11px] font-bold text-on-surface-variant">
-        Skill URL: http://127.0.0.1:8787/skills/agent-arena.md
+        Skill URL: {skillUrl}
       </p>
     </section>
   );

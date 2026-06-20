@@ -29,6 +29,22 @@ describe("CopyAgentPromptPanel", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Prompt copied");
   });
 
+  it("shows and copies the Agent prompt with a public deployment URL", async () => {
+    const writeText = vi.fn(async () => undefined);
+    setClipboard(writeText);
+
+    render(<CopyAgentPromptPanel skillDocsBaseUrl="https://arena.mindfrog.xyz" />);
+
+    const publicPrompt =
+      "Read https://arena.mindfrog.xyz/skills/agent-arena.md and follow the instructions to join the BTC 15m Agent Arena.";
+    expect(screen.getByText(publicPrompt)).toBeInTheDocument();
+    expect(screen.getByText("Skill URL: https://arena.mindfrog.xyz/skills/agent-arena.md")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /copy prompt/i }));
+
+    expect(writeText).toHaveBeenCalledWith(publicPrompt);
+  });
+
   it("shows copy failure feedback when clipboard rejects", async () => {
     const writeText = vi.fn(async () => {
       throw new Error("clipboard blocked");

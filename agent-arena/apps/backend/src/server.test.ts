@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import {
   createAgentArenaFetchHandler,
   createAttributionFetchHandler,
-  getDefaultAttributionDbPath
+  getDefaultAttributionDbPath,
+  getDefaultServerHostname
 } from "./server";
 import { AttributionStore, type CreateAttributionInput } from "./attribution";
 import type { CoinBalanceReader } from "./predict/types";
@@ -41,6 +42,15 @@ afterEach(() => {
   }
 });
 
+function restoreOptionalEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete Bun.env[key];
+    return;
+  }
+
+  Bun.env[key] = value;
+}
+
 describe("createAttributionFetchHandler", () => {
   it("keeps attribution records in one backend instance", async () => {
     const fetch = createAttributionFetchHandler(new AttributionStore());
@@ -71,6 +81,29 @@ describe("getDefaultAttributionDbPath", () => {
   });
 });
 
+describe("getDefaultServerHostname", () => {
+  it("prefers Agent Arena backend host and falls back to HOST while ignoring blanks", () => {
+    const originalArenaHost = Bun.env.AGENT_ARENA_BACKEND_HOST;
+    const originalHost = Bun.env.HOST;
+
+    try {
+      Bun.env.AGENT_ARENA_BACKEND_HOST = "0.0.0.0";
+      Bun.env.HOST = "127.0.0.1";
+      expect(getDefaultServerHostname()).toBe("0.0.0.0");
+
+      Bun.env.AGENT_ARENA_BACKEND_HOST = "   ";
+      expect(getDefaultServerHostname()).toBe("127.0.0.1");
+
+      delete Bun.env.AGENT_ARENA_BACKEND_HOST;
+      delete Bun.env.HOST;
+      expect(getDefaultServerHostname()).toBeUndefined();
+    } finally {
+      restoreOptionalEnv("AGENT_ARENA_BACKEND_HOST", originalArenaHost);
+      restoreOptionalEnv("HOST", originalHost);
+    }
+  });
+});
+
 describe("createAgentArenaFetchHandler", () => {
   it("serves whitelisted Skill docs from the same backend", async () => {
     const fetch = createAgentArenaFetchHandler({ runtimeMode: "mock" });
@@ -83,6 +116,23 @@ describe("createAgentArenaFetchHandler", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
     await expect(response.text()).resolves.toContain("# Agent Arena");
     expect(blocked.status).toBe(404);
+  });
+
+  it("serves Skill docs with the configured public Agent Arena URL", async () => {
+    const fetch = createAgentArenaFetchHandler({
+      predictEnv: {
+        AGENT_ARENA_FRONTEND_BASE_URL: "https://arena.mindfrog.xyz"
+      },
+      runtimeMode: "mock"
+    });
+
+    const response = await fetch(new Request("https://arena.mindfrog.xyz/skills/agent-arena.md"));
+    const markdown = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(markdown).toContain("Read https://arena.mindfrog.xyz/skills/agent-arena.md");
+    expect(markdown).toContain('"baseUrl": "https://arena.mindfrog.xyz/api/arena"');
+    expect(markdown).not.toContain("http://127.0.0.1:8787");
   });
 
   it("exposes a Skill manifest under the platform API", async () => {

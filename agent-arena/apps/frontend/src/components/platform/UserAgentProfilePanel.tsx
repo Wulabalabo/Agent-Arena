@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { Copy } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import type { UserAgentArenaProfile } from "../../features/platform/arena-ui";
 
 interface UserAgentProfilePanelProps {
@@ -10,6 +11,40 @@ interface UserAgentProfilePanelProps {
 
 export function UserAgentProfilePanel({ className = "", profile, summary, variant = "full" }: UserAgentProfilePanelProps) {
   const compact = variant === "compact";
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const tradingWalletAddress = profile.tradingWalletAddress;
+
+  async function copyTradingWallet() {
+    const clipboard = navigator.clipboard;
+    if (!tradingWalletAddress || !clipboard?.writeText) {
+      setCopyStatus("failed");
+      return;
+    }
+
+    try {
+      await clipboard.writeText(tradingWalletAddress);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+  }
+
+  const tradingWalletCopyAction = tradingWalletAddress ? (
+    <button
+      aria-label="Copy trading wallet"
+      className="ml-2 inline-flex size-6 items-center justify-center rounded-sm border border-outline bg-surface text-on-surface transition hover:bg-surface-muted"
+      onClick={copyTradingWallet}
+      title="Copy trading wallet"
+      type="button"
+    >
+      <Copy aria-hidden="true" size={12} />
+    </button>
+  ) : null;
+  const tradingWalletCopyStatus = (
+    <p className={copyStatus === "idle" ? "sr-only" : "mt-2 font-mono text-[11px] font-black text-on-surface"} role="status">
+      {copyStatus === "copied" ? "Trading wallet copied" : copyStatus === "failed" ? "Trading wallet copy failed" : ""}
+    </p>
+  );
 
   return (
     <section aria-label="My Agent profile" className={`paper-card-sm p-4 ${className}`}>
@@ -37,6 +72,13 @@ export function UserAgentProfilePanel({ className = "", profile, summary, varian
         <ProfileMetric label="Realized PnL" value={formatPercent(profile.realizedPnlPct)} />
       </div>
 
+      {compact ? (
+        <section aria-label="My Agent funding wallet" className="paper-inset mt-3 p-3">
+          <DetailLine label="Trading wallet" value={tradingWalletAddress ?? "not created"} action={tradingWalletCopyAction} />
+          {tradingWalletCopyStatus}
+        </section>
+      ) : null}
+
       {!compact ? <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <section aria-label="My Agent position" className="paper-inset p-3">
           <h3 className="font-display text-xs font-black uppercase text-on-surface">Position and PnL</h3>
@@ -51,11 +93,16 @@ export function UserAgentProfilePanel({ className = "", profile, summary, varian
           <h3 className="font-display text-xs font-black uppercase text-on-surface">Wallet and owner</h3>
           <DetailLine label="Agent id" value={profile.agentId ?? "unclaimed"} />
           <DetailLine label="Owner" value={profile.ownerAddress ?? "not connected"} />
-          <DetailLine label="Trading wallet" value={profile.tradingWalletAddress ?? "not created"} />
+          <DetailLine
+            label="Trading wallet"
+            value={tradingWalletAddress ?? "not created"}
+            action={tradingWalletCopyAction}
+          />
           <DetailLine label="DUSDC balance" value={profile.quoteBalance ?? "not available"} />
           <DetailLine label="Testnet SUI" value={profile.testnetSuiBalance ?? "not available"} />
           <DetailLine label="Latest Predict tx" value={profile.latestPredictTxDigest ?? "not submitted"} />
           {profile.twitterHandle ? <DetailLine label="Twitter" value={`@${profile.twitterHandle}`} /> : null}
+          {tradingWalletCopyStatus}
         </section>
       </div> : null}
     </section>
@@ -71,11 +118,12 @@ function ProfileMetric({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function DetailLine({ label, value }: { label: string; value: ReactNode }) {
+function DetailLine({ action = null, label, value }: { action?: ReactNode; label: string; value: ReactNode }) {
   return (
     <p className="mt-2 min-w-0 break-all font-mono text-[11px] font-bold text-on-surface-variant">
       <span className="font-display text-[10px] uppercase">{label}: </span>
       {value}
+      {action}
     </p>
   );
 }

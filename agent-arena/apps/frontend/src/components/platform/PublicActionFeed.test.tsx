@@ -22,6 +22,18 @@ describe("PublicActionFeed", () => {
     expect(screen.queryByText("Reason 5")).not.toBeInTheDocument();
   });
 
+  it("uses the lower panel space for the Agent Arena icon", () => {
+    render(<PublicActionFeed items={[]} />);
+
+    const brandPanel = screen.getByTestId("public-action-feed-brand-panel");
+    expect(brandPanel).toHaveClass("min-h-[192px]");
+    expect(brandPanel).toHaveClass("border-2");
+    expect(within(brandPanel).getByRole("img", { name: /Agent Arena icon/i })).toHaveAttribute(
+      "src",
+      "/agent-arena-icon.png"
+    );
+  });
+
   it("summarizes Agent buying actions at a glance", () => {
     render(
       <PublicActionFeed

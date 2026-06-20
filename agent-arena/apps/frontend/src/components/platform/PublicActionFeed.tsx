@@ -65,6 +65,17 @@ export function PublicActionFeed({ className = "", items }: PublicActionFeedProp
           <p className="paper-inset p-3 text-sm font-semibold text-on-surface-variant">No public actions yet.</p>
         )}
       </div>
+
+      <div
+        className="mt-4 flex min-h-[192px] flex-1 items-center justify-center rounded-sm border-2 border-black bg-surface-container-lowest p-4"
+        data-testid="public-action-feed-brand-panel"
+      >
+        <img
+          alt="Agent Arena icon"
+          className="h-36 w-full max-w-[220px] object-contain"
+          src="/agent-arena-icon.png"
+        />
+      </div>
     </aside>
   );
 }

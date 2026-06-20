@@ -74,7 +74,9 @@ export function createAgentArenaFetchHandler(options: {
 
   return async (request: Request) => {
     const url = new URL(request.url);
-    const skillDocResponse = await handleSkillDocRequest(request);
+    const skillDocResponse = await handleSkillDocRequest(request, {
+      publicBaseUrl: env.AGENT_ARENA_FRONTEND_BASE_URL
+    });
     if (skillDocResponse) {
       return skillDocResponse;
     }
@@ -772,8 +774,13 @@ export function getDefaultAttributionDbPath(): string {
   return Bun.env.AGENT_ARENA_DB_PATH ?? join(import.meta.dir, "..", "data", "agent-arena.sqlite");
 }
 
-export function startAttributionServer(port = Number(Bun.env.PORT ?? 8787)) {
+export function getDefaultServerHostname(env: Record<string, string | undefined> = Bun.env): string | undefined {
+  return env.AGENT_ARENA_BACKEND_HOST?.trim() || env.HOST?.trim() || undefined;
+}
+
+export function startAttributionServer(port = Number(Bun.env.PORT ?? 8787), hostname = getDefaultServerHostname()) {
   return Bun.serve({
+    hostname,
     port,
     fetch: createAgentArenaFetchHandler()
   });
@@ -781,5 +788,5 @@ export function startAttributionServer(port = Number(Bun.env.PORT ?? 8787)) {
 
 if (import.meta.main) {
   const server = startAttributionServer();
-  console.log(`Agent Arena attribution backend listening on http://localhost:${server.port}`);
+  console.log(`Agent Arena attribution backend listening on http://${server.hostname ?? "localhost"}:${server.port}`);
 }

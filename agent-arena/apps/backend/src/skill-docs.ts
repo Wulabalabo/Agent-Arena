@@ -30,7 +30,12 @@ export const publicSkillDocs = Object.freeze([
 const skillDocsByUrl = new Map(publicSkillDocs.map((skill) => [skill.url, skill]));
 const agentArenaRoot = join(import.meta.dir, "..", "..", "..");
 
-export async function handleSkillDocRequest(request: Request): Promise<Response | null> {
+export async function handleSkillDocRequest(
+  request: Request,
+  options: {
+    publicBaseUrl?: string;
+  } = {}
+): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/skills/")) {
     return null;
@@ -73,11 +78,22 @@ export async function handleSkillDocRequest(request: Request): Promise<Response 
     });
   }
 
-  return new Response(file, {
+  const markdown = rewriteLocalSkillUrls(await file.text(), options.publicBaseUrl);
+
+  return new Response(markdown, {
     headers: skillDocHeaders({
       "content-type": "text/markdown; charset=utf-8"
     })
   });
+}
+
+function rewriteLocalSkillUrls(markdown: string, publicBaseUrl?: string): string {
+  const normalizedBaseUrl = publicBaseUrl?.trim().replace(/\/+$/, "");
+  if (!normalizedBaseUrl) {
+    return markdown;
+  }
+
+  return markdown.replaceAll("http://127.0.0.1:8787", normalizedBaseUrl);
 }
 
 function skillDocHeaders(extraHeaders: Record<string, string> = {}): Headers {

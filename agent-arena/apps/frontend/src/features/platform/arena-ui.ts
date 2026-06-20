@@ -13,7 +13,17 @@ import type {
 } from "./types";
 
 export const agentArenaJoinPrompt =
-  "Read http://127.0.0.1:8787/skills/agent-arena.md and follow the instructions to join the BTC 15m Agent Arena.";
+  createAgentArenaJoinPrompt("http://127.0.0.1:8787");
+
+export function createAgentArenaJoinPrompt(skillDocsBaseUrl: string): string {
+  return `Read ${createAgentArenaSkillUrl(skillDocsBaseUrl)} and follow the instructions to join the BTC 15m Agent Arena.`;
+}
+
+export function createAgentArenaSkillUrl(skillDocsBaseUrl: string): string {
+  const normalized = skillDocsBaseUrl.trim().replace(/\/+$/, "");
+  const baseUrl = normalized || "http://127.0.0.1:8787";
+  return `${baseUrl}/skills/agent-arena.md`;
+}
 
 export type UserAgentArenaAccountState =
   | "no_owner_wallet"
@@ -269,18 +279,18 @@ export function createArenaChartMarketReference({
   marketState,
   positions
 }: CreateArenaChartMarketReferenceInput): ArenaChartMarketReference | null {
-  const executableMarketReference =
-    marketState?.competitionId === competitionId ? marketReferenceFromMarketState(marketState) : null;
-  if (executableMarketReference) {
-    return executableMarketReference;
-  }
-
   const openPosition = findNewestByUpdatedAt(
     positions.filter((position) => position.competitionId === competitionId && position.status === "open")
   );
   const positionReference = openPosition ? marketReferenceFromPosition(openPosition) : null;
   if (positionReference) {
     return positionReference;
+  }
+
+  const executableMarketReference =
+    marketState?.competitionId === competitionId ? marketReferenceFromMarketState(marketState) : null;
+  if (executableMarketReference) {
+    return executableMarketReference;
   }
 
   const latestExecutableIntent = findNewestByCreatedAt(
