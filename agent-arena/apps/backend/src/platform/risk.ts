@@ -1,20 +1,25 @@
 import type { AgentIntent, Competition, TradingWallet } from "./types";
 
+const dusdcScale = 1_000_000;
+
 export const riskLimit = Object.freeze({
-  maxCost: 1_000,
-  quantity: 1_000
+  maxCostDisplay: 1_000,
+  maxCostRaw: BigInt(1_000 * dusdcScale),
+  quantityRaw: 5_000_000n
 });
 
 export type RiskRejectionCode =
   | "ACTION_NOT_ALLOWED"
   | "WALLET_NOT_BOUND"
   | "ROUND_NOT_LIVE"
+  | "PENDING_EXECUTION_EXISTS"
   | "RISK_LIMIT_EXCEEDED";
 
 export interface RiskEvaluationInput {
   intent: AgentIntent;
   competition: Competition | undefined;
   tradingWallet: TradingWallet | undefined;
+  hasPendingExecution?: boolean;
 }
 
 export interface RiskEvaluation {
@@ -25,7 +30,8 @@ export interface RiskEvaluation {
 export function evaluateIntentRisk({
   intent,
   competition,
-  tradingWallet
+  tradingWallet,
+  hasPendingExecution = false
 }: RiskEvaluationInput): RiskEvaluation {
   if (!competition) {
     return reject("ROUND_NOT_LIVE");
@@ -43,6 +49,10 @@ export function evaluateIntentRisk({
     return accept();
   }
 
+  if (hasPendingExecution) {
+    return reject("PENDING_EXECUTION_EXISTS");
+  }
+
   if (!tradingWallet || tradingWallet.status !== "active") {
     return reject("WALLET_NOT_BOUND");
   }
@@ -55,12 +65,36 @@ export function evaluateIntentRisk({
 }
 
 function exceedsRiskLimit(intent: AgentIntent): boolean {
-  return exceedsDecimalLimit(intent.maxCost, riskLimit.maxCost) ||
-    exceedsDecimalLimit(intent.quantity, riskLimit.quantity);
+  return exceedsQuoteCostLimit(intent.maxCost) ||
+    exceedsRawIntegerLimit(intent.quantity, riskLimit.quantityRaw);
 }
 
-function exceedsDecimalLimit(value: string | undefined, limit: number): boolean {
-  return value !== undefined && Number.parseFloat(value) > limit;
+function exceedsQuoteCostLimit(value: string | undefined): boolean {
+  if (value === undefined) {
+    return false;
+  }
+
+  if (isRawIntegerString(value)) {
+    return BigInt(value) > riskLimit.maxCostRaw;
+  }
+
+  return Number.parseFloat(value) > riskLimit.maxCostDisplay;
+}
+
+function exceedsRawIntegerLimit(value: string | undefined, limit: bigint): boolean {
+  if (value === undefined) {
+    return false;
+  }
+
+  if (!isRawIntegerString(value)) {
+    return Number.parseFloat(value) > Number(limit);
+  }
+
+  return BigInt(value) > limit;
+}
+
+function isRawIntegerString(value: string): boolean {
+  return /^\d+$/.test(value);
 }
 
 function accept(): RiskEvaluation {

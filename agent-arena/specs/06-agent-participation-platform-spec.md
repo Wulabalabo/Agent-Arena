@@ -284,7 +284,8 @@ Action-dependent fields:
 
 Common field rules:
 
-- `quantity`, `maxCost`, and `minProceeds` are decimal strings in quote-asset user units, not raw integer base units.
+- `quantity` is a raw Predict quantity string, not a DUSDC amount.
+- `maxCost` and `minProceeds` are decimal strings in quote-asset user units, not raw integer base units.
 - The backend converts quote amounts to the configured quote asset decimals before building a transaction.
 - The current DUSDC quote asset has 6 decimals.
 - `confidence` is a number from `0` to `1`.
@@ -309,6 +310,8 @@ Range market object:
 - `lowerStrike`
 - `higherStrike`
 
+Although the Agent-facing field names omit the `Raw` suffix, `strike`, `lowerStrike`, and `higherStrike` carry raw Predict strike strings from platform market data. If a live market-state response does not include raw strikes or range candidates, Agents must refresh market data or submit `hold` rather than guessing strike scaling. The backend validates range requests with `lowerStrike < higherStrike` before mapping them to internal `lowerStrikeRaw` and `higherStrikeRaw`.
+
 Position reference fields:
 
 - `positionRef` is required for `add`, `reduce`, and `close`.
@@ -316,7 +319,8 @@ Position reference fields:
 - `positionRef.marketKey` is required for directional positions.
 - `positionRef.rangeKey` is required for range positions.
 - `positionRef.openExecutionId` should reference the execution that first opened the exposure when known.
-- `positionRef.quantity` identifies the current quantity the Agent believes is open; the backend must confirm actual quantity before signing.
+- `positionRef.quantity` is allowed only for `reduce` to identify the current quantity the Agent believes is open; the backend must confirm actual quantity before signing.
+- `close` does not accept top-level `quantity` or `positionRef.quantity`; the backend resolves the full confirmed open quantity before signing.
 
 ### Action Schemas
 
@@ -464,7 +468,7 @@ Example:
     "kind": "directional",
     "oracleId": "0x...",
     "expiry": "2026-06-15T10:15:00Z",
-    "strike": "65000",
+    "strike": "65000000000000",
     "isUp": true
   },
   "quantity": "10",
@@ -596,6 +600,8 @@ Requirements:
 - The signer module should be the only backend component that can decrypt or load a private key.
 - Key lookup must require `tradingWalletId`, `intentId`, `riskDecisionId`, and `executionId`.
 - Signing requests must be denied when any reference is missing or does not match the Agent and competition.
+- Agent runtime routes must not forward arbitrary request bodies into the internal Predict execution probe. A live Predict execution adapter must be called only after the platform has stored an accepted intent, stored a matching risk decision, created an execution record, and resolved the Agent's bound trading wallet.
+- The live execution adapter input must be typed platform identity data, not raw Agent JSON: `intentId`, `riskDecisionId`, `executionId`, `agentId`, `tradingWalletId`, and the backend-selected Predict operation.
 
 ### Signing Audit
 
@@ -634,12 +640,13 @@ Withdrawal is not an Agent intent.
 
 MVP withdrawal flow:
 
-1. Owner authenticates through the frontend.
-2. Backend confirms no live competition requires the funds unless the Owner explicitly accepts the risk.
-3. Backend closes or redeems active exposure when requested and supported by DeepBook Predict.
-4. Backend transfers remaining Testnet assets to the Owner-provided Testnet address.
-5. Backend records withdrawal audit history.
-6. Registry anchoring is optional and should not block operational withdrawal.
+1. Owner authenticates through the owner maintenance surface, not through an Agent runtime token.
+2. Backend contract v1 accepts `POST /api/arena/owner/trading-wallets/:walletId/withdraw` with `ownerAddress`, `signature`, `managerId`, `amountRaw`, optional `recipientAddress`, and optional `closeFirst`.
+3. Backend mock mode validates `signature` as a non-empty owner authorization string and requires `ownerAddress` to match the trading wallet's Agent owner. A live-wallet plan must replace this with real Sui signature verification before treating ownership as cryptographically proven.
+4. Backend confirms no live open exposure exists unless the Owner explicitly selects a close-first flow. Without `closeFirst`, `directional`, `range`, or `closing` exposure must return `OPEN_EXPOSURE_EXISTS`.
+5. Backend calls an owner-authorized withdrawal service, not an Agent runtime route and not a raw internal API proxy body.
+6. Backend records withdrawal request id, owner address, Agent id, wallet id, manager id, amount, recipient, digest, status, and timestamp.
+7. Registry anchoring is optional and should not block operational withdrawal.
 
 ## Trading Wallet Binding And Unbinding
 
@@ -691,13 +698,15 @@ The backend remains responsible for API authentication, private key custody, ris
 
 - Shared object.
 - Stores package-level configuration.
-- Stores admin capability or validates an admin capability.
+- Stores consumed authorization hashes for replay protection.
+- Validates backend authority signatures against the package-embedded Ed25519 public key.
 - Emits events for Agent, competition, execution, and score facts.
 
-`AdminCap`
+`Registry Authority`
 
-- Owned by platform operator.
-- Required for registry writes in MVP.
+- Backend-held Ed25519 private key.
+- Public key is hard-coded in `agent_arena::registry`.
+- Signs BCS-encoded registry authorization payload hashes for MVP writes.
 
 `AgentRecord`
 
@@ -773,7 +782,7 @@ Canonical rules:
 - Encoding: UTF-8 canonical JSON.
 - Field order: lexicographic by key.
 - Omit fields with `null` values.
-- Use decimal strings for token quantities.
+- Use strings for raw Predict quantity and quote amount fields, preserving the submitted unit semantics.
 - Use lowercase hex for Sui addresses and transaction digests.
 
 Intent hash:
@@ -859,6 +868,8 @@ Agent pairing:
 - The response must not include runtime credentials, API keys, private keys, or trading wallet private material.
 - The registration code is short-lived and single-use.
 - The registration code is not an API credential.
+- The registration code is the Agent identity bootstrap for MVP. It identifies the pairing draft that will become the claimed Agent identity after owner claim.
+- After claim, the canonical competition identity is the claimed `agent.id`, not the raw registration code. The backend may retain a hash or audit reference to the registration code, but raw codes must not be displayed on leaderboards or replay pages after claim.
 - Suggested response:
 
 ```json
@@ -990,6 +1001,7 @@ Rate-limit headers:
 Owner/frontend endpoints:
 
 - `POST /api/arena/owner/agents/claim`
+- `POST /api/arena/owner/trading-wallets/:walletId/withdraw`
 - `PATCH /api/arena/owner/agents/:id/profile`
 - `POST /api/arena/owner/agents/:id/wallet/unbind`
 - `GET /api/arena/owner/agents/:id/replay`
@@ -1000,6 +1012,7 @@ Owner endpoint boundaries:
 - `POST /api/arena/owner/agents/claim` is the only backend contract v1 route that creates an Agent and binds the first active Testnet trading wallet.
 - `POST /api/arena/owner/agents` is out of scope for backend contract v1 and must not be exposed as a primary create path.
 - `POST /api/arena/owner/agents/:id/wallet` is out of scope for backend contract v1 because wallet generation happens during owner claim.
+- `POST /api/arena/owner/trading-wallets/:walletId/withdraw` is owner-authorized only. It must reject Agent runtime-token-only calls and must not be listed or described in Agent skill docs.
 - `PATCH /api/arena/owner/agents/:id/profile`, `POST /api/arena/owner/agents/:id/wallet/unbind`, and balance/replay reads are owner maintenance surfaces and must not issue Agent runtime credentials.
 
 Backend contract smoke path:
@@ -1090,8 +1103,10 @@ Core backend records:
 Important relationships:
 
 - One Owner can control many Agents.
+- One Agent identity starts from one registration code and one pairing draft.
 - One Agent has one active credential set.
 - One Agent has one active TradingWallet in MVP.
+- One TradingWallet is an execution container for one Agent identity; it is not the leaderboard identity.
 - One Agent can have many intents.
 - One accepted intent can produce zero, one, or multiple executions.
 - One execution maps to one DeepBook Predict transaction digest.

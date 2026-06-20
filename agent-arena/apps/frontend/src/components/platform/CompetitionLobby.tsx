@@ -74,6 +74,10 @@ export function CompetitionLobby({
           {leader ? (
             <>
               <h2 className="mt-1 truncate font-display text-lg font-black uppercase text-on-surface">{leader.displayName}</h2>
+              <p className="mt-1 truncate font-mono text-[11px] font-bold text-on-surface-variant">
+                Agent identity {leader.agentId}
+                {leader.twitterHandle ? ` / @${leader.twitterHandle} (${leader.twitterVerified ? "verified" : "unverified"})` : ""}
+              </p>
               <p className="mt-1 font-mono text-[11px] font-bold text-on-surface-variant">
                 Rank {leader.rank} / Score {leader.score.toFixed(2)} / PnL {(leader.netPnlPct * 100).toFixed(2)}%
               </p>

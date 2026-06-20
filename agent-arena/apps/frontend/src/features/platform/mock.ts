@@ -23,16 +23,37 @@ export const mockPlatformSnapshot: PlatformSnapshot = {
       runtimeStatus: "cooldown",
       exposureStatus: "flat",
       createdAt: "2026-06-16T10:01:00.000Z"
+    },
+    {
+      id: "agent_3",
+      displayName: "Oracle Pulse",
+      twitterHandle: "oracle_pulse",
+      twitterVerified: false,
+      ownerAddress: "0xowner3",
+      tradingWalletAddress: "0xagentwallet_agent_3",
+      runtimeStatus: "active",
+      exposureStatus: "range",
+      createdAt: "2026-06-16T10:02:00.000Z"
     }
   ],
+  identityBinding: {
+    agentId: "agent_1",
+    ownerAddress: "0xowner",
+    twitterHandle: "Sui_Agent",
+    tradingWalletId: "wallet_internal_001",
+    walletAddress: "0xagentwallet_agent_1",
+    predictManagerId: "0xmanager_agent_1",
+    claimedAt: "2026-06-16T10:00:30.000Z"
+  },
   tradingWallet: {
-    id: "wallet_1",
+    id: "wallet_internal_001",
     agentId: "agent_1",
     address: "0xagentwallet_agent_1",
     status: "active",
     testnetSuiBalance: "4.20",
     quoteBalance: "125.00",
-    predictManagerStatus: "ready"
+    predictManagerStatus: "ready",
+    predictManagerId: "0xmanager_agent_1"
   },
   competitions: [
     {
@@ -66,8 +87,8 @@ export const mockPlatformSnapshot: PlatformSnapshot = {
     market: {
       kind: "directional",
       oracleId: "0xbtc15m",
-      expiry: "2026-06-16T10:15:00.000Z",
-      strike: "65000",
+      expiry: "1781701200000",
+      strike: "65000000000000",
       isUp: true
     },
     quantity: "10",
@@ -88,8 +109,8 @@ export const mockPlatformSnapshot: PlatformSnapshot = {
       market: {
         kind: "directional",
         oracleId: "0xbtc15m",
-        expiry: "2026-06-16T10:15:00.000Z",
-        strike: "65000",
+        expiry: "1781701200000",
+        strike: "65000000000000",
         isUp: true
       },
       quantity: "10",
@@ -109,9 +130,9 @@ export const mockPlatformSnapshot: PlatformSnapshot = {
       market: {
         kind: "range",
         oracleId: "0xbtc15m",
-        expiry: "2026-06-16T10:15:00.000Z",
-        lowerStrike: "64000",
-        higherStrike: "66000"
+        expiry: "1781701200000",
+        lowerStrike: "64000000000000",
+        higherStrike: "66000000000000"
       },
       quantity: "30",
       maxCost: "42.00"
@@ -147,6 +168,24 @@ export const mockPlatformSnapshot: PlatformSnapshot = {
       createdAt: "2026-06-16T10:03:14.000Z"
     }
   ],
+  positions: [
+    {
+      agentId: "agent_1",
+      competitionId: "btc-15m-001",
+      positionRef: {
+        kind: "directional",
+        marketKey: "btc-up-65000000000000-1781701200000",
+        openExecutionId: "exec_1"
+      },
+      oracleId: "0xbtc15m",
+      expiryMs: "1781701200000",
+      strikeRaw: "65000000000000",
+      direction: "up",
+      quantityRaw: "10",
+      status: "open",
+      updatedAt: "2026-06-16T10:03:14.000Z"
+    }
+  ],
   leaderboard: [
     {
       rank: 1,
@@ -161,7 +200,40 @@ export const mockPlatformSnapshot: PlatformSnapshot = {
       hitRatePct: 0.6,
       executionCount: 6,
       invalidIntentCount: 0,
-      finalExecutionAt: "2026-06-16T10:14:00.000Z"
+      finalExecutionAt: "2026-06-16T10:14:00.000Z",
+      currentExposureStatus: "directional"
+    },
+    {
+      rank: 2,
+      agentId: "agent_2",
+      displayName: "Range Cartographer",
+      twitterHandle: null,
+      twitterVerified: false,
+      score: 17.12,
+      netPnlPct: 0.0921,
+      maxDrawdownPct: 0.018,
+      capitalEfficiencyPct: 0.72,
+      hitRatePct: 0.5,
+      executionCount: 4,
+      invalidIntentCount: 1,
+      finalExecutionAt: "2026-06-16T10:13:00.000Z",
+      currentExposureStatus: "flat"
+    },
+    {
+      rank: 3,
+      agentId: "agent_3",
+      displayName: "Oracle Pulse",
+      twitterHandle: "oracle_pulse",
+      twitterVerified: false,
+      score: 11.84,
+      netPnlPct: 0.051,
+      maxDrawdownPct: 0.022,
+      capitalEfficiencyPct: 0.66,
+      hitRatePct: 0.4,
+      executionCount: 5,
+      invalidIntentCount: 0,
+      finalExecutionAt: "2026-06-16T10:12:00.000Z",
+      currentExposureStatus: "range"
     }
   ],
   replay: [

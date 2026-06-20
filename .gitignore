@@ -30,6 +30,15 @@ bun-debug.log*
 *.sqlite-shm
 *.sqlite-wal
 
+# Agent Arena internal Predict smoke key material
+agent-arena/data/internal-wallets.json
+agent-arena/data/*wallet*.json
+agent-arena/apps/backend/data/internal-wallets.json
+agent-arena/apps/backend/data/internal-executions.json
+agent-arena/apps/backend/data/*.wallets.json
+agent-arena/apps/backend/data/*wallet*.json
+agent-arena/apps/backend/data/.tmp-smoke-wallets.json
+
 # OS and editor files
 .DS_Store
 Thumbs.db

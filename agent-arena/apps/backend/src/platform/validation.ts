@@ -8,7 +8,10 @@ import {
 } from "./types";
 
 const decimalStringPattern = /^\d+(\.\d+)?$/;
+const rawIntegerStringPattern = /^\d+$/;
+const suiAddressPattern = /^0x[0-9a-fA-F]{64}$/;
 const twitterHandlePattern = /^[A-Za-z0-9_]+$/;
+export const defaultAgentOpenBudgetRaw = "5000000";
 
 export class PlatformInputError extends Error {
   constructor(message: string) {
@@ -29,12 +32,22 @@ export interface ValidatedIntentPayload {
   action: AgentAction;
   market?: IntentMarket;
   positionRef?: PositionRef;
+  budgetRaw?: string;
   quantity?: string;
   maxCost?: string;
   minProceeds?: string;
   confidence: number;
   reason: string;
   createdAt: string;
+}
+
+export interface ValidatedOwnerWithdrawalPayload {
+  ownerAddress: string;
+  signature: string;
+  managerId: string;
+  amountRaw: string;
+  recipientAddress?: string;
+  closeFirst: boolean;
 }
 
 export function normalizeTwitterHandle(value: string | null | undefined): NormalizedTwitterHandle {
@@ -74,6 +87,46 @@ export function validateDecimalString(value: unknown, field: string): string {
   return value;
 }
 
+export function validateRawIntegerString(value: unknown, field: string): string {
+  if (typeof value !== "string" || !rawIntegerStringPattern.test(value) || !/[1-9]/.test(value)) {
+    throw new PlatformInputError(`${field} must be a positive raw integer string`);
+  }
+
+  return value;
+}
+
+export function validateSuiAddress(value: unknown, field: string): string {
+  const address = validateNonEmptyString(value, field).trim();
+  if (!suiAddressPattern.test(address)) {
+    throw new PlatformInputError(`${field} must be a 32-byte Sui address`);
+  }
+
+  return address;
+}
+
+export function validateOwnerWithdrawalPayload(payload: unknown): ValidatedOwnerWithdrawalPayload {
+  const record = asRecord(payload, "payload");
+  rejectUnknownFields(record, [
+    "ownerAddress",
+    "signature",
+    "managerId",
+    "amountRaw",
+    "recipientAddress",
+    "closeFirst"
+  ], "payload");
+
+  return {
+    ownerAddress: validateNonEmptyString(record.ownerAddress, "ownerAddress").trim(),
+    signature: validateNonEmptyString(record.signature, "signature").trim(),
+    managerId: validateNonEmptyString(record.managerId, "managerId").trim(),
+    amountRaw: validateRawIntegerString(record.amountRaw, "amountRaw"),
+    recipientAddress: record.recipientAddress === undefined
+      ? undefined
+      : validateSuiAddress(record.recipientAddress, "recipientAddress"),
+    closeFirst: record.closeFirst === undefined ? false : validateBoolean(record.closeFirst, "closeFirst")
+  };
+}
+
 export function validateIntentPayload(payload: unknown): ValidatedIntentPayload {
   const record = asRecord(payload, "payload");
   const action = validateAction(record.action);
@@ -84,6 +137,7 @@ export function validateIntentPayload(payload: unknown): ValidatedIntentPayload 
     "action",
     "market",
     "positionRef",
+    "budgetRaw",
     "quantity",
     "maxCost",
     "minProceeds",
@@ -105,32 +159,30 @@ export function validateIntentPayload(payload: unknown): ValidatedIntentPayload 
     case "open_directional":
       rejectFields(record, ["positionRef", "minProceeds"], action);
       validated.market = validateDirectionalMarket(record.market);
-      validated.quantity = validateDecimalString(record.quantity, "quantity");
-      validated.maxCost = validateDecimalString(record.maxCost, "maxCost");
+      Object.assign(validated, validateOpenSizing(record, action));
       break;
     case "open_range":
       rejectFields(record, ["positionRef", "minProceeds"], action);
       validated.market = validateRangeMarket(record.market);
-      validated.quantity = validateDecimalString(record.quantity, "quantity");
-      validated.maxCost = validateDecimalString(record.maxCost, "maxCost");
+      Object.assign(validated, validateOpenSizing(record, action));
       break;
     case "reduce":
-      rejectFields(record, ["market", "maxCost"], action);
-      validated.positionRef = validatePositionRef(record.positionRef);
-      validated.quantity = validateDecimalString(record.quantity, "quantity");
+      rejectFields(record, ["market", "budgetRaw", "maxCost"], action);
+      validated.positionRef = validatePositionRef(record.positionRef, { allowQuantity: true });
+      validated.quantity = validateRawIntegerString(record.quantity, "quantity");
       if (record.minProceeds !== undefined) {
         validated.minProceeds = validateDecimalString(record.minProceeds, "minProceeds");
       }
       break;
     case "close":
-      rejectFields(record, ["market", "quantity", "maxCost"], action);
-      validated.positionRef = validatePositionRef(record.positionRef);
+      rejectFields(record, ["market", "budgetRaw", "quantity", "maxCost"], action);
+      validated.positionRef = validatePositionRef(record.positionRef, { allowQuantity: false });
       if (record.minProceeds !== undefined) {
         validated.minProceeds = validateDecimalString(record.minProceeds, "minProceeds");
       }
       break;
     case "hold":
-      rejectFields(record, ["market", "positionRef", "quantity", "maxCost", "minProceeds"], action);
+      rejectFields(record, ["market", "positionRef", "budgetRaw", "quantity", "maxCost", "minProceeds"], action);
       break;
     default:
       throw new PlatformInputError(`${action} validation is not implemented`);
@@ -218,9 +270,41 @@ function validateDirectionalMarket(value: unknown): DirectionalMarket {
     kind: "directional",
     oracleId: validateNonEmptyString(market.oracleId, "market.oracleId"),
     expiry: validateNonEmptyString(market.expiry, "market.expiry"),
-    strike: validateDecimalString(market.strike, "market.strike"),
+    strike: validateRawIntegerString(market.strike, "market.strike"),
     isUp: validateBoolean(market.isUp, "market.isUp")
   };
+}
+
+function validateOpenSizing(
+  record: Record<string, unknown>,
+  action: Extract<AgentAction, "open_directional" | "open_range">
+): Pick<ValidatedIntentPayload, "budgetRaw" | "quantity" | "maxCost"> {
+  if (record.budgetRaw !== undefined) {
+    rejectFields(record, ["quantity", "maxCost"], action);
+    const budgetRaw = validateRawIntegerString(record.budgetRaw, "budgetRaw");
+    return {
+      budgetRaw,
+      quantity: estimateMvpQuantityFromBudgetRaw(budgetRaw),
+      maxCost: budgetRaw
+    };
+  }
+
+  if (record.quantity !== undefined || record.maxCost !== undefined) {
+    return {
+      quantity: validateRawIntegerString(record.quantity, "quantity"),
+      maxCost: validateDecimalString(record.maxCost, "maxCost")
+    };
+  }
+
+  return {
+    budgetRaw: defaultAgentOpenBudgetRaw,
+    quantity: estimateMvpQuantityFromBudgetRaw(defaultAgentOpenBudgetRaw),
+    maxCost: defaultAgentOpenBudgetRaw
+  };
+}
+
+function estimateMvpQuantityFromBudgetRaw(budgetRaw: string): string {
+  return budgetRaw;
 }
 
 function validateRangeMarket(value: unknown): RangeMarket {
@@ -230,12 +314,18 @@ function validateRangeMarket(value: unknown): RangeMarket {
     throw new PlatformInputError("market must be range");
   }
 
+  const lowerStrike = validateRawIntegerString(market.lowerStrike, "market.lowerStrike");
+  const higherStrike = validateRawIntegerString(market.higherStrike, "market.higherStrike");
+  if (BigInt(lowerStrike) >= BigInt(higherStrike)) {
+    throw new PlatformInputError("market.lowerStrike must be less than market.higherStrike");
+  }
+
   return {
     kind: "range",
     oracleId: validateNonEmptyString(market.oracleId, "market.oracleId"),
     expiry: validateNonEmptyString(market.expiry, "market.expiry"),
-    lowerStrike: validateDecimalString(market.lowerStrike, "market.lowerStrike"),
-    higherStrike: validateDecimalString(market.higherStrike, "market.higherStrike")
+    lowerStrike,
+    higherStrike
   };
 }
 
@@ -247,7 +337,7 @@ function validateBoolean(value: unknown, field: string): boolean {
   return value;
 }
 
-function validatePositionRef(value: unknown): PositionRef {
+function validatePositionRef(value: unknown, options: { allowQuantity: boolean }): PositionRef {
   const positionRef = asRecord(value, "positionRef");
   const kind = positionRef.kind;
   if (kind !== "directional" && kind !== "range") {
@@ -263,9 +353,15 @@ function validatePositionRef(value: unknown): PositionRef {
   );
 
   const validated: PositionRef = {
-    kind,
-    quantity: validateDecimalString(positionRef.quantity, "positionRef.quantity")
+    kind
   };
+
+  if (positionRef.quantity !== undefined) {
+    if (!options.allowQuantity) {
+      throw new PlatformInputError("positionRef does not allow quantity");
+    }
+    validated.quantity = validateRawIntegerString(positionRef.quantity, "positionRef.quantity");
+  }
 
   if (positionRef.openExecutionId !== undefined) {
     validated.openExecutionId = validateNonEmptyString(positionRef.openExecutionId, "positionRef.openExecutionId");

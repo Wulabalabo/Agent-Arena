@@ -1,12 +1,22 @@
 import type {
   AgentIntent,
+  AgentPositionSnapshot,
   AgentProfile,
   Competition,
+  ExecutionRecord,
   LeaderboardEntry,
+  MarketSnapshot,
+  OwnerAgentProfile,
   PairingDraft,
   PlatformErrorBody,
+  PrepareAgentClaimResponse,
+  PublicArenaActivity,
   ReplayEvent,
+  RegistryWriteSummary,
   RuntimeCredential,
+  RuntimeCredentialRotationChallenge,
+  RuntimeCredentialRotationPrepareResponse,
+  RuntimeCredentialRotationResponse,
   SubmitIntentInput,
   TradingWallet
 } from "./types";
@@ -24,17 +34,22 @@ interface InitAgentPairingInput {
   displayName: string;
 }
 
-interface ClaimAgentInput {
+interface PrepareAgentClaimInput {
   registrationCode: string;
   ownerAddress: string;
-  signature: string;
   twitterHandle?: string;
+}
+
+interface FinalizeAgentClaimInput {
+  pendingClaimId: string;
+  txDigest: string;
 }
 
 interface ClaimAgentResponse {
   agent: AgentProfile;
   tradingWallet: TradingWallet;
   runtimeCredential: RuntimeCredential;
+  registry?: RegistryWriteSummary;
 }
 
 interface CompetitionListResponse {
@@ -45,8 +60,20 @@ interface CompetitionResponse {
   competition: Competition;
 }
 
+interface MarketStateResponse {
+  marketState: MarketSnapshot;
+}
+
 interface TradingWalletResponse {
   wallet: TradingWallet;
+}
+
+interface AgentPositionsResponse {
+  positions: AgentPositionSnapshot[];
+}
+
+interface ExecutionResponse {
+  execution: ExecutionRecord;
 }
 
 interface LeaderboardResponse {
@@ -55,6 +82,12 @@ interface LeaderboardResponse {
 
 interface ReplayResponse {
   events: ReplayEvent[];
+}
+
+interface RuntimeCredentialRotationTxInput {
+  ownerAddress: string;
+  nonce: string;
+  txDigest: string;
 }
 
 export class PlatformClientError extends Error {
@@ -75,8 +108,45 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
   return {
     initAgentPairing: (input: InitAgentPairingInput) =>
       requestJson<PairingDraft>(fetcher, `${root}/agent/init`, jsonPost(input)),
-    claimAgent: (input: ClaimAgentInput) =>
-      requestJson<ClaimAgentResponse>(fetcher, `${root}/owner/agents/claim`, jsonPost(input)),
+    prepareAgentClaim: (input: PrepareAgentClaimInput) =>
+      requestJson<PrepareAgentClaimResponse>(fetcher, `${root}/owner/agents/claim/prepare`, jsonPost(input)),
+    finalizeAgentClaim: (input: FinalizeAgentClaimInput) =>
+      requestJson<ClaimAgentResponse>(fetcher, `${root}/owner/agents/claim/finalize`, jsonPost(input)),
+    prepareRuntimeCredentialRotation: (
+      agentId: string,
+      input: { ownerAddress: string; reason: string }
+    ) =>
+      requestJson<RuntimeCredentialRotationPrepareResponse>(
+        fetcher,
+        `${root}/owner/agents/${encodeURIComponent(agentId)}/runtime-credential/rotation-prepare`,
+        jsonPost(input)
+      ),
+    createRuntimeCredentialRotationChallenge: (
+      agentId: string,
+      input: { ownerAddress: string; reason: string }
+    ) =>
+      requestJson<RuntimeCredentialRotationPrepareResponse>(
+        fetcher,
+        `${root}/owner/agents/${encodeURIComponent(agentId)}/runtime-credential/rotation-prepare`,
+        jsonPost(input)
+      ).then((response) => ({
+        ...response.challenge,
+        registryProof: response.registryProof
+    })),
+    rotateRuntimeCredential: (
+      agentId: string,
+      input: RuntimeCredentialRotationTxInput
+    ) =>
+      requestJson<RuntimeCredentialRotationResponse>(
+        fetcher,
+        `${root}/owner/agents/${encodeURIComponent(agentId)}/runtime-credential/rotate`,
+        jsonPost(input)
+      ),
+    getOwnerAgentProfile: (ownerAddress: string) =>
+      requestJson<OwnerAgentProfile>(
+        fetcher,
+        `${root}/owner/agent?ownerAddress=${encodeURIComponent(ownerAddress)}`
+      ),
     getAgentMe: (runtimeCredential: string) =>
       requestJson<AgentProfile>(fetcher, `${root}/agent/me`, {
         headers: createRuntimeHeaders(runtimeCredential)
@@ -85,11 +155,29 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
       requestJson<TradingWalletResponse>(fetcher, `${root}/agent/wallet`, {
         headers: createRuntimeHeaders(runtimeCredential)
       }).then((response) => response.wallet),
+    listAgentPositions: (runtimeCredential: string, competitionId: string) =>
+      requestJson<AgentPositionsResponse>(
+        fetcher,
+        `${root}/agent/positions?competitionId=${encodeURIComponent(competitionId)}`,
+        {
+          headers: createRuntimeHeaders(runtimeCredential)
+        }
+      ).then((response) => response.positions),
     listCompetitions: () =>
       requestJson<CompetitionListResponse>(fetcher, `${root}/competition/list-active`).then((response) => response.competitions),
     getCompetition: (competitionId: string) =>
       requestJson<CompetitionResponse>(fetcher, `${root}/competition/${encodeURIComponent(competitionId)}`).then(
         (response) => response.competition
+      ),
+    getCompetitionMarketState: (competitionId: string) =>
+      requestJson<MarketStateResponse>(
+        fetcher,
+        `${root}/competition/${encodeURIComponent(competitionId)}/market-state`
+      ).then((response) => response.marketState),
+    listCompetitionPublicActivity: (competitionId: string, ownerAddress?: string | null) =>
+      requestJson<PublicArenaActivity>(
+        fetcher,
+        createPublicFeedUrl(root, competitionId, ownerAddress)
       ),
     submitIntent: (runtimeCredential: string, intent: SubmitIntentInput) =>
       requestJson<AgentIntent>(
@@ -97,6 +185,10 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
         `${root}/intents`,
         jsonPost(createSubmitIntentBody(intent), createRuntimeHeaders(runtimeCredential))
       ),
+    getExecution: (runtimeCredential: string, executionId: string) =>
+      requestJson<ExecutionResponse>(fetcher, `${root}/executions/${encodeURIComponent(executionId)}`, {
+        headers: createRuntimeHeaders(runtimeCredential)
+      }).then((response) => response.execution),
     listLeaderboard: (competitionId: string) =>
       requestJson<LeaderboardResponse>(
         fetcher,
@@ -186,6 +278,10 @@ function createSubmitIntentBody(intent: SubmitIntentInput): SubmitIntentInput {
     body.positionRef = intent.positionRef;
   }
 
+  if (intent.budgetRaw !== undefined) {
+    body.budgetRaw = intent.budgetRaw;
+  }
+
   if (intent.quantity !== undefined) {
     body.quantity = intent.quantity;
   }
@@ -209,4 +305,9 @@ function createRuntimeHeaders(runtimeCredential: string): Record<string, string>
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
+}
+
+function createPublicFeedUrl(root: string, competitionId: string, ownerAddress?: string | null): string {
+  const ownerQuery = ownerAddress ? `?ownerAddress=${encodeURIComponent(ownerAddress)}` : "";
+  return `${root}/competition/${encodeURIComponent(competitionId)}/public-feed${ownerQuery}`;
 }

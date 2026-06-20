@@ -1,5 +1,5 @@
-import { useState } from "react";
 import type { PlatformView } from "../../state/platform";
+import { SuiWalletConnectButton } from "./SuiWalletConnectButton";
 
 interface AppNavProps {
   activeView: PlatformView;
@@ -7,33 +7,33 @@ interface AppNavProps {
 }
 
 const navItems: Array<{ id: PlatformView; label: string }> = [
-  { id: "lobby", label: "Lobby" },
-  { id: "setup", label: "Pair Agent" },
-  { id: "wallet", label: "Wallet" },
-  { id: "competition", label: "Competition" },
-  { id: "leaderboard", label: "Leaderboard" },
-  { id: "replay", label: "Replay" },
-  { id: "skills", label: "Skills" }
+  { id: "arena", label: "Arena" },
+  { id: "leaderboard", label: "Leaderboard" }
 ];
 
 export function AppNav({ activeView, onNavigate }: AppNavProps) {
-  const [walletConnected, setWalletConnected] = useState(false);
-
   return (
     <header className="border-b-2 border-outline-variant bg-surface-container-lowest">
-      <div className="paper-frame mx-auto flex h-11 max-w-[1440px] items-center justify-between px-4">
-        <div className="flex items-center gap-5">
+      <div className="paper-frame mx-auto flex min-h-14 max-w-[1440px] items-center justify-between gap-3 px-4 py-2">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-5">
           <button
-            className="font-display text-sm font-black uppercase text-on-surface hover:text-primary"
+            className="flex shrink-0 items-center gap-2 py-2 font-display text-sm font-black uppercase text-on-surface hover:text-primary"
             type="button"
-            onClick={() => onNavigate("lobby")}
+            onClick={() => onNavigate("arena")}
           >
+            <img
+              alt=""
+              aria-hidden="true"
+              className="h-8 w-8 shrink-0 object-contain"
+              src="/agent-arena-icon.png"
+            />
             Agent Arena
           </button>
-          <nav className="hidden items-center gap-4 md:flex">
+          <nav className="flex min-w-0 items-center gap-2 overflow-x-auto sm:gap-4">
             {navItems.map((item) => (
               <button
-                className={`border-b-2 px-0.5 py-1 font-display text-xs font-semibold ${
+                aria-current={activeView === item.id ? "page" : undefined}
+                className={`shrink-0 border-b-2 px-0.5 py-2 font-display text-xs font-semibold ${
                   activeView === item.id
                     ? "border-primary text-primary"
                     : "border-transparent text-on-surface-variant hover:border-outline-variant hover:text-on-surface"
@@ -52,13 +52,7 @@ export function AppNav({ activeView, onNavigate }: AppNavProps) {
           <span className="paper-chip paper-chip-green hidden px-2 py-1 md:inline-flex">
             Testnet
           </span>
-          <button
-            className="paper-button paper-button-primary px-3 py-1.5 font-display text-xs font-black uppercase"
-            type="button"
-            onClick={() => setWalletConnected((connected) => !connected)}
-          >
-            {walletConnected ? "Owner Connected" : "Connect Owner"}
-          </button>
+          <SuiWalletConnectButton />
         </div>
       </div>
     </header>

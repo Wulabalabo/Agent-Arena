@@ -7,9 +7,14 @@
   "scripts": {
     "dev": "bun run src/server.ts",
     "smoke:attribution": "bun run src/attribution-smoke.ts",
+    "smoke:predict": "bun run src/internal-predict-execution-smoke.ts",
     "test": "bun test"
   },
   "devDependencies": {
     "@types/bun": "latest"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.2.0",
+    "@mysten/sui": "^2.18.0"
   }
 }

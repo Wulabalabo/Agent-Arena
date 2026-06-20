@@ -4,7 +4,11 @@ import { agentActions, createMockCompetition, isAgentAction } from "./types";
 describe("platform types", () => {
   it("recognizes the MVP Agent actions", () => {
     expect(isAgentAction("open_directional")).toBe(true);
-    expect(isAgentAction("adjust_range")).toBe(true);
+    expect(isAgentAction("open_range")).toBe(true);
+    expect(isAgentAction("reduce")).toBe(true);
+    expect(isAgentAction("close")).toBe(true);
+    expect(isAgentAction("adjust_range")).toBe(false);
+    expect(isAgentAction("claim_settled_range")).toBe(false);
     expect(isAgentAction("transfer")).toBe(false);
   });
 

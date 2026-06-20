@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { calculateMvpScore, sortLeaderboard } from "./scoring";
+import { calculateMvpScore, createLedgerLeaderboardEntries, sortLeaderboard } from "./scoring";
 
 describe("MVP scoring", () => {
   it("applies the fixed score formula", () => {
@@ -68,5 +68,259 @@ describe("MVP scoring", () => {
     expect(sorted).toEqual([second, first]);
     expect(sorted[0]).not.toBe(second);
     expect(sorted[1]).not.toBe(first);
+  });
+
+  it("aggregates ledger-backed leaderboard metrics by agent id across wallet replacements", () => {
+    const entries = createLedgerLeaderboardEntries({
+      agents: [{
+        id: "agent_1",
+        displayName: "Ledger Agent",
+        normalizedName: "ledger agent",
+        twitterHandle: "Ledger_Agent",
+        normalizedTwitterHandle: "ledger_agent",
+        twitterVerified: false,
+        ownerAddress: "0xowner",
+        tradingWalletAddress: "0xwallet2",
+        tradingWalletId: "wallet_2",
+        runtimeStatus: "active",
+        exposureStatus: "flat",
+        createdAt: "2026-06-15T00:00:00.000Z"
+      }],
+      ledger: [
+        {
+          kind: "execution",
+          agentDraftId: "draft_1",
+          registrationCodeHash: "sha256:abc",
+          agentId: "agent_1",
+          ownerAddress: "0xowner",
+          tradingWalletId: "wallet_1",
+          walletAddress: "0xwallet1",
+          predictManagerId: "0xmanager1",
+          competitionId: "btc-15m-001",
+          oracleId: "0xbtc15m",
+          expiryMs: "1781701200000",
+          intentId: "intent_1",
+          riskDecisionId: "risk_1",
+          executionId: "exec_1",
+          txDigest: "0xdigest1",
+          action: "open_directional",
+          positionKind: "directional",
+          quantityRaw: "10",
+          costRaw: "100",
+          proceedsRaw: null,
+          status: "confirmed",
+          errorCode: null,
+          policyDrift: "none",
+          createdAt: "2026-06-15T10:04:00.000Z",
+          serverReceivedAt: "2026-06-15T10:04:00.100Z"
+        },
+        {
+          kind: "execution",
+          agentDraftId: "draft_1",
+          registrationCodeHash: "sha256:abc",
+          agentId: "agent_1",
+          ownerAddress: "0xowner",
+          tradingWalletId: "wallet_2",
+          walletAddress: "0xwallet2",
+          predictManagerId: "0xmanager2",
+          competitionId: "btc-15m-001",
+          oracleId: "0xbtc15m",
+          expiryMs: "1781701200000",
+          intentId: "intent_2",
+          riskDecisionId: "risk_2",
+          executionId: "exec_2",
+          txDigest: "0xdigest2",
+          action: "close",
+          positionKind: "directional",
+          quantityRaw: "10",
+          costRaw: null,
+          proceedsRaw: "120",
+          status: "confirmed",
+          errorCode: null,
+          policyDrift: "none",
+          createdAt: "2026-06-15T10:10:00.000Z",
+          serverReceivedAt: "2026-06-15T10:10:00.100Z"
+        },
+        {
+          kind: "intent",
+          agentDraftId: "draft_1",
+          registrationCodeHash: "sha256:abc",
+          agentId: "agent_1",
+          ownerAddress: "0xowner",
+          tradingWalletId: "wallet_2",
+          walletAddress: "0xwallet2",
+          predictManagerId: "0xmanager2",
+          competitionId: "btc-15m-001",
+          oracleId: "0xbtc15m",
+          expiryMs: "1781701200000",
+          intentId: "intent_3",
+          riskDecisionId: "risk_3",
+          executionId: null,
+          txDigest: null,
+          action: "open_range",
+          positionKind: "range",
+          quantityRaw: "10",
+          costRaw: null,
+          proceedsRaw: null,
+          status: "rejected",
+          errorCode: "RISK_LIMIT_EXCEEDED",
+          policyDrift: "none",
+          createdAt: "2026-06-15T10:11:00.000Z",
+          serverReceivedAt: "2026-06-15T10:11:00.100Z"
+        }
+      ],
+      competitionId: "btc-15m-001"
+    });
+
+    expect(entries).toMatchObject([{
+      rank: 1,
+      agentId: "agent_1",
+      displayName: "Ledger Agent",
+      twitterHandle: "Ledger_Agent",
+      executionCount: 2,
+      invalidIntentCount: 1,
+      finalExecutionAt: "2026-06-15T10:10:00.000Z"
+    }]);
+  });
+
+  it("uses realized position PnL rows for ledger-backed performance metrics", () => {
+    const entries = createLedgerLeaderboardEntries({
+      agents: [{
+        id: "agent_1",
+        displayName: "PnL Agent",
+        normalizedName: "pnl agent",
+        twitterHandle: null,
+        normalizedTwitterHandle: null,
+        twitterVerified: false,
+        ownerAddress: "0xowner",
+        tradingWalletAddress: "0xwallet",
+        tradingWalletId: "wallet_1",
+        runtimeStatus: "active",
+        exposureStatus: "flat",
+        createdAt: "2026-06-15T00:00:00.000Z"
+      }],
+      ledger: [
+        {
+          kind: "execution",
+          agentDraftId: null,
+          registrationCodeHash: null,
+          agentId: "agent_1",
+          ownerAddress: "0xowner",
+          tradingWalletId: "wallet_1",
+          walletAddress: "0xwallet",
+          predictManagerId: "0xmanager",
+          competitionId: "btc-15m-001",
+          oracleId: "0xbtc15m",
+          expiryMs: "1781701200000",
+          intentId: "intent_1",
+          riskDecisionId: "risk_1",
+          executionId: "exec_1",
+          txDigest: "0xdigest1",
+          action: "open_directional",
+          positionKind: "directional",
+          quantityRaw: "10",
+          costRaw: "100",
+          proceedsRaw: null,
+          status: "confirmed",
+          errorCode: null,
+          policyDrift: "none",
+          createdAt: "2026-06-15T10:04:00.000Z",
+          serverReceivedAt: "2026-06-15T10:04:00.100Z"
+        },
+        {
+          kind: "execution",
+          agentDraftId: null,
+          registrationCodeHash: null,
+          agentId: "agent_1",
+          ownerAddress: "0xowner",
+          tradingWalletId: "wallet_1",
+          walletAddress: "0xwallet",
+          predictManagerId: "0xmanager",
+          competitionId: "btc-15m-001",
+          oracleId: "0xbtc15m",
+          expiryMs: "1781701200000",
+          intentId: "intent_2",
+          riskDecisionId: "risk_2",
+          executionId: "exec_2",
+          txDigest: "0xdigest2",
+          action: "close",
+          positionKind: "directional",
+          quantityRaw: "10",
+          costRaw: null,
+          proceedsRaw: "140",
+          status: "confirmed",
+          errorCode: null,
+          policyDrift: "none",
+          createdAt: "2026-06-15T10:10:00.000Z",
+          serverReceivedAt: "2026-06-15T10:10:00.100Z"
+        },
+        {
+          kind: "position",
+          agentDraftId: null,
+          registrationCodeHash: null,
+          agentId: "agent_1",
+          ownerAddress: "0xowner",
+          tradingWalletId: "wallet_1",
+          walletAddress: "0xwallet",
+          predictManagerId: "0xmanager",
+          competitionId: "btc-15m-001",
+          oracleId: "0xbtc15m",
+          expiryMs: "1781701200000",
+          intentId: "intent_2",
+          riskDecisionId: "risk_2",
+          executionId: "exec_2",
+          txDigest: "0xdigest2",
+          action: "close",
+          positionKind: "directional",
+          quantityRaw: "10",
+          costRaw: "100",
+          proceedsRaw: "140",
+          realizedPnlRaw: "40",
+          status: "realized",
+          errorCode: null,
+          policyDrift: "none",
+          createdAt: "2026-06-15T10:10:00.000Z",
+          serverReceivedAt: "2026-06-15T10:10:00.100Z"
+        },
+        {
+          kind: "position",
+          agentDraftId: null,
+          registrationCodeHash: null,
+          agentId: "agent_1",
+          ownerAddress: "0xowner",
+          tradingWalletId: "wallet_1",
+          walletAddress: "0xwallet",
+          predictManagerId: "0xmanager",
+          competitionId: "btc-15m-001",
+          oracleId: "0xbtc15m",
+          expiryMs: "1781702100000",
+          intentId: "intent_4",
+          riskDecisionId: "risk_4",
+          executionId: "exec_4",
+          txDigest: "0xdigest4",
+          action: "close",
+          positionKind: "directional",
+          quantityRaw: "10",
+          costRaw: "100",
+          proceedsRaw: "80",
+          realizedPnlRaw: "-20",
+          status: "realized",
+          errorCode: null,
+          policyDrift: "none",
+          createdAt: "2026-06-15T10:25:00.000Z",
+          serverReceivedAt: "2026-06-15T10:25:00.100Z"
+        }
+      ],
+      competitionId: "btc-15m-001"
+    });
+
+    expect(entries[0]).toMatchObject({
+      agentId: "agent_1",
+      netPnlPct: 0.1,
+      hitRatePct: 0.5,
+      executionCount: 2,
+      finalExecutionAt: "2026-06-15T10:10:00.000Z"
+    });
+    expect(entries[0]!.maxDrawdownPct).toBeCloseTo(0.1, 5);
   });
 });

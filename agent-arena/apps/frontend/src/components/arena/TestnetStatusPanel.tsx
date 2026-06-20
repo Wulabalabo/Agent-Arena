@@ -61,7 +61,7 @@ export function TestnetStatusPanel({ loadSnapshot = defaultLoadSnapshot }: Testn
         ) : (
           <div className="grid gap-2">
             <div className="font-display text-xs font-black uppercase text-on-surface">Server not loaded</div>
-            <div>Uses the public Predict server and does not submit wallet transactions.</div>
+            <div>Owner wallet signs registry binding and credential rotation; Agent trading stays platform-managed on Testnet.</div>
           </div>
         )}
         {error ? <div className="mt-2 text-error">{error}</div> : null}

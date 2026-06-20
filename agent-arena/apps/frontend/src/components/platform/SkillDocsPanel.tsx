@@ -42,7 +42,8 @@ export function SkillDocsPanel({ apiBaseUrl }: SkillDocsPanelProps) {
           <div className="mt-2 grid gap-1 break-all font-mono text-[11px] font-bold text-on-surface-variant">
             <p>Runtime endpoint: {normalizedApiBaseUrl}</p>
             <p>Init: POST {normalizedApiBaseUrl}/agent/init</p>
-            <p>Owner claim: POST {normalizedApiBaseUrl}/owner/agents/claim</p>
+            <p>Owner claim prepare: POST {normalizedApiBaseUrl}/owner/agents/claim/prepare</p>
+            <p>Owner claim finalize: POST {normalizedApiBaseUrl}/owner/agents/claim/finalize</p>
             <p>Runtime header: x-agent-arena-agent-token</p>
           </div>
           <p className="mt-2 text-xs font-bold leading-5 text-on-surface">Do not ask the Agent to sign Sui transactions. Submit intents only.</p>

@@ -9,11 +9,13 @@ export type AgentAction =
   | "adjust_range";
 
 export type CompetitionStatus = "pre_open" | "live" | "expired" | "settled";
-export type IntentStatus = "accepted" | "rejected" | "executed" | "partial";
+export type IntentStatus = "accepted" | "rejected" | "executed" | "partial" | "failed";
 export type ExecutionStatus = "queued" | "signed" | "submitted" | "confirmed" | "failed" | "partial";
+export type OwnerWithdrawalStatus = "dry_run_ok" | "submitted" | "failed";
 export type AgentRuntimeStatus = "waiting" | "active" | "cooldown" | "rejected" | "offline";
 export type ExposureStatus = "flat" | "directional" | "range" | "closing" | "settled";
 export type PositionKind = "directional" | "range";
+export type PositionSnapshotStatus = "open" | "reduced" | "closed" | "settled";
 
 export interface AgentProfile {
   id: string;
@@ -38,7 +40,75 @@ export interface PairingDraft {
 export interface RuntimeCredential {
   token: string;
   shownOnce: boolean;
+  credentialVersion?: number;
   scopes: string[];
+}
+
+export interface RegistryWriteSummary {
+  status: "disabled" | "submitted" | "failed";
+  txDigest: string | null;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface RegisterAgentRegistryProof {
+  kind: "register_agent";
+  packageId: string;
+  registryObjectId: string;
+  agentId: string;
+  ownerAddress: string;
+  tradingWalletAddress: string;
+  metadataHash: string;
+  nonceBase64: string;
+  signatureBase64: string;
+}
+
+export interface RuntimeCredentialRotationChallenge {
+  agentId: string;
+  ownerAddress: string;
+  reason: string;
+  domain: string;
+  chainId: string;
+  currentCredentialVersion: number;
+  nextCredentialVersion: number;
+  nonce: string;
+  expiresAt: string;
+  message: string;
+  registryProof?: RuntimeCredentialRotationRegistryProof;
+}
+
+export interface RuntimeCredentialRotationRegistryProof {
+  kind: "record_runtime_credential_rotation";
+  packageId: string;
+  registryObjectId: string;
+  agentId: string;
+  ownerAddress: string;
+  previousCredentialVersion: number;
+  nextCredentialVersion: number;
+  rotationHash: string;
+  nonceBase64: string;
+  signatureBase64: string;
+}
+
+export type RegistryAuthorizationProof =
+  | RegisterAgentRegistryProof
+  | RuntimeCredentialRotationRegistryProof;
+
+export interface PrepareAgentClaimResponse {
+  pendingClaimId: string;
+  agent: AgentProfile;
+  tradingWallet: TradingWallet;
+  registryProof: RegisterAgentRegistryProof;
+}
+
+export interface RuntimeCredentialRotationPrepareResponse {
+  challenge: RuntimeCredentialRotationChallenge;
+  registryProof: RuntimeCredentialRotationRegistryProof;
+}
+
+export interface RuntimeCredentialRotationResponse {
+  runtimeCredential: RuntimeCredential;
+  registry?: RegistryWriteSummary;
 }
 
 export interface TradingWallet {
@@ -49,6 +119,24 @@ export interface TradingWallet {
   testnetSuiBalance: string;
   quoteBalance: string;
   predictManagerStatus: "missing" | "ready";
+  predictManagerId: string | null;
+}
+
+export interface AgentIdentityBinding {
+  agentId: string;
+  ownerAddress: string;
+  twitterHandle: string | null;
+  tradingWalletId: string;
+  walletAddress: string;
+  predictManagerId: string | null;
+  claimedAt: string;
+}
+
+export interface OwnerWithdrawalRecord {
+  status: OwnerWithdrawalStatus;
+  amountRaw: string;
+  recipientAddress?: string;
+  txDigest?: string | null;
 }
 
 export interface Competition {
@@ -66,6 +154,45 @@ export interface Competition {
   registeredAgentCount: number;
   activeAgentCount: number;
   latestExecutionCount: number;
+}
+
+export interface MarketSnapshot {
+  allowedActions: AgentAction[];
+  allowedOperations: {
+    canClose: boolean;
+    canHold: boolean;
+    canOpen: boolean;
+    canReduce: boolean;
+  };
+  competitionId: string;
+  executableMarkets?: {
+    directional?: {
+      expiry: string;
+      oracleId: string;
+      strike: string;
+    };
+  };
+  expiryMs: string;
+  fetchedAt: string;
+  forwardPriceRaw: string;
+  lateWindow: {
+    isFinalMinute: boolean;
+    openAllowedByPlatform: boolean;
+    openMayFailOnPredictQuote: boolean;
+  };
+  oracleId: string;
+  oracleStatus: "inactive" | "active" | "expired" | "settled";
+  priceDecimals: 9;
+  serverTimeMs: string;
+  spotPriceRaw: string;
+  status: CompetitionStatus;
+  strikeGrid: {
+    maxStrikeRaw: string | null;
+    minStrikeRaw: string;
+    strikeStepRaw: string;
+  };
+  timeToExpiryMs: string;
+  underlyingAsset: "BTC";
 }
 
 export interface DirectionalMarket {
@@ -91,7 +218,22 @@ export interface PositionRef {
   marketKey?: string;
   rangeKey?: string;
   openExecutionId?: string;
-  quantity: string;
+  quantity?: string;
+}
+
+export interface AgentPositionSnapshot {
+  agentId: string;
+  competitionId: string;
+  positionRef: PositionRef;
+  oracleId: string;
+  expiryMs: string;
+  strikeRaw?: string;
+  direction?: "up" | "down";
+  lowerStrikeRaw?: string;
+  higherStrikeRaw?: string;
+  quantityRaw: string;
+  status: PositionSnapshotStatus;
+  updatedAt: string;
 }
 
 export interface AgentIntent {
@@ -107,6 +249,7 @@ export interface AgentIntent {
   createdAt: string;
   market?: IntentMarket;
   positionRef?: PositionRef;
+  budgetRaw?: string;
   quantity?: string;
   maxCost?: string;
   minProceeds?: string;
@@ -122,6 +265,7 @@ export interface SubmitIntentInput {
   createdAt: string;
   market?: IntentMarket;
   positionRef?: PositionRef;
+  budgetRaw?: string;
   quantity?: string;
   maxCost?: string;
   minProceeds?: string;
@@ -143,8 +287,16 @@ export interface ExecutionRecord {
   competitionId: string;
   status: ExecutionStatus;
   predictTxDigest: string | null;
+  predictTxUrl?: string | null;
   action: AgentAction;
   createdAt: string;
+}
+
+export interface PublicAgentSummary {
+  id: string;
+  displayName: string;
+  twitterHandle: string | null;
+  twitterVerified: boolean;
 }
 
 export interface LeaderboardEntry {
@@ -161,6 +313,24 @@ export interface LeaderboardEntry {
   executionCount: number;
   invalidIntentCount: number;
   finalExecutionAt: string;
+  currentExposureStatus?: ExposureStatus;
+}
+
+export interface PublicArenaActivity {
+  agents: PublicAgentSummary[];
+  intents: AgentIntent[];
+  executions: ExecutionRecord[];
+  leaderboard: LeaderboardEntry[];
+  ownerAgentIds?: string[];
+}
+
+export interface OwnerAgentProfile {
+  agent: AgentProfile | null;
+  tradingWallet: TradingWallet | null;
+  positions: AgentPositionSnapshot[];
+  intents: AgentIntent[];
+  executions: ExecutionRecord[];
+  leaderboard: LeaderboardEntry[];
 }
 
 export interface ReplayEvent {
@@ -175,12 +345,14 @@ export interface ReplayEvent {
 
 export interface PlatformSnapshot {
   agents: AgentProfile[];
+  identityBinding: AgentIdentityBinding;
   tradingWallet: TradingWallet;
   competitions: Competition[];
   latestIntent: AgentIntent;
   intents: AgentIntent[];
   riskDecisions: RiskDecision[];
   executions: ExecutionRecord[];
+  positions: AgentPositionSnapshot[];
   leaderboard: LeaderboardEntry[];
   replay: ReplayEvent[];
 }

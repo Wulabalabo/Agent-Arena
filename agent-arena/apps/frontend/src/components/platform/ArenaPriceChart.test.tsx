@@ -1,0 +1,160 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import type { LiveBtcMarketSnapshot } from "../../features/predict/live-market";
+import { ArenaPriceChart } from "./ArenaPriceChart";
+
+describe("ArenaPriceChart", () => {
+  it("renders a clean line chart with price and time axes", async () => {
+    render(
+      <ArenaPriceChart
+        error={null}
+        marketReference={{ kind: "directional", strike: 65_000, strikeRaw: "65000000000000" }}
+        snapshot={createSnapshot(65_611.52, "2026-06-16T15:00:54.893Z")}
+        status="ready"
+      />
+    );
+
+    expect(screen.getByRole("img", { name: /BTC price line chart/i })).toBeInTheDocument();
+    expect(screen.getByTestId("btc-reference-line")).toHaveAttribute("stroke", "#f59e0b");
+    expect(screen.getByTestId("btc-strike-line")).toBeInTheDocument();
+    expect(screen.getByText("Strike $65,000.00")).toBeInTheDocument();
+    expect(screen.queryByText("Target")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("btc-price-tick")).toHaveLength(4);
+    expect(screen.getAllByTestId("btc-price-tick").every((tick) => tick.textContent?.startsWith("$"))).toBe(true);
+    expect(screen.getAllByTestId("btc-time-tick")).toHaveLength(2);
+    expect(screen.getAllByTestId("btc-time-tick").map((tick) => tick.textContent)).not.toContain("15:00:54 UTC");
+    expect(screen.getByTestId("btc-current-price-label")).toHaveTextContent("$65,611.52");
+    expect(screen.getByTestId("btc-current-time-label")).toHaveTextContent("15:00:54 UTC");
+  });
+
+  it("does not render a synthetic target from the forward price", () => {
+    render(
+      <ArenaPriceChart
+        error={null}
+        snapshot={createSnapshot(65_611.52, "2026-06-16T15:00:54.893Z", 66_000)}
+        status="ready"
+      />
+    );
+
+    expect(screen.queryByTestId("btc-strike-line")).not.toBeInTheDocument();
+    expect(screen.queryByText("Target")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Strike/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("btc-current-price-label")).toHaveTextContent("$65,611.52");
+  });
+
+  it("keeps at least one quarter percent of total vertical price range", () => {
+    const spot = 65_611.52;
+    render(
+      <ArenaPriceChart
+        error={null}
+        snapshot={createSnapshot(spot, "2026-06-16T15:00:54.893Z", 66_000)}
+        status="ready"
+      />
+    );
+
+    const ticks = screen.getAllByTestId("btc-price-tick").map((tick) => parseUsdTick(tick.textContent ?? ""));
+
+    expect(Math.max(...ticks) - Math.min(...ticks)).toBeGreaterThanOrEqual(Math.floor(spot * 0.0025));
+    expect(Math.max(...ticks) - Math.min(...ticks)).toBeLessThan(Math.floor(spot * 0.01));
+  });
+
+  it("renders the current price marker as an unstretched HTML dot", () => {
+    render(
+      <ArenaPriceChart
+        error={null}
+        snapshot={createSnapshot(65_611.52, "2026-06-16T15:00:54.893Z")}
+        status="ready"
+      />
+    );
+
+    const marker = screen.getByTestId("btc-current-marker");
+    expect(marker.tagName).toBe("SPAN");
+    expect(marker).toHaveClass("aspect-square");
+    expect(marker).toHaveClass("rounded-full");
+  });
+
+  it("renders both range reference lines when the market reference is a range", () => {
+    render(
+      <ArenaPriceChart
+        error={null}
+        marketReference={{
+          higherStrike: 66_000,
+          higherStrikeRaw: "66000000000000",
+          kind: "range",
+          lowerStrike: 64_000,
+          lowerStrikeRaw: "64000000000000"
+        }}
+        snapshot={createSnapshot(65_611.52, "2026-06-16T15:00:54.893Z")}
+        status="ready"
+      />
+    );
+
+    expect(screen.getByTestId("btc-lower-strike-line")).toBeInTheDocument();
+    expect(screen.getByTestId("btc-higher-strike-line")).toBeInTheDocument();
+    expect(screen.getByText("Range low $64,000.00")).toBeInTheDocument();
+    expect(screen.getByText("Range high $66,000.00")).toBeInTheDocument();
+    expect(screen.queryByText("Target")).not.toBeInTheDocument();
+  });
+
+  it("updates the reference trace when BTC price changes", async () => {
+    const { rerender } = render(
+      <ArenaPriceChart error={null} snapshot={createSnapshot(65_611.52, "2026-06-16T15:00:54.893Z")} status="ready" />
+    );
+
+    const initialPath = await readTracePath();
+    const initialMarkerTop = screen.getByTestId("btc-current-marker").style.top;
+
+    rerender(
+      <ArenaPriceChart error={null} snapshot={createSnapshot(65_705.88, "2026-06-16T15:00:55.393Z")} status="ready" />
+    );
+
+    await waitFor(async () => {
+      expect(await readTracePath()).not.toBe(initialPath);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("btc-current-marker").style.top).not.toBe(initialMarkerTop);
+    });
+    expect(screen.getByTestId("btc-current-price-label")).toHaveTextContent("$65,705.88");
+    expect(screen.getByTestId("btc-current-time-label")).toHaveTextContent("15:00:55 UTC");
+  });
+});
+
+async function readTracePath(): Promise<string> {
+  await waitFor(() => {
+    expect(screen.getByTestId("btc-reference-line")).toHaveAttribute("d");
+  });
+  return screen.getByTestId("btc-reference-line").getAttribute("d") ?? "";
+}
+
+function createSnapshot(spot: number, updatedAt: string, forward: number | null = spot - 0.33): LiveBtcMarketSnapshot {
+  return {
+    health: "ready",
+    serverStatus: "OK",
+    serverTime: "2026-06-16T15:00:00.000Z",
+    serverTimeMs: 1781622000000,
+    predictId: "0xpredict",
+    quoteAssetLabel: "DUSDC",
+    oracleCounts: { activeFutureBtc: 1, activeTotal: 1, total: 1 },
+    oracle: {
+      oracleId: "0xfuture-nearest",
+      underlyingAsset: "BTC",
+      expiryMs: 1781622900000,
+      expiresAt: "2026-06-16T15:15:00.000Z",
+      secondsToExpiry: 900,
+      status: "active"
+    },
+    price: {
+      spot,
+      forward,
+      updatedAt,
+      checkpoint: 349166156
+    },
+    currentOracleTradeCount: 1,
+    events: [],
+    fetchedAt: updatedAt
+  };
+}
+
+function parseUsdTick(value: string): number {
+  return Number(value.replace(/[$,]/g, ""));
+}

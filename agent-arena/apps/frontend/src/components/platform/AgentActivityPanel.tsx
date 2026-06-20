@@ -1,14 +1,27 @@
 import type { ReactNode } from "react";
-import type { AgentIntent, ExecutionRecord, RiskDecision, TradingWallet } from "../../features/platform/types";
+import type {
+  AgentIntent,
+  AgentPositionSnapshot,
+  ExecutionRecord,
+  RiskDecision,
+  TradingWallet
+} from "../../features/platform/types";
 
 interface AgentActivityPanelProps {
   executions: ExecutionRecord[];
   intents: AgentIntent[];
+  positions?: AgentPositionSnapshot[];
   riskDecisions: RiskDecision[];
   tradingWallet: TradingWallet;
 }
 
-export function AgentActivityPanel({ executions, intents, riskDecisions, tradingWallet }: AgentActivityPanelProps) {
+export function AgentActivityPanel({
+  executions,
+  intents,
+  positions = [],
+  riskDecisions,
+  tradingWallet
+}: AgentActivityPanelProps) {
   return (
     <section aria-label="Agent activity" className="paper-card-sm p-4">
       <div className="flex items-start justify-between gap-3">
@@ -66,12 +79,32 @@ export function AgentActivityPanel({ executions, intents, riskDecisions, trading
           )}
         </ActivitySection>
 
+        <ActivitySection title="Positions">
+          {positions.length > 0 ? (
+            positions.map((position) => (
+              <RecordBlock key={`${position.agentId}:${position.competitionId}:${formatPositionRef(position)}`}>
+                <RecordHeader label={formatPositionRef(position)} value={position.status} />
+                <MonoLine label="Quantity raw" value={position.quantityRaw} />
+                <MonoLine label="Oracle" value={position.oracleId} />
+                {position.strikeRaw ? <MonoLine label="Strike raw" value={position.strikeRaw} /> : null}
+                {position.direction ? <MonoLine label="Direction" value={position.direction} /> : null}
+                {position.lowerStrikeRaw && position.higherStrikeRaw ? (
+                  <MonoLine label="Range raw" value={`${position.lowerStrikeRaw}-${position.higherStrikeRaw}`} />
+                ) : null}
+              </RecordBlock>
+            ))
+          ) : (
+            <EmptyState>No Predict positions yet.</EmptyState>
+          )}
+        </ActivitySection>
+
         <ActivitySection title="Wallet">
           <RecordBlock>
             <RecordHeader label={formatAddress(tradingWallet.address)} value={tradingWallet.status} />
             <MonoLine label="Testnet SUI" value={tradingWallet.testnetSuiBalance} />
             <MonoLine label="Quote balance" value={tradingWallet.quoteBalance} />
             <MonoLine label="Predict manager" value={tradingWallet.predictManagerStatus} />
+            <MonoLine label="Manager ID" value={tradingWallet.predictManagerId ?? "not created"} />
           </RecordBlock>
         </ActivitySection>
       </div>
@@ -144,6 +177,10 @@ function formatMarket(intent: AgentIntent) {
 
 function formatAction(value: string) {
   return value.replace(/_/g, " ");
+}
+
+function formatPositionRef(position: AgentPositionSnapshot) {
+  return position.positionRef.marketKey ?? position.positionRef.rangeKey ?? position.positionRef.openExecutionId ?? "position";
 }
 
 function formatIntentRejection(value: string) {

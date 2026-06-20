@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.production.example
+apps/backend/.env
+apps/backend/data/
+apps/backend/.tmp-tests/
+apps/frontend/dist/
+apps/frontend/.vite/
+apps/frontend/coverage/
+apps/frontend/test-results/

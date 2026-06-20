@@ -9,12 +9,12 @@ import {
 } from "./platform";
 
 describe("platform state", () => {
-  it("starts on the live competition view with the first competition and Agent selected", () => {
+  it("starts on the Arena view with the first competition and Agent selected", () => {
     const firstAgent = mockPlatformSnapshot.agents[0];
     const firstCompetition = mockPlatformSnapshot.competitions[0];
     const state = createInitialPlatformState(mockPlatformSnapshot);
 
-    expect(state.activeView).toBe("competition");
+    expect(state.activeView).toBe("arena");
     expect(getSelectedCompetition(state).id).toBe(firstCompetition.id);
     expect(getSelectedAgent(state).id).toBe(firstAgent.id);
   });
@@ -27,17 +27,21 @@ describe("platform state", () => {
     expect(state.intents).not.toBe(mockPlatformSnapshot.intents);
     expect(state.riskDecisions).not.toBe(mockPlatformSnapshot.riskDecisions);
     expect(state.executions).not.toBe(mockPlatformSnapshot.executions);
+    expect(state.positions).not.toBe(mockPlatformSnapshot.positions);
     expect(state.leaderboard).not.toBe(mockPlatformSnapshot.leaderboard);
     expect(state.replay).not.toBe(mockPlatformSnapshot.replay);
   });
 
-  it("switches platform views without clearing selected Agent", () => {
+  it("switches between the two primary platform views without clearing selected Agent", () => {
     const secondAgent = mockPlatformSnapshot.agents[1];
     const state = createInitialPlatformState(mockPlatformSnapshot);
-    const next = selectPlatformView(selectAgent(state, secondAgent.id), "leaderboard");
 
-    expect(next.activeView).toBe("leaderboard");
-    expect(next.selectedAgentId).toBe(secondAgent.id);
+    const arena = selectPlatformView(selectAgent(state, secondAgent.id), "arena");
+    const leaderboard = selectPlatformView(arena, "leaderboard");
+
+    expect(arena.activeView).toBe("arena");
+    expect(leaderboard.activeView).toBe("leaderboard");
+    expect(leaderboard.selectedAgentId).toBe(secondAgent.id);
   });
 
   it("rejects selecting an unknown Agent", () => {

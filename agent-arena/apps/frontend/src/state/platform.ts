@@ -1,13 +1,6 @@
 import type { AgentProfile, Competition, PlatformSnapshot } from "../features/platform/types";
 
-export type PlatformView =
-  | "lobby"
-  | "setup"
-  | "wallet"
-  | "competition"
-  | "leaderboard"
-  | "replay"
-  | "skills";
+export type PlatformView = "arena" | "leaderboard";
 
 export interface PlatformState extends PlatformSnapshot {
   activeView: PlatformView;
@@ -29,9 +22,10 @@ export function createInitialPlatformState(snapshot: PlatformSnapshot): Platform
     intents: [...snapshot.intents],
     riskDecisions: [...snapshot.riskDecisions],
     executions: [...snapshot.executions],
+    positions: [...snapshot.positions],
     leaderboard: [...snapshot.leaderboard],
     replay: [...snapshot.replay],
-    activeView: "competition",
+    activeView: "arena",
     selectedAgentId: firstAgent.id,
     selectedCompetitionId: firstCompetition.id
   };

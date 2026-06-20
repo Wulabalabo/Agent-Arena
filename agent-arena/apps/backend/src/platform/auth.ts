@@ -1,10 +1,46 @@
 import type { AgentProfile } from "./types";
+import type { RuntimeCredentialRotationRegistryProof } from "./registry";
 
 export interface AgentRuntimeCredential {
   agentId: string;
   token: string;
   createdAt: string;
+  credentialVersion: number;
   scopes: string[];
+  revokedAt?: string | null;
+  revocationReason?: string | null;
+}
+
+export interface RuntimeCredentialRotationChallenge {
+  agentId: string;
+  ownerAddress: string;
+  reason: string;
+  domain: string;
+  chainId: string;
+  currentCredentialVersion: number;
+  nextCredentialVersion: number;
+  nonce: string;
+  expiresAt: string;
+  message: string;
+  registryProof?: RuntimeCredentialRotationRegistryProof;
+  consumedAt?: string | null;
+}
+
+export interface RuntimeCredentialRotationInput {
+  agentId: string;
+  ownerAddress: string;
+  nonce: string;
+  reason: string;
+  domain: string;
+  chainId: string;
+  currentCredentialVersion: number;
+  now: string;
+  revocationReason: string;
+}
+
+export interface RuntimeCredentialRotationResult {
+  credential: AgentRuntimeCredential;
+  previousCredential: AgentRuntimeCredential;
 }
 
 export interface AgentCredentialStore {
@@ -18,6 +54,12 @@ export interface AuthenticatedAgentRequest {
 }
 
 const runtimeTokenPrefix = "agent_runtime_";
+export const runtimeCredentialScopes = Object.freeze([
+  "agent:read",
+  "agent:intent:write",
+  "competition:read",
+  "execution:read"
+]);
 export const runtimeTokenHeader = "x-agent-arena-agent-token";
 
 export class PlatformAuthError extends Error {
@@ -38,9 +80,12 @@ export function createAgentRuntimeCredential(
 
   const credential: AgentRuntimeCredential = {
     agentId,
-    token: `${runtimeTokenPrefix}${randomKeyPart()}${randomKeyPart()}`,
+    token: createRuntimeCredentialToken(),
     createdAt: now,
-    scopes: ["agent:read", "agent:intent:write", "competition:read", "execution:read"]
+    credentialVersion: 1,
+    scopes: [...runtimeCredentialScopes],
+    revokedAt: null,
+    revocationReason: null
   };
 
   store.saveRuntimeCredential(credential);
@@ -57,11 +102,15 @@ export function authenticateAgentRuntimeRequest(
   }
 
   const credential = store.findRuntimeCredentialByToken(token);
-  if (!credential) {
+  if (!credential || credential.revokedAt) {
     throw new PlatformAuthError();
   }
 
   return { agentId: credential.agentId };
+}
+
+export function createRuntimeCredentialToken(): string {
+  return `${runtimeTokenPrefix}${randomKeyPart()}${randomKeyPart()}`;
 }
 
 function randomKeyPart(): string {
