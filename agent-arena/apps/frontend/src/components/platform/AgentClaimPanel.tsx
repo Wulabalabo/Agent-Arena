@@ -42,8 +42,6 @@ export interface ClaimWalletProvider {
   requestPermissions?: (permissions?: string[]) => Promise<unknown>;
   getAccounts?: () => Promise<ClaimWalletAccount[]> | ClaimWalletAccount[];
   signAndExecuteTransaction?: (input: { transaction: Transaction }) => Promise<unknown>;
-  signPersonalMessage?: (input: { message: Uint8Array; account?: ClaimWalletAccount }) => Promise<unknown>;
-  signMessage?: (input: { message: Uint8Array; account?: ClaimWalletAccount }) => Promise<unknown>;
 }
 
 export function AgentClaimPanel({

@@ -15,12 +15,14 @@ vi.mock("./components/platform/SuiDappKitAgentClaimPanel", async () => {
       <AgentClaimPanel
         {...props}
         claimButtonLabel="Claim"
-        connectedWalletAddress="0xowner"
+        connectedWalletAddress="0x0000000000000000000000000000000000000000000000000000000000000bad"
         manualClaimEnabled={false}
         missingWalletMessage="Connect owner wallet in the top menu before claiming."
         walletProvider={{
-          getAccounts: () => [{ address: "0xowner" }],
-          signPersonalMessage: async () => ({ signature: "0xmock-global-signature" })
+          getAccounts: () => [{
+            address: "0x0000000000000000000000000000000000000000000000000000000000000bad"
+          }],
+          signAndExecuteTransaction: async () => ({ digest: "0xclaimdigest" })
         }}
       />
     )
@@ -29,6 +31,8 @@ vi.mock("./components/platform/SuiDappKitAgentClaimPanel", async () => {
 
 import App from "./App";
 import { mockPlatformSnapshot } from "./features/platform/mock";
+
+const testOwnerAddress = "0x0000000000000000000000000000000000000000000000000000000000000bad";
 
 describe("App", () => {
   beforeEach(() => {
@@ -348,14 +352,25 @@ describe("App", () => {
 
   it("claims an Agent from the owner-facing claim URL", async () => {
     window.history.pushState({}, "", "/agent-arena/claim/PAIR-2050");
-    const platformFetcher = vi.fn(async () => new Response(JSON.stringify({
+    const registryProof = {
+      kind: "register_agent",
+      packageId: "0x0000000000000000000000000000000000000000000000000000000000000abc",
+      registryObjectId: "0x0000000000000000000000000000000000000000000000000000000000000def",
+      agentId: "agent_2050",
+      ownerAddress: testOwnerAddress,
+      tradingWalletAddress: "0x0000000000000000000000000000000000000000000000000000000000000bee",
+      metadataHash: "sha256:metadata",
+      nonceBase64: "bm9uY2U=",
+      signatureBase64: "c2lnbmF0dXJl"
+    };
+    const claimResult = {
       agent: {
         id: "agent_2050",
         displayName: "Claimed Agent",
         twitterHandle: "Sui_Agent",
         twitterVerified: false,
-        ownerAddress: "0xowner",
-        tradingWalletAddress: "0xwallet",
+        ownerAddress: testOwnerAddress,
+        tradingWalletAddress: registryProof.tradingWalletAddress,
         runtimeStatus: "active",
         exposureStatus: "flat",
         createdAt: "2026-06-18T02:00:00.000Z"
@@ -363,7 +378,7 @@ describe("App", () => {
       tradingWallet: {
         id: "wallet_2050",
         agentId: "agent_2050",
-        address: "0xwallet",
+        address: registryProof.tradingWalletAddress,
         status: "active",
         testnetSuiBalance: "0",
         quoteBalance: "0",
@@ -375,29 +390,59 @@ describe("App", () => {
         shownOnce: true,
         scopes: ["competition:read"]
       }
-    }), {
-      status: 201,
-      headers: { "content-type": "application/json" }
-    }));
+    };
+    const platformFetcher = vi.fn(async (url: string) => {
+      if (url.endsWith("/owner/agents/claim/prepare")) {
+        return jsonResponse({
+          pendingClaimId: "pending_claim_2050",
+          agent: claimResult.agent,
+          tradingWallet: claimResult.tradingWallet,
+          registryProof
+        }, 201);
+      }
+
+      if (url.endsWith("/owner/agents/claim/finalize")) {
+        return jsonResponse({
+          ...claimResult,
+          registry: {
+            status: "submitted",
+            txDigest: "0xclaimdigest"
+          }
+        }, 201);
+      }
+
+      return jsonResponse({
+        error: {
+          code: "NOT_FOUND",
+          message: "Unexpected request"
+        }
+      }, 404);
+    });
 
     render(<App platformFetcher={platformFetcher} />);
 
     expect(screen.getByLabelText(/Registration code/i)).toHaveValue("PAIR-2050");
     expect(screen.queryByLabelText(/Owner wallet address/i)).not.toBeInTheDocument();
-    expect(screen.getByText("0xowner")).toBeInTheDocument();
+    expect(screen.getByText(testOwnerAddress)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Twitter handle/i), {
       target: { value: "@Sui_Agent" }
     });
     fireEvent.click(screen.getByRole("button", { name: /^Claim$/i }));
 
     expect(await screen.findByText("agent_runtime_claimed")).toBeInTheDocument();
-    expect(platformFetcher).toHaveBeenCalledWith("http://127.0.0.1:8787/api/arena/owner/agents/claim", expect.objectContaining({
+    expect(platformFetcher).toHaveBeenCalledWith("http://127.0.0.1:8787/api/arena/owner/agents/claim/prepare", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({
         registrationCode: "PAIR-2050",
-        ownerAddress: "0xowner",
-        signature: "0xmock-global-signature",
+        ownerAddress: testOwnerAddress,
         twitterHandle: "@Sui_Agent"
+      })
+    }));
+    expect(platformFetcher).toHaveBeenCalledWith("http://127.0.0.1:8787/api/arena/owner/agents/claim/finalize", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({
+        pendingClaimId: "pending_claim_2050",
+        txDigest: "0xclaimdigest"
       })
     }));
   });

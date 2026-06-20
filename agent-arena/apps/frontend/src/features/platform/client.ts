@@ -34,13 +34,6 @@ interface InitAgentPairingInput {
   displayName: string;
 }
 
-interface ClaimAgentInput {
-  registrationCode: string;
-  ownerAddress: string;
-  signature: string;
-  twitterHandle?: string;
-}
-
 interface PrepareAgentClaimInput {
   registrationCode: string;
   ownerAddress: string;
@@ -115,8 +108,6 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
   return {
     initAgentPairing: (input: InitAgentPairingInput) =>
       requestJson<PairingDraft>(fetcher, `${root}/agent/init`, jsonPost(input)),
-    claimAgent: (input: ClaimAgentInput) =>
-      requestJson<ClaimAgentResponse>(fetcher, `${root}/owner/agents/claim`, jsonPost(input)),
     prepareAgentClaim: (input: PrepareAgentClaimInput) =>
       requestJson<PrepareAgentClaimResponse>(fetcher, `${root}/owner/agents/claim/prepare`, jsonPost(input)),
     finalizeAgentClaim: (input: FinalizeAgentClaimInput) =>

@@ -50,8 +50,7 @@ describe("AgentClaimPanel", () => {
     });
     const walletProvider: ClaimWalletProvider = {
       connect: vi.fn(async () => ({ accounts: [{ address: ownerAddress }] })),
-      signAndExecuteTransaction: vi.fn(async () => ({ digest: "0xclaimdigest" })),
-      signPersonalMessage: vi.fn()
+      signAndExecuteTransaction: vi.fn(async () => ({ digest: "0xclaimdigest" }))
     };
 
     render(
@@ -68,7 +67,6 @@ describe("AgentClaimPanel", () => {
     await waitFor(() => {
       expect(walletProvider.signAndExecuteTransaction).toHaveBeenCalledTimes(1);
     });
-    expect(walletProvider.signPersonalMessage).not.toHaveBeenCalled();
     expect(screen.queryByText("agent_runtime_claimed")).not.toBeInTheDocument();
     expect(platformFetcher).toHaveBeenCalledWith("http://127.0.0.1:8787/api/arena/owner/agents/claim/prepare", expect.objectContaining({
       method: "POST",
@@ -140,8 +138,7 @@ describe("AgentClaimPanel", () => {
     const walletProvider: ClaimWalletProvider = {
       requestPermissions: vi.fn(async () => undefined),
       getAccounts: vi.fn(async () => [{ address: permissionedOwnerAddress }]),
-      signAndExecuteTransaction: vi.fn(async () => ({ effects: { transactionDigest: "0xpermissioneddigest" } })),
-      signPersonalMessage: vi.fn()
+      signAndExecuteTransaction: vi.fn(async () => ({ effects: { transactionDigest: "0xpermissioneddigest" } }))
     };
 
     render(
@@ -158,7 +155,6 @@ describe("AgentClaimPanel", () => {
     expect(await screen.findByText("agent_runtime_permissioned")).toBeInTheDocument();
     expect(walletProvider.requestPermissions).toHaveBeenCalledWith(["viewAccount"]);
     expect(walletProvider.signAndExecuteTransaction).toHaveBeenCalledTimes(1);
-    expect(walletProvider.signPersonalMessage).not.toHaveBeenCalled();
     expect(platformFetcher).toHaveBeenCalledWith("http://127.0.0.1:8787/api/arena/owner/agents/claim/prepare", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({
@@ -187,7 +183,6 @@ describe("AgentClaimPanel", () => {
       }]
     }));
     const signAndExecuteTransaction = vi.fn(async () => ({ Transaction: { digest: "0xoptiondigest" } }));
-    const signPersonalMessage = vi.fn();
 
     render(
       <AgentClaimPanel
@@ -199,8 +194,7 @@ describe("AgentClaimPanel", () => {
           name: "Sui Wallet",
           provider: {
             connect,
-            signAndExecuteTransaction,
-            signPersonalMessage
+            signAndExecuteTransaction
           }
         }]}
       />
@@ -220,7 +214,6 @@ describe("AgentClaimPanel", () => {
         getData: expect.any(Function)
       })
     });
-    expect(signPersonalMessage).not.toHaveBeenCalled();
   });
 });
 

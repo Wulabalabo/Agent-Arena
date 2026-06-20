@@ -34,60 +34,6 @@ describe("createPlatformClient", () => {
     });
   });
 
-  it("claims an agent for an owner and returns the runtime credential", async () => {
-    const fetcher = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          agent: mockPlatformSnapshot.agents[0],
-          tradingWallet: mockPlatformSnapshot.tradingWallet,
-          runtimeCredential: {
-            token: "agent_runtime_test_token",
-            shownOnce: true,
-            scopes: ["agent:read", "agent:intent:write"]
-          },
-          registry: {
-            status: "submitted",
-            txDigest: "0xregistrydigest"
-          }
-        }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      )
-    );
-    const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
-    const input = {
-      registrationCode: "PAIR-2048",
-      ownerAddress: "0xowner",
-      signature: "0xsig",
-      twitterHandle: "@Sui_Agent"
-    };
-
-    const result = await client.claimAgent(input);
-
-    expect(result.agent).toMatchObject({
-      twitterHandle: "Sui_Agent",
-      twitterVerified: false
-    });
-    expect(result.tradingWallet).toMatchObject({
-      id: "wallet_internal_001",
-      status: "active",
-      address: "0xagentwallet_agent_1"
-    });
-    expect(result.runtimeCredential).toEqual({
-      token: "agent_runtime_test_token",
-      shownOnce: true,
-      scopes: ["agent:read", "agent:intent:write"]
-    });
-    expect(result.registry).toEqual({
-      status: "submitted",
-      txDigest: "0xregistrydigest"
-    });
-    expect(fetcher).toHaveBeenCalledWith("https://platform.test/api/arena/owner/agents/claim", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(input)
-    });
-  });
-
   it("prepares an Agent claim with an owner wallet address and returns a register proof", async () => {
     const registryProof = {
       kind: "register_agent",

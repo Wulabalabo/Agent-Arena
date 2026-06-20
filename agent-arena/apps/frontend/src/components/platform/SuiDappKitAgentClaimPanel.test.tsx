@@ -4,8 +4,7 @@ import { SuiDappKitAgentClaimPanel } from "./SuiDappKitAgentClaimPanel";
 
 const dappKitState = vi.hoisted(() => ({
   account: null as { address: string } | null,
-  signAndExecuteTransaction: vi.fn(),
-  signPersonalMessage: vi.fn()
+  signAndExecuteTransaction: vi.fn()
 }));
 
 const sdkOwnerAddress = "0x0000000000000000000000000000000000000000000000000000000000000ace";
@@ -14,8 +13,7 @@ const sdkTradingWalletAddress = "0x000000000000000000000000000000000000000000000
 vi.mock("@mysten/dapp-kit-react", () => ({
   useCurrentAccount: () => dappKitState.account,
   useDAppKit: () => ({
-    signAndExecuteTransaction: dappKitState.signAndExecuteTransaction,
-    signPersonalMessage: dappKitState.signPersonalMessage
+    signAndExecuteTransaction: dappKitState.signAndExecuteTransaction
   })
 }));
 
@@ -23,7 +21,6 @@ describe("SuiDappKitAgentClaimPanel", () => {
   beforeEach(() => {
     dappKitState.account = null;
     dappKitState.signAndExecuteTransaction.mockReset();
-    dappKitState.signPersonalMessage.mockReset();
   });
 
   it("claims with the globally connected owner wallet by executing the registry transaction", async () => {
@@ -59,7 +56,6 @@ describe("SuiDappKitAgentClaimPanel", () => {
         getData: expect.any(Function)
       })
     });
-    expect(dappKitState.signPersonalMessage).not.toHaveBeenCalled();
     await waitFor(() => {
       expect(platformFetcher).toHaveBeenCalledWith("http://127.0.0.1:8787/api/arena/owner/agents/claim/prepare", expect.objectContaining({
         method: "POST",
