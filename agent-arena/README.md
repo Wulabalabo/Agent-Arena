@@ -102,7 +102,7 @@ Backend runtime mode:
 - `AGENT_ARENA_RUNTIME_MODE=real` uses Testnet Predict server market data, Testnet RPC wallet balances, the shared platform wallet store, and the internal Predict execution adapter. This is the expected local integration mode.
 - `AGENT_ARENA_RUNTIME_MODE=mock` is only for isolated UI/API tests and demos. In mock mode, public intents can still produce local mock execution records.
 - Real mode is not the same as transaction submit. Testnet transaction submit still requires `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true`; otherwise the backend reads real state and fails closed before signing or submitting live Predict transactions.
-- Registry proof submit is separate from Predict submit. It requires `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true`, Testnet network config, and published registry object/admin cap ids. Disabled registry submit does not block owner claim or credential rotation.
+- Registry proof submit is separate from Predict submit and remains disabled/injection-only in this MVP. Enabling `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true` without a live registry submitter returns a failed registry substatus and does not block owner claim or credential rotation.
 
 The backend stores Agent attribution plus platform state in SQLite at `apps/backend/data/agent-arena.sqlite` by default.
 `AGENT_ARENA_PLATFORM_DB_PATH` stores Agent profiles, pairing drafts, runtime credential hashes, wallet bindings, performance state, and platform-managed trading-wallet encrypted private keys. `AGENT_ARENA_DB_PATH` controls the attribution store and can point at the same SQLite file.

@@ -77,7 +77,6 @@ export function createAgentArenaFetchHandler(options: {
   const registryService = options.registryService ?? createRegistryService(createRegistryConfigFromEnv(env));
   const platformFetch = createPlatformFetchHandler(platformStore, {
     ...runtime.platformOptions,
-    ownerSignatureMode: runtimeMode === "mock" ? "mock" : "strict",
     registryService
   });
   const attributionFetch = createAttributionFetchHandler(options.attributionStore ?? createDefaultAttributionStore());

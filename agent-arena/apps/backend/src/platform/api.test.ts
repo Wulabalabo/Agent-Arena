@@ -1,9 +1,12 @@
 import { describe, expect, it } from "bun:test";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { createAgentArenaFetchHandler } from "../server";
 import { createPlatformFetchHandler } from "./api";
 import { PlatformMockStore } from "./mock-store";
 import { createPerformanceLedgerRecord, createRegistrationCodeHash } from "./performance-ledger";
 import { createMockCompetition } from "./types";
+
+const acceptOwnerSignature = async () => true;
 
 async function claimTestAgent(
   fetch: ReturnType<typeof createPlatformFetchHandler>,
@@ -63,6 +66,7 @@ async function rotateCredential(
     message: string;
     domain: string;
     currentCredentialVersion: number;
+    signature?: string;
   }
 ) {
   return await fetch(new Request(
@@ -71,7 +75,7 @@ async function rotateCredential(
       method: "POST",
       body: JSON.stringify({
         ownerAddress: challenge.ownerAddress,
-        signature: "mock-owner-signature",
+        signature: challenge.signature ?? "mock-owner-signature",
         nonce: challenge.nonce,
         expiresAt: challenge.expiresAt,
         reason: challenge.reason,
@@ -693,6 +697,31 @@ describe("Agent Arena platform API", () => {
     });
   });
 
+  it("rejects forged runtime credential rotation signatures even when an Agent token is supplied", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch);
+    const { challenge } = await createRotationChallenge(fetch, claimed.agent.id);
+
+    const response = await fetch(new Request(
+      `http://localhost/api/arena/owner/agents/${claimed.agent.id}/runtime-credential/rotate`,
+      {
+        method: "POST",
+        headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token },
+        body: JSON.stringify({
+          ...challenge,
+          signature: "mock-owner-signature"
+        })
+      }
+    ));
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "OWNER_SIGNATURE_INVALID"
+      }
+    });
+  });
+
   it("rejects runtime credential rotation when the signed reason changes", async () => {
     const fetch = createPlatformFetchHandler();
     const claimed = await claimTestAgent(fetch);
@@ -730,11 +759,17 @@ describe("Agent Arena platform API", () => {
   });
 
   it("rotates runtime credentials and authenticates with the new token only", async () => {
+    const ownerKeypair = Ed25519Keypair.generate();
+    const ownerAddress = ownerKeypair.toSuiAddress();
     const fetch = createPlatformFetchHandler();
-    const claimed = await claimTestAgent(fetch);
-    const { challenge } = await createRotationChallenge(fetch, claimed.agent.id);
+    const claimed = await claimTestAgent(fetch, { ownerAddress });
+    const { challenge } = await createRotationChallenge(fetch, claimed.agent.id, { ownerAddress });
+    const { signature } = await ownerKeypair.signPersonalMessage(new TextEncoder().encode(challenge.message));
 
-    const response = await rotateCredential(fetch, claimed.agent.id, challenge);
+    const response = await rotateCredential(fetch, claimed.agent.id, {
+      ...challenge,
+      signature
+    });
 
     expect(response.status).toBe(201);
     const body = await response.json();
@@ -763,7 +798,9 @@ describe("Agent Arena platform API", () => {
   });
 
   it("allows only one runtime credential rotation per challenge nonce", async () => {
-    const fetch = createPlatformFetchHandler();
+    const fetch = createPlatformFetchHandler(undefined, {
+      ownerSignatureVerifier: acceptOwnerSignature
+    });
     const claimed = await claimTestAgent(fetch);
     const { challenge } = await createRotationChallenge(fetch, claimed.agent.id);
 
@@ -781,6 +818,7 @@ describe("Agent Arena platform API", () => {
 
   it("keeps runtime credential rotation successful when registry rotation submit fails", async () => {
     const fetch = createPlatformFetchHandler(new PlatformMockStore(), {
+      ownerSignatureVerifier: acceptOwnerSignature,
       registryService: {
         registerAgent: async () => ({ status: "disabled", txDigest: null }),
         recordRuntimeCredentialRotation: async () => ({

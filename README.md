@@ -174,7 +174,7 @@ Deprecated API-key registration is intentionally not the primary flow.
 - `AGENT_ARENA_RUNTIME_MODE=mock` is for isolated UI/API tests and local demos.
 - `AGENT_ARENA_RUNTIME_MODE=real` uses Testnet Predict server market data, Testnet RPC wallet balances, the shared platform wallet store, and the internal Predict execution adapter.
 - Real mode still fails closed for live transaction submit unless `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` is set.
-- Registry proof submit is disabled unless `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true` and Testnet registry object ids are configured. Disabled registry submit never blocks local claim or credential rotation.
+- Registry proof submit is disabled/injection-only in this MVP. Enabling `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true` without a live registry submitter returns a failed registry substatus and does not block local claim or credential rotation.
 
 ## Verify
 

@@ -5,6 +5,7 @@ import {
   runtimeTokenHeader
 } from "./auth";
 import { createHash } from "node:crypto";
+import { verifyPersonalMessageSignature } from "@mysten/sui/verify";
 import {
   createPredictTxUrl,
   PlatformExecutionError,
@@ -82,6 +83,14 @@ export interface OwnerWithdrawalServiceResult {
   txDigest?: string | null;
 }
 
+export interface OwnerSignatureVerifierInput {
+  ownerAddress: string;
+  message: string;
+  signature: string;
+}
+
+export type OwnerSignatureVerifier = (input: OwnerSignatureVerifierInput) => Promise<boolean>;
+
 export interface AgentWalletServiceInput {
   agentId: string;
   displayName: string;
@@ -108,7 +117,7 @@ export interface CreatePlatformFetchHandlerOptions {
   marketDataProvider?: () => Promise<AgentMarketDataResult>;
   now?: () => number;
   ownerWithdrawalService?: (input: OwnerWithdrawalServiceInput) => Promise<OwnerWithdrawalServiceResult>;
-  ownerSignatureMode?: "mock" | "strict";
+  ownerSignatureVerifier?: OwnerSignatureVerifier;
   predictExecutionAdapter?: SubmitIntentExecutionOptions["predictExecutionAdapter"];
   registryService?: AgentRegistryService;
   settlementClaimExecutor?: ReconcileSettlementsOptions["executeSettlementClaim"];
@@ -661,7 +670,7 @@ async function rotateRuntimeCredentialRoute(
   request: Request,
   store: PlatformMockStore,
   agentId: string,
-  options: Pick<CreatePlatformFetchHandlerOptions, "now" | "ownerSignatureMode" | "registryService">
+  options: Pick<CreatePlatformFetchHandlerOptions, "now" | "ownerSignatureVerifier" | "registryService">
 ): Promise<Response> {
   const body = await readJsonObject(request);
   if (typeof body.ownerAddress !== "string" || typeof body.signature !== "string") {
@@ -709,11 +718,16 @@ async function rotateRuntimeCredentialRoute(
   if (challenge.currentCredentialVersion !== currentCredentialVersion) {
     return errorResponse(409, "CREDENTIAL_VERSION_CONFLICT", "Runtime credential version changed");
   }
-  if ((options.ownerSignatureMode ?? "mock") !== "mock") {
+  const signatureIsValid = await (options.ownerSignatureVerifier ?? verifyOwnerPersonalMessageSignature)({
+    ownerAddress,
+    message,
+    signature
+  });
+  if (!signatureIsValid) {
     return errorResponse(
-      501,
-      "OWNER_SIGNATURE_VERIFICATION_UNAVAILABLE",
-      "Owner signature verification is not enabled for this runtime"
+      401,
+      "OWNER_SIGNATURE_INVALID",
+      "Owner signature is invalid for this rotation challenge"
     );
   }
 
@@ -762,6 +776,17 @@ async function rotateRuntimeCredentialRoute(
     },
     registry
   }, 201);
+}
+
+async function verifyOwnerPersonalMessageSignature(input: OwnerSignatureVerifierInput): Promise<boolean> {
+  try {
+    await verifyPersonalMessageSignature(new TextEncoder().encode(input.message), input.signature, {
+      address: input.ownerAddress
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function tryRotateRuntimeCredential(
