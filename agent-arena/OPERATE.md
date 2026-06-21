@@ -8,7 +8,9 @@ The Docker stack runs three services:
 
 - `backend`: Bun API on port `8787`, with SQLite and encrypted wallet material stored in the `backend-data` Docker volume.
 - `frontend`: Vite static build served by Caddy on internal port `8080`.
-- `proxy`: public Caddy entrypoint on ports `80` and `443`; routes `/api/arena/*` and `/skills/*` to `backend`, and all other paths to `frontend`.
+- `proxy`: internal Caddy entrypoint. In production it is bound only to `127.0.0.1:8788`; routes `/api/arena/*` and `/skills/*` to `backend`, and all other paths to `frontend`.
+
+Production HTTPS is terminated by the host-level Caddy process, not by the Docker `proxy` container. Host Caddy owns public ports `80` and `443` for `arena.mindfrog.xyz` and reverse proxies to `127.0.0.1:8788`.
 
 The frontend is built with same-origin API access and the public site URL for Agent join prompts:
 
@@ -39,6 +41,7 @@ Docker Compose project path: /srv/agent-arena/app
 Backup path: /srv/agent-arena/app/backups
 Primary operator: Codex via C:\Users\user\.ssh\leaps_radar\id_rsa
 Notes: Deployed as Compose project `agent-arena`. The Docker proxy is bound only to `127.0.0.1:8788`; host Caddy terminates HTTPS for `arena.mindfrog.xyz` and reverse proxies to that local port. Existing `trade.mindfrog.xyz` service remains on `127.0.0.1:8080`. Runtime mode is `real` for Testnet/Predict reads and submit; `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true`.
+Server-only compose override: /srv/agent-arena/app/docker-compose.server.yml pins proxy ports to 127.0.0.1:8788. Keep this file on the server when syncing source files.
 ```
 
 ## First Deploy
@@ -96,11 +99,13 @@ Only enable registry mode after publishing the owner-sender-enforced registry pa
 
 The Agent runtime handoff `baseUrl` is the backend API root, for example `http://127.0.0.1:8787/api/arena` locally or `https://arena.mindfrog.xyz/api/arena` in production. It is intentionally different from the owner claim page URL.
 
-Start the stack:
+Start the stack. On the production server always include the server override and project name:
 
 ```bash
-docker compose up -d --build
-docker compose ps
+cd /srv/agent-arena/app
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml config
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml up -d --build
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml ps
 ```
 
 Verify public routes:
@@ -132,41 +137,72 @@ If the server is behind Cloudflare, use a TLS mode that allows Caddy to complete
 Show service state:
 
 ```bash
-docker compose ps
+cd /srv/agent-arena/app
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml ps
 ```
 
 Follow all logs:
 
 ```bash
-docker compose logs -f
+cd /srv/agent-arena/app
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml logs -f
 ```
 
 Follow one service:
 
 ```bash
-docker compose logs -f backend
-docker compose logs -f proxy
-docker compose logs -f frontend
+cd /srv/agent-arena/app
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml logs -f backend
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml logs -f proxy
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml logs -f frontend
 ```
 
 Stop containers while keeping persistent volumes:
 
 ```bash
-docker compose down
+cd /srv/agent-arena/app
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml down
 ```
 
 Start existing containers:
 
 ```bash
-docker compose up -d
+cd /srv/agent-arena/app
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml up -d
 ```
 
-Rebuild after source changes:
+Rebuild after source changes. The production directory is not a git checkout, so do not rely on `git pull` there. Sync the source tree from the operator workstation while preserving server-only files (`.env`, `backups/`, and `docker-compose.server.yml`), then rebuild:
 
 ```bash
-git pull --ff-only
-docker compose up -d --build
+cd /srv/agent-arena/app
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml config
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml up -d --build
 ```
+
+After a source sync, verify that `docker-compose.server.yml` still exists and still binds the proxy to `127.0.0.1:8788`.
+
+```bash
+cat /srv/agent-arena/app/docker-compose.server.yml
+```
+
+Expected server-only override:
+
+```yaml
+name: agent-arena
+services:
+  proxy:
+    ports: !override
+      - "127.0.0.1:8788:80"
+```
+
+## Current Claim And Funding Flow
+
+- New Agent pairing codes use random `PAIR-<32 hex chars>` values rather than readable sequential numbers.
+- Owner claim is a two-step owner-signed flow: the backend prepares a registry proof, the owner wallet signs the registry transaction, and the backend finalizes after verification.
+- After claim, the page shows the generated trading wallet and the one-time runtime credential.
+- The `Fund wallet` button is a convenience action that asks the connected owner wallet to transfer `1 SUI` and `10 DUSDC` to the generated trading wallet.
+- Funding is optional at claim time. The owner can also transfer `1 SUI` and `10 DUSDC` to that trading wallet later from another Sui wallet.
+- The Agent runtime never receives owner private keys and does not sign Sui transactions. It uses only the one-time runtime credential for platform API calls.
 
 ## Registry Deployment
 
@@ -241,20 +277,35 @@ backend-data
 Create a backup directory on the host:
 
 ```bash
+cd /srv/agent-arena/app
 mkdir -p backups
 ```
 
 Copy current backend data out of the running container:
 
 ```bash
-docker compose exec backend sh -lc 'mkdir -p /app/data/backups && cp /app/data/agent-arena.sqlite /app/data/backups/agent-arena-$(date +%Y%m%d-%H%M%S).sqlite'
-docker cp "$(docker compose ps -q backend):/app/data/backups" ./backups
+cd /srv/agent-arena/app
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml exec -T backend sh -lc 'set -e; stamp=$(date +%Y%m%d-%H%M%S); mkdir -p /app/data/backups/$stamp; cp -a /app/data/agent-arena.sqlite* /app/data/backups/$stamp/ 2>/dev/null || true; cp -a /app/data/internal-wallets.json /app/data/backups/$stamp/ 2>/dev/null || true; echo $stamp'
+docker cp "$(docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml ps -q backend):/app/data/backups" ./backups
 ```
+
+To reset the live database for a clean demo or flow test, take the backup above first, then stop the backend and remove SQLite plus wallet runtime state from the `backend-data` volume:
+
+```bash
+cd /srv/agent-arena/app
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml stop backend
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml run --rm --no-deps --entrypoint sh backend -lc 'rm -f /app/data/agent-arena.sqlite /app/data/agent-arena.sqlite-shm /app/data/agent-arena.sqlite-wal /app/data/internal-wallets.json'
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml up -d --build backend frontend proxy
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml ps
+```
+
+This reset deletes pairing drafts, claimed Agent records, runtime credentials, leaderboard state, and generated trading-wallet key material. It does not touch server `.env`, Docker images, Caddy data, or backup files.
 
 Before restoring data, stop the stack:
 
 ```bash
-docker compose down
+cd /srv/agent-arena/app
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml down
 ```
 
 Restores should be done deliberately with a known backup file and a written note in the Server Information section above.
@@ -275,7 +326,8 @@ Restores should be done deliberately with a known backup file and a written note
 Render the Compose config:
 
 ```bash
-docker compose config
+cd /srv/agent-arena/app
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml config
 ```
 
 Run backend tests locally before deployment:

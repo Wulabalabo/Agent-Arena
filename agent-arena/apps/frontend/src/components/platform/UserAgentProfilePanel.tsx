@@ -155,18 +155,20 @@ export function UserAgentProfilePanel({
       {copyStatus === "copied" ? "Trading wallet copied" : copyStatus === "failed" ? "Trading wallet copy failed" : ""}
     </p>
   );
-  const runtimeCredentialRotationControl = canRotateRuntimeCredential ? (
-    <div className="mt-2 flex flex-col items-start gap-2">
-      <button
-        aria-label="Rotate runtime credential"
-        className={compactActionClass}
-        disabled={rotationStatus === "rotating"}
-        onClick={() => void rotateRuntimeCredential()}
-        type="button"
-      >
-        <KeyRound aria-hidden="true" size={12} />
-        {rotationStatus === "rotating" ? "Rotating" : "Rotate credential"}
-      </button>
+  const runtimeCredentialRotationAction = canRotateRuntimeCredential ? (
+    <button
+      aria-label="Rotate runtime credential"
+      className={compactActionClass}
+      disabled={rotationStatus === "rotating"}
+      onClick={() => void rotateRuntimeCredential()}
+      type="button"
+    >
+      <KeyRound aria-hidden="true" size={12} />
+      {rotationStatus === "rotating" ? "Rotating" : "Rotate credential"}
+    </button>
+  ) : null;
+  const runtimeCredentialRotationResult = canRotateRuntimeCredential && (rotatedCredential || rotationError) ? (
+    <div className="mt-2 grid gap-2">
       {rotatedCredential ? (
         <div className="paper-inset grid max-w-full gap-1.5 p-2">
           <p className="paper-label text-on-surface-variant">New runtime credential</p>
@@ -219,9 +221,13 @@ export function UserAgentProfilePanel({
 
       {compact ? (
         <section aria-label="My Agent funding wallet" className="paper-inset mt-3 p-3">
-          <DetailLine label="Trading wallet" value={tradingWalletAddress ?? "not created"} action={tradingWalletCopyAction} />
+          <WalletCredentialRow
+            action={tradingWalletCopyAction}
+            rotationAction={runtimeCredentialRotationAction}
+            value={tradingWalletAddress ?? "not created"}
+          />
           {tradingWalletCopyStatus}
-          {runtimeCredentialRotationControl}
+          {runtimeCredentialRotationResult}
         </section>
       ) : null}
 
@@ -239,17 +245,17 @@ export function UserAgentProfilePanel({
           <h3 className="font-display text-xs font-black uppercase text-on-surface">Wallet and owner</h3>
           <DetailLine label="Agent id" value={profile.agentId ?? "unclaimed"} />
           <DetailLine label="Owner" value={profile.ownerAddress ?? "not connected"} />
-          <DetailLine
-            label="Trading wallet"
-            value={tradingWalletAddress ?? "not created"}
+          <WalletCredentialRow
             action={tradingWalletCopyAction}
+            rotationAction={runtimeCredentialRotationAction}
+            value={tradingWalletAddress ?? "not created"}
           />
           <DetailLine label="DUSDC balance" value={profile.quoteBalance ?? "not available"} />
           <DetailLine label="Testnet SUI" value={profile.testnetSuiBalance ?? "not available"} />
           <DetailLine label="Latest Predict tx" value={profile.latestPredictTxDigest ?? "not submitted"} />
           {profile.twitterHandle ? <DetailLine label="Twitter" value={`@${profile.twitterHandle}`} /> : null}
           {tradingWalletCopyStatus}
-          {runtimeCredentialRotationControl}
+          {runtimeCredentialRotationResult}
         </section>
       </div> : null}
     </section>
@@ -272,6 +278,27 @@ function DetailLine({ action = null, label, value }: { action?: ReactNode; label
       {value}
       {action}
     </p>
+  );
+}
+
+function WalletCredentialRow({
+  action = null,
+  rotationAction = null,
+  value
+}: {
+  action?: ReactNode;
+  rotationAction?: ReactNode;
+  value: ReactNode;
+}) {
+  return (
+    <div aria-label="Trading wallet credential controls" className="mt-2 flex flex-wrap items-start justify-between gap-2">
+      <p className="min-w-0 flex-1 break-all font-mono text-[11px] font-bold text-on-surface-variant">
+        <span className="font-display text-[10px] uppercase">Trading wallet: </span>
+        {value}
+        {action}
+      </p>
+      {rotationAction ? <div className="ml-auto shrink-0">{rotationAction}</div> : null}
+    </div>
   );
 }
 

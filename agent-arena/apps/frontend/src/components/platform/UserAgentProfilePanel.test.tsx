@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createUserAgentArenaProfile } from "../../features/platform/arena-ui";
 import { mockPlatformSnapshot } from "../../features/platform/mock";
@@ -90,6 +90,29 @@ describe("UserAgentProfilePanel", () => {
     expect(rotateButton).toHaveClass("px-2");
     expect(rotateButton).toHaveClass("py-1");
     expect(rotateButton).not.toHaveClass("paper-button");
+  });
+
+  it("aligns runtime credential rotation with the trading wallet row", () => {
+    const rotation = createRotationCallbacks();
+
+    render(
+      <UserAgentProfilePanel
+        connectedOwnerAddress="0xowner"
+        onCreateRuntimeCredentialRotationChallenge={rotation.onCreateChallenge}
+        onRotateRuntimeCredential={rotation.onRotate}
+        onSignAndExecuteRegistryTransaction={rotation.onSignAndExecuteRegistryTransaction}
+        profile={createProfile()}
+        variant="compact"
+      />
+    );
+
+    const walletCredentialRow = screen.getByLabelText("Trading wallet credential controls");
+
+    expect(walletCredentialRow).toHaveClass("flex");
+    expect(walletCredentialRow).toHaveClass("justify-between");
+    expect(walletCredentialRow).toHaveClass("items-start");
+    expect(within(walletCredentialRow).getByText("0xagentwallet_agent_1")).toBeInTheDocument();
+    expect(within(walletCredentialRow).getByRole("button", { name: /rotate runtime credential/i })).toBeInTheDocument();
   });
 
   it("rotates runtime credentials and copies handoff with the rotated token", async () => {
