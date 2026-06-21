@@ -118,7 +118,6 @@ interface CreatePublicActionFeedItemsInput {
 
 interface CreateArenaChartMarketReferenceInput {
   competitionId: string;
-  intents: AgentIntent[];
   marketState?: MarketSnapshot | null;
   positions: AgentPositionSnapshot[];
 }
@@ -275,37 +274,16 @@ function walletScopeForAgent(agentId: string, ownerAgentIds: ReadonlySet<string>
 
 export function createArenaChartMarketReference({
   competitionId,
-  intents,
   marketState,
   positions
 }: CreateArenaChartMarketReferenceInput): ArenaChartMarketReference | null {
   const openPosition = findNewestByUpdatedAt(
     positions.filter((position) => position.competitionId === competitionId && position.status === "open")
   );
-  const positionReference =
-    openPosition && isPositionInCurrentMarket(openPosition, marketState)
-      ? marketReferenceFromPosition(openPosition)
-      : null;
-  if (positionReference) {
-    return positionReference;
-  }
 
-  const executableMarketReference =
-    marketState?.competitionId === competitionId ? marketReferenceFromMarketState(marketState) : null;
-  if (executableMarketReference) {
-    return executableMarketReference;
-  }
-
-  const latestExecutableIntent = findNewestByCreatedAt(
-    intents.filter(
-      (intent) =>
-        intent.competitionId === competitionId &&
-        intent.market &&
-        (intent.status === "accepted" || intent.status === "executed" || intent.status === "partial")
-    )
-  );
-
-  return latestExecutableIntent?.market ? marketReferenceFromIntentMarket(latestExecutableIntent.market) : null;
+  return openPosition && isPositionInCurrentMarket(openPosition, marketState)
+    ? marketReferenceFromPosition(openPosition)
+    : null;
 }
 
 function isPositionInCurrentMarket(
@@ -467,65 +445,7 @@ function marketReferenceFromPosition(position: AgentPositionSnapshot): ArenaChar
   return null;
 }
 
-function marketReferenceFromMarketState(marketState: MarketSnapshot): ArenaChartMarketReference | null {
-  const directional = marketState.executableMarkets?.directional;
-  if (
-    marketState.status !== "live" ||
-    marketState.oracleStatus !== "active" ||
-    !directional ||
-    directional.oracleId !== marketState.oracleId ||
-    directional.expiry !== marketState.expiryMs ||
-    !isActiveMarketClock(marketState)
-  ) {
-    return null;
-  }
-
-  const strike = parseRawStrike(directional.strike);
-  return strike === null ? null : { kind: "directional", strike, strikeRaw: directional.strike };
-}
-
-function marketReferenceFromIntentMarket(market: NonNullable<AgentIntent["market"]>): ArenaChartMarketReference | null {
-  if (market.kind === "directional") {
-    const strike = parseRawStrike(market.strike);
-    return strike === null ? null : { kind: "directional", strike, strikeRaw: market.strike };
-  }
-
-  const lowerStrike = parseRawStrike(market.lowerStrike);
-  const higherStrike = parseRawStrike(market.higherStrike);
-  return lowerStrike === null || higherStrike === null
-    ? null
-    : {
-        higherStrike,
-        higherStrikeRaw: market.higherStrike,
-        kind: "range",
-        lowerStrike,
-        lowerStrikeRaw: market.lowerStrike
-      };
-}
-
 function parseRawStrike(rawStrike: string): number | null {
   const value = Number(rawStrike);
   return Number.isFinite(value) ? value / 1_000_000_000 : null;
-}
-
-function isActiveMarketClock(marketState: MarketSnapshot): boolean {
-  const expiryMs = readPositiveNumber(marketState.expiryMs);
-  const serverTimeMs = readPositiveNumber(marketState.serverTimeMs);
-  const timeToExpiryMs = readPositiveNumber(marketState.timeToExpiryMs);
-  const fetchedAtMs = Date.parse(marketState.fetchedAt);
-
-  if (expiryMs === null || serverTimeMs === null || timeToExpiryMs === null || Number.isNaN(fetchedAtMs)) {
-    return false;
-  }
-
-  if (timeToExpiryMs <= 0 || serverTimeMs >= expiryMs) {
-    return false;
-  }
-
-  return Math.abs(fetchedAtMs - serverTimeMs) <= 60_000;
-}
-
-function readPositiveNumber(raw: string): number | null {
-  const value = Number(raw);
-  return Number.isFinite(value) && value >= 0 ? value : null;
 }

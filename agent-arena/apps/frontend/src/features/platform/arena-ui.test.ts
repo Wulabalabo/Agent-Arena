@@ -49,7 +49,6 @@ describe("arena UI contracts", () => {
   it("derives the arena chart strike from the latest open position", () => {
     const marketReference = createArenaChartMarketReference({
       competitionId: mockPlatformSnapshot.competitions[0].id,
-      intents: mockPlatformSnapshot.intents,
       positions: mockPlatformSnapshot.positions
     });
 
@@ -60,10 +59,9 @@ describe("arena UI contracts", () => {
     });
   });
 
-  it("uses executable market-state strike when there is no open position", () => {
+  it("returns no chart strike when there is no open position", () => {
     const marketReference = createArenaChartMarketReference({
       competitionId: mockPlatformSnapshot.competitions[0].id,
-      intents: mockPlatformSnapshot.intents,
       marketState: {
         allowedActions: ["hold", "open_directional"],
         allowedOperations: {
@@ -105,17 +103,12 @@ describe("arena UI contracts", () => {
       positions: []
     });
 
-    expect(marketReference).toEqual({
-      kind: "directional",
-      strike: 65_700,
-      strikeRaw: "65700000000000"
-    });
+    expect(marketReference).toBeNull();
   });
 
   it("keeps an open position strike fixed before the next executable market strike", () => {
     const marketReference = createArenaChartMarketReference({
       competitionId: mockPlatformSnapshot.competitions[0].id,
-      intents: mockPlatformSnapshot.intents,
       marketState: {
         allowedActions: ["hold", "open_directional"],
         allowedOperations: {
@@ -164,10 +157,9 @@ describe("arena UI contracts", () => {
     });
   });
 
-  it("uses the new round executable strike when the open position is from a previous oracle", () => {
+  it("returns no chart strike when the open position is from a previous oracle", () => {
     const marketReference = createArenaChartMarketReference({
       competitionId: mockPlatformSnapshot.competitions[0].id,
-      intents: mockPlatformSnapshot.intents,
       marketState: {
         allowedActions: ["hold", "open_directional"],
         allowedOperations: {
@@ -209,17 +201,12 @@ describe("arena UI contracts", () => {
       positions: mockPlatformSnapshot.positions
     });
 
-    expect(marketReference).toEqual({
-      kind: "directional",
-      strike: 65_700,
-      strikeRaw: "65700000000000"
-    });
+    expect(marketReference).toBeNull();
   });
 
   it("ignores inactive market-state strikes and keeps the position fallback", () => {
     const marketReference = createArenaChartMarketReference({
       competitionId: mockPlatformSnapshot.competitions[0].id,
-      intents: mockPlatformSnapshot.intents,
       marketState: {
         allowedActions: ["hold", "open_directional"],
         allowedOperations: {
@@ -265,27 +252,6 @@ describe("arena UI contracts", () => {
       kind: "directional",
       strike: 65_000,
       strikeRaw: "65000000000000"
-    });
-  });
-
-  it("falls back to executable range intent strikes when there is no open position", () => {
-    const marketReference = createArenaChartMarketReference({
-      competitionId: mockPlatformSnapshot.competitions[0].id,
-      intents: [
-        {
-          ...mockPlatformSnapshot.intents[1],
-          status: "accepted"
-        }
-      ],
-      positions: []
-    });
-
-    expect(marketReference).toEqual({
-      higherStrike: 66_000,
-      higherStrikeRaw: "66000000000000",
-      kind: "range",
-      lowerStrike: 64_000,
-      lowerStrikeRaw: "64000000000000"
     });
   });
 

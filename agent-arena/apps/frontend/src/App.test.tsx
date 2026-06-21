@@ -158,6 +158,59 @@ describe("App", () => {
     );
   });
 
+  it("anchors the chart strike to the connected owner's open position", async () => {
+    const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
+    const platformFetcher = vi.fn(async (url: string) => {
+      if (url.includes("/owner/agent?")) {
+        return jsonResponse({
+          agent: {
+            ...mockPlatformSnapshot.agents[0],
+            id: "agent_real_owner",
+            displayName: "Real Bound Agent",
+            ownerAddress: "0xreal_owner",
+            tradingWalletAddress: "0xreal_agent_wallet",
+            exposureStatus: "directional"
+          },
+          tradingWallet: {
+            ...mockPlatformSnapshot.tradingWallet,
+            id: "wallet_real_owner",
+            agentId: "agent_real_owner",
+            address: "0xreal_agent_wallet"
+          },
+          positions: [
+            {
+              ...mockPlatformSnapshot.positions[0],
+              agentId: "agent_real_owner",
+              oracleId: "0xfuture-nearest",
+              expiryMs: "1781622900000",
+              strikeRaw: "65200000000000",
+              updatedAt: "2026-06-16T15:00:54.000Z"
+            }
+          ],
+          intents: [],
+          executions: [],
+          leaderboard: []
+        });
+      }
+
+      if (url.includes("/public-feed")) {
+        return jsonResponse({
+          agents: [],
+          intents: [],
+          executions: [],
+          leaderboard: []
+        });
+      }
+
+      return jsonResponse({ marketState: appMarketState });
+    });
+
+    render(<App connectedOwnerAddress="0xreal_owner" liveMarketLoader={liveMarketLoader} platformFetcher={platformFetcher} />);
+
+    expect(await screen.findByText("Strike $65,200.00")).toBeInTheDocument();
+    expect(screen.queryByText("Strike $65,700.00")).not.toBeInTheDocument();
+  });
+
   it("navigates between Arena and Leaderboard only", async () => {
     const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
     const platformFetcher = vi.fn(async (url: string) => {
@@ -229,8 +282,10 @@ describe("App", () => {
       );
     });
     expect(await screen.findByTestId("btc-current-price-label")).toHaveTextContent("$65,611.52");
-    expect(screen.getByTestId("btc-strike-line")).toBeInTheDocument();
-    expect(screen.getByText("Strike $65,700.00")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByTestId("btc-strike-line")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText("Strike $65,700.00")).not.toBeInTheDocument();
     expect(screen.getByText(/Binance BTCUSDT reference display/i)).toBeInTheDocument();
     expect(screen.getByText(/Predict oracle drives arena settlement/i)).toBeInTheDocument();
     const myAgentProfile = screen.getByRole("region", { name: /My Agent profile/i });

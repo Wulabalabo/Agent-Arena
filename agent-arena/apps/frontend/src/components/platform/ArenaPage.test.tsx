@@ -177,7 +177,6 @@ function renderArenaPage({
       actionFeedItems={actionFeedItems}
       marketReference={createArenaChartMarketReference({
         competitionId: mockPlatformSnapshot.competitions[0].id,
-        intents: mockPlatformSnapshot.intents,
         positions: mockPlatformSnapshot.positions
       })}
     />

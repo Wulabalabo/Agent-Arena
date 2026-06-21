@@ -137,14 +137,56 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher, 
         : findOwnerAgent(state.agents, connectedOwnerAddress ?? null),
     [connectedOwnerAddress, ownerAgentProfile, ownerAgentProfileMatchesConnection, state.agents]
   );
+  const userAgentPositions = useMemo(
+    () => {
+      if (ownerAgentProfileMatchesConnection) {
+        return ownerAgentProfile?.positions ?? [];
+      }
+
+      if (!ownerAgent) {
+        return [];
+      }
+
+      return state.positions.filter((position) => position.agentId === ownerAgent.id);
+    },
+    [ownerAgent, ownerAgentProfile?.positions, ownerAgentProfileMatchesConnection, state.positions]
+  );
+  const userAgentIntents = useMemo(
+    () => {
+      if (ownerAgentProfileMatchesConnection) {
+        return ownerAgentProfile?.intents ?? [];
+      }
+
+      if (!ownerAgent) {
+        return [];
+      }
+
+      return state.intents.filter((intent) => intent.agentId === ownerAgent.id);
+    },
+    [ownerAgent, ownerAgentProfile?.intents, ownerAgentProfileMatchesConnection, state.intents]
+  );
+  const userAgentExecutions = useMemo(
+    () => {
+      if (ownerAgentProfileMatchesConnection) {
+        return ownerAgentProfile?.executions ?? [];
+      }
+
+      if (!ownerAgent) {
+        return [];
+      }
+
+      return state.executions.filter((execution) => execution.agentId === ownerAgent.id);
+    },
+    [ownerAgent, ownerAgentProfile?.executions, ownerAgentProfileMatchesConnection, state.executions]
+  );
   const userAgentProfile = useMemo(
     () =>
       createUserAgentArenaProfile({
         agent: ownerAgent,
         tradingWallet: ownerAgentProfileMatchesConnection ? ownerAgentProfile?.tradingWallet ?? null : state.tradingWallet,
-        positions: ownerAgentProfileMatchesConnection ? ownerAgentProfile?.positions ?? [] : state.positions,
-        intents: ownerAgentProfileMatchesConnection ? ownerAgentProfile?.intents ?? [] : state.intents,
-        executions: ownerAgentProfileMatchesConnection ? ownerAgentProfile?.executions ?? [] : state.executions,
+        positions: userAgentPositions,
+        intents: userAgentIntents,
+        executions: userAgentExecutions,
         leaderboard: ownerAgentProfileMatchesConnection ? ownerAgentProfile?.leaderboard ?? [] : state.leaderboard
       }),
     [
@@ -152,9 +194,9 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher, 
       ownerAgentProfile,
       ownerAgentProfileMatchesConnection,
       state.tradingWallet,
-      state.positions,
-      state.intents,
-      state.executions,
+      userAgentPositions,
+      userAgentIntents,
+      userAgentExecutions,
       state.leaderboard
     ]
   );
@@ -178,12 +220,11 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher, 
       selectedCompetition
         ? createArenaChartMarketReference({
             competitionId: selectedCompetition.id,
-            intents: state.intents,
             marketState,
-            positions: state.positions
+            positions: userAgentPositions
           })
         : null,
-    [marketState, selectedCompetition, state.intents, state.positions]
+    [marketState, selectedCompetition, userAgentPositions]
   );
   const platformClient = useMemo(
     () => createPlatformClient({ baseUrl: apiBaseUrl, fetcher: platformFetcher }),
