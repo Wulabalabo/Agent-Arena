@@ -30,6 +30,11 @@ interface UserAgentProfilePanelProps {
   variant?: "full" | "compact";
 }
 
+const compactActionClass =
+  "inline-flex min-h-7 w-fit max-w-full items-center justify-center gap-1.5 rounded-sm border border-outline bg-surface px-2 py-1 font-display text-[9px] font-black uppercase text-on-surface transition hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-55";
+const compactPrimaryActionClass =
+  "inline-flex min-h-7 w-fit max-w-full items-center justify-center gap-1.5 rounded-sm border border-outline-variant bg-primary px-2 py-1 font-display text-[9px] font-black uppercase text-on-primary transition hover:bg-primary-container";
+
 export function UserAgentProfilePanel({
   apiBaseUrl,
   className = "",
@@ -151,27 +156,27 @@ export function UserAgentProfilePanel({
     </p>
   );
   const runtimeCredentialRotationControl = canRotateRuntimeCredential ? (
-    <div className="mt-3 grid gap-2">
+    <div className="mt-2 flex flex-col items-start gap-2">
       <button
         aria-label="Rotate runtime credential"
-        className="paper-button inline-flex items-center justify-center gap-2 px-3 py-2 font-display text-[10px] font-black uppercase"
+        className={compactActionClass}
         disabled={rotationStatus === "rotating"}
         onClick={() => void rotateRuntimeCredential()}
         type="button"
       >
-        <KeyRound aria-hidden="true" size={14} />
+        <KeyRound aria-hidden="true" size={12} />
         {rotationStatus === "rotating" ? "Rotating" : "Rotate credential"}
       </button>
       {rotatedCredential ? (
-        <div className="paper-inset grid gap-2 p-3">
+        <div className="paper-inset grid max-w-full gap-1.5 p-2">
           <p className="paper-label text-on-surface-variant">New runtime credential</p>
           <p className="break-all font-mono text-[11px] font-bold text-on-surface">{rotatedCredential.token}</p>
           <button
-            className="paper-button paper-button-primary inline-flex items-center justify-center gap-2 px-3 py-2 font-display text-[10px] font-black uppercase"
+            className={compactPrimaryActionClass}
             onClick={() => void copyRotatedHandoff()}
             type="button"
           >
-            <Copy aria-hidden="true" size={14} />
+            <Copy aria-hidden="true" size={12} />
             Copy Agent handoff
           </button>
           {handoffCopyStatus === "copied" ? (

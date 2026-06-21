@@ -70,6 +70,28 @@ describe("UserAgentProfilePanel", () => {
     expect(screen.queryByRole("button", { name: /rotate runtime credential/i })).not.toBeInTheDocument();
   });
 
+  it("renders runtime credential rotation as a compact inline action", () => {
+    const rotation = createRotationCallbacks();
+
+    render(
+      <UserAgentProfilePanel
+        connectedOwnerAddress="0xowner"
+        onCreateRuntimeCredentialRotationChallenge={rotation.onCreateChallenge}
+        onRotateRuntimeCredential={rotation.onRotate}
+        onSignAndExecuteRegistryTransaction={rotation.onSignAndExecuteRegistryTransaction}
+        profile={createProfile()}
+        variant="compact"
+      />
+    );
+
+    const rotateButton = screen.getByRole("button", { name: /rotate runtime credential/i });
+
+    expect(rotateButton).toHaveClass("w-fit");
+    expect(rotateButton).toHaveClass("px-2");
+    expect(rotateButton).toHaveClass("py-1");
+    expect(rotateButton).not.toHaveClass("paper-button");
+  });
+
   it("rotates runtime credentials and copies handoff with the rotated token", async () => {
     const writeText = vi.fn(async (_text: string) => undefined);
     setClipboard(writeText);
