@@ -40,7 +40,7 @@ Repository path: /srv/agent-arena/app
 Docker Compose project path: /srv/agent-arena/app
 Backup path: /srv/agent-arena/app/backups
 Primary operator: Codex via C:\Users\user\.ssh\leaps_radar\id_rsa
-Notes: Deployed as Compose project `agent-arena`. The Docker proxy is bound only to `127.0.0.1:8788`; host Caddy terminates HTTPS for `arena.mindfrog.xyz` and reverse proxies to that local port. Existing `trade.mindfrog.xyz` service remains on `127.0.0.1:8080`. Runtime mode is `real` for Testnet/Predict reads and submit; `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true`.
+Notes: Deployed as Compose project `agent-arena`. The Docker proxy is bound only to `127.0.0.1:8788`; host Caddy terminates HTTPS for `arena.mindfrog.xyz` and reverse proxies to that local port. Existing `trade.mindfrog.xyz` service remains on `127.0.0.1:8080`. Runtime mode is `real` for Testnet/Predict reads and submit; `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true`. Owner-sender-enforced registry proof mode is enabled; `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true` with the registry package, registry object, and authority key installed server-side.
 Server-only compose override: /srv/agent-arena/app/docker-compose.server.yml pins proxy ports to 127.0.0.1:8788. Keep this file on the server when syncing source files.
 ```
 
@@ -314,7 +314,7 @@ Restores should be done deliberately with a known backup file and a written note
 
 - Keep `.env` server-only and out of git.
 - Keep `AGENT_ARENA_ENABLE_PREDICT_SUBMIT=true` only while live Testnet submit is intentional.
-- Keep `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=false` until the current owner-sender-enforced registry package is published and the authority key is installed server-side.
+- Keep `AGENT_ARENA_ENABLE_REGISTRY_SUBMIT=true` only while the current owner-sender-enforced registry package, registry object, and authority key are installed server-side.
 - Do not fund the registry authority address just for registry claim/rotation; owner wallets pay registry gas.
 - Keep `AGENT_ARENA_WALLET_SECRET` server-only because it encrypts platform-managed Agent trading wallet private keys.
 - Do not copy `backend-data` into git.
