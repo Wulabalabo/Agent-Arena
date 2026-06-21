@@ -2349,7 +2349,13 @@ describe("createInternalPredictFetchHandler", () => {
 
   it("does not let an Agent runtime token proxy manager withdrawals through public intent routes", async () => {
     const { createAgentArenaFetchHandler } = await import("../server");
-    const fetch = createAgentArenaFetchHandler({ internalToken, runtimeMode: "mock" });
+    const fetch = createAgentArenaFetchHandler({
+      internalToken,
+      runtimeMode: "mock",
+      predictEnv: {
+        AGENT_ARENA_ENABLE_REGISTRY_SUBMIT: "false"
+      }
+    });
     const draft = await (await fetch(new Request("http://localhost/api/arena/agent/init", {
       method: "POST",
       body: JSON.stringify({ displayName: "Withdrawal Proxy Probe" })

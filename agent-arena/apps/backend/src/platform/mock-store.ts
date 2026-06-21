@@ -1,4 +1,7 @@
 import {
+  randomBytes
+} from "node:crypto";
+import {
   createRuntimeCredentialToken,
   runtimeCredentialScopes,
   type AgentRuntimeCredential,
@@ -116,7 +119,7 @@ export class PlatformMockStore {
   createPairingDraft(displayName: string, options: CreatePairingDraftOptions = {}): AgentPairingDraft {
     const id = `draft_${this.nextDraftNumber}`;
     this.nextDraftNumber += 1;
-    const registrationCode = `PAIR-${String(this.nextDraftNumber + 2047)}`;
+    const registrationCode = this.createRegistrationCode();
     const nowMs = options.nowMs ?? Date.now();
     const claimBaseUrl = normalizeClaimBaseUrl(options.claimBaseUrl ?? defaultPairingClaimBaseUrl);
     const draft: AgentPairingDraft = {
@@ -160,6 +163,17 @@ export class PlatformMockStore {
     };
     this.pairingDrafts.set(draftId, clonePairingDraft(claimed));
     return clonePairingDraft(claimed);
+  }
+
+  private createRegistrationCode(): string {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const code = `PAIR-${randomBytes(16).toString("hex")}`;
+      if (!this.pairingDraftIdsByCode.has(code)) {
+        return code;
+      }
+    }
+
+    throw new Error("PAIRING_CODE_GENERATION_FAILED");
   }
 
   createAgent(input: CreateAgentInput): AgentProfile {

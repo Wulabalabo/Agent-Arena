@@ -215,6 +215,59 @@ describe("AgentClaimPanel", () => {
       })
     });
   });
+
+  it("shows owner-funded wallet guidance after claim and opens a funding transaction", async () => {
+    const writeText = vi.fn(async (_text: string) => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
+    const platformFetcher = createImmediateClaimFetcher({
+      pendingClaimId: "pending_claim_2053",
+      agentId: "agent_2053",
+      ownerAddress,
+      walletId: "wallet_2053",
+      walletAddress: tradingWalletAddress,
+      token: "agent_runtime_funding",
+      txDigest: "0xfundingdigest"
+    });
+    const signAndExecuteTransaction = vi.fn()
+      .mockResolvedValueOnce({ digest: "0xfundingdigest" })
+      .mockResolvedValueOnce({ digest: "0xfundwalletdigest" });
+    const walletProvider: ClaimWalletProvider = {
+      connect: vi.fn(async () => ({ accounts: [{ address: ownerAddress }] })),
+      signAndExecuteTransaction
+    };
+
+    render(
+      <AgentClaimPanel
+        apiBaseUrl="http://127.0.0.1:8787/api/arena"
+        fetcher={platformFetcher}
+        registrationCode="PAIR-2053"
+        walletProvider={walletProvider}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Connect wallet and claim/i }));
+
+    expect(await screen.findByText("agent_runtime_funding")).toBeInTheDocument();
+    expect(screen.getByText(/Fund the new trading wallet with 1 SUI and 10 DUSDC before the Agent starts trading/i)).toBeInTheDocument();
+    expect(screen.getByText(/This funding step is optional; you can also transfer 1 SUI and 10 DUSDC to this address later from another Sui wallet/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Fund wallet/i }));
+
+    await waitFor(() => {
+      expect(signAndExecuteTransaction).toHaveBeenCalledTimes(2);
+    });
+    const fundingTransaction = signAndExecuteTransaction.mock.calls[1]?.[0]?.transaction;
+    const fundingCommands = stringifyTransactionCommands(fundingTransaction?.getData().commands ?? []);
+    expect(fundingCommands).toContain("SplitCoins");
+    expect(fundingCommands).toContain("TransferObjects");
+    expect(fundingCommands).toContain("CoinWithBalance");
+    expect(fundingCommands).toContain("10000000");
+    expect(writeText).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Funding tx 0xfundwalletdigest/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Funded/i })).toBeDisabled();
+  });
 });
 
 function createImmediateClaimFetcher(input: {
@@ -303,4 +356,8 @@ function createDeferred<T>() {
   });
 
   return { promise, resolve, reject };
+}
+
+function stringifyTransactionCommands(commands: unknown): string {
+  return JSON.stringify(commands, (_key, value) => typeof value === "bigint" ? value.toString() : value);
 }

@@ -1,12 +1,18 @@
 import { Copy, ShieldCheck, Wallet } from "lucide-react";
-import type { Transaction } from "@mysten/sui/transactions";
+import { Transaction } from "@mysten/sui/transactions";
 import { type FormEvent, useMemo, useState } from "react";
 import { createPlatformClient, PlatformClientError } from "../../features/platform/client";
 import { buildRegistryTransaction, readRegistryTransactionDigest } from "../../features/platform/registry-transaction";
+import { predictConfig } from "../../features/predict/config";
 import type { AgentProfile, RegistryWriteSummary, RuntimeCredential, TradingWallet } from "../../features/platform/types";
 
 type PlatformFetcher = (url: string, init?: RequestInit) => Promise<Response>;
 type ClaimStatus = "idle" | "preparing" | "confirming" | "finalizing" | "claimed" | "failed";
+type FundingStatus = "idle" | "confirming" | "funded" | "failed";
+const recommendedFundingSui = "1";
+const recommendedFundingSuiMist = "1000000000";
+const recommendedFundingDusdc = "10";
+const recommendedFundingDusdcRaw = "10000000";
 
 interface AgentClaimPanelProps {
   apiBaseUrl: string;
@@ -61,6 +67,10 @@ export function AgentClaimPanel({
   const [status, setStatus] = useState<ClaimStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const [fundingStatus, setFundingStatus] = useState<FundingStatus>("idle");
+  const [fundingError, setFundingError] = useState<string | null>(null);
+  const [fundingTxDigest, setFundingTxDigest] = useState<string | null>(null);
+  const [fundingWalletProvider, setFundingWalletProvider] = useState<ClaimWalletProvider | null>(null);
   const [claimResult, setClaimResult] = useState<ClaimResult | null>(null);
   const [walletDialogOpen, setWalletDialogOpen] = useState(false);
   const client = useMemo(() => createPlatformClient({ baseUrl: apiBaseUrl, fetcher }), [apiBaseUrl, fetcher]);
@@ -137,6 +147,10 @@ export function AgentClaimPanel({
     });
     setClaimResult(result);
     setCopyStatus("idle");
+    setFundingStatus("idle");
+    setFundingError(null);
+    setFundingTxDigest(null);
+    setFundingWalletProvider(provider);
     setStatus("claimed");
   }
 
@@ -165,6 +179,39 @@ export function AgentClaimPanel({
       setCopyStatus("copied");
     } catch {
       setCopyStatus("failed");
+    }
+  }
+
+  async function handleFundWallet() {
+    if (!claimResult) {
+      return;
+    }
+
+    const provider = fundingWalletProvider ?? directWalletProvider;
+    if (!provider?.signAndExecuteTransaction) {
+      setFundingStatus("failed");
+      setFundingError("Owner wallet transaction signing is unavailable.");
+      return;
+    }
+
+    setFundingStatus("confirming");
+    setFundingError(null);
+    setFundingTxDigest(null);
+
+    try {
+      const result = await provider.signAndExecuteTransaction({
+        transaction: buildOwnerFundingTransaction(claimResult.tradingWallet.address)
+      });
+      const txDigest = readRegistryTransactionDigest(result);
+      if (!txDigest) {
+        throw new Error("Funding transaction digest is unavailable.");
+      }
+
+      setFundingTxDigest(txDigest);
+      setFundingStatus("funded");
+    } catch (fundingError) {
+      setFundingStatus("failed");
+      setFundingError(fundingError instanceof Error ? fundingError.message : "Funding transaction failed.");
     }
   }
 
@@ -313,6 +360,35 @@ export function AgentClaimPanel({
             <Copy aria-hidden="true" size={14} />
             Copy Agent handoff
           </button>
+          <section aria-label="Owner funding" className="grid gap-2 border-t-2 border-outline-variant pt-3">
+            <div className="grid gap-1">
+              <p className="paper-label text-on-surface-variant">Funding</p>
+              <p className="text-sm font-bold text-on-surface">
+                Fund the new trading wallet with 1 SUI and 10 DUSDC before the Agent starts trading.
+              </p>
+              <p className="text-xs font-bold text-on-surface-variant">
+                This funding step is optional; you can also transfer 1 SUI and 10 DUSDC to this address later from another Sui wallet.
+              </p>
+              <p className="break-all font-mono text-[11px] font-bold text-on-surface-variant">
+                {claimResult.tradingWallet.address}
+              </p>
+            </div>
+            <button
+              className="paper-button inline-flex items-center justify-center gap-2 px-3 py-2 font-display text-xs font-black uppercase"
+              disabled={fundingStatus === "confirming" || fundingStatus === "funded"}
+              onClick={() => void handleFundWallet()}
+              type="button"
+            >
+              <Wallet aria-hidden="true" size={14} />
+              {fundingStatus === "confirming" ? "Confirming" : fundingStatus === "funded" ? "Funded" : "Fund wallet"}
+            </button>
+            {fundingStatus === "funded" && fundingTxDigest ? (
+              <p className="text-xs font-bold text-on-surface-variant">Funding tx {fundingTxDigest}</p>
+            ) : null}
+            {fundingStatus === "failed" ? (
+              <p className="text-xs font-bold text-error">{fundingError ?? "Funding transaction failed."}</p>
+            ) : null}
+          </section>
           {copyStatus === "copied" ? (
             <p className="text-xs font-bold text-on-surface-variant">Runtime handoff copied.</p>
           ) : null}
@@ -370,11 +446,23 @@ function createAgentRuntimeHandoff({
     predictManagerId: claimResult.tradingWallet.predictManagerId,
     savedAt: new Date().toISOString(),
     funding: {
-      minimumDusdcRaw: "10000000",
-      hardGasFloorSui: "0.1",
-      recommendedGasSui: "1"
+      minimumDusdcRaw: recommendedFundingDusdcRaw,
+      recommendedDusdc: recommendedFundingDusdc,
+      recommendedSui: recommendedFundingSui
     }
   };
+}
+
+function buildOwnerFundingTransaction(recipientAddress: string): Transaction {
+  const tx = new Transaction();
+  const suiCoin = tx.splitCoins(tx.gas, [recommendedFundingSuiMist])[0];
+  const dusdcCoin = tx.coin({
+    type: predictConfig.quoteAssetType,
+    balance: BigInt(recommendedFundingDusdcRaw),
+    useGasCoin: false
+  });
+  tx.transferObjects([suiCoin, dusdcCoin], recipientAddress);
+  return tx;
 }
 
 async function resolveWalletAccount(provider: ClaimWalletProvider): Promise<ClaimWalletAccount | null> {

@@ -342,7 +342,7 @@ function seedExpiredDirectionalPosition(store: PlatformMockStore) {
 }
 
 describe("Agent Arena platform API", () => {
-  it("initializes an Agent pairing without issuing runtime credentials", async () => {
+  it("initializes an Agent pairing with a random registration code and without issuing runtime credentials", async () => {
     const fetch = createPlatformFetchHandler();
     const beforeMs = Date.now();
     const response = await fetch(new Request("http://localhost/api/arena/agent/init", {
@@ -356,7 +356,8 @@ describe("Agent Arena platform API", () => {
       displayName: "Trend Ranger"
     });
     expect(body.agentDraftId).toStartWith("draft_");
-    expect(body.registrationCode).toMatch(/^PAIR-/);
+    expect(body.registrationCode).toMatch(/^PAIR-[0-9a-f]{32}$/);
+    expect(body.registrationCode).not.toMatch(/^PAIR-\d+$/);
     expect(body.claimUrl).toBe(`http://127.0.0.1:5173/agent-arena/claim/${body.registrationCode}`);
     expect(Date.parse(body.expiresAt)).toBeGreaterThanOrEqual(beforeMs + 15 * 60 * 1000);
     expect(Date.parse(body.expiresAt)).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000);

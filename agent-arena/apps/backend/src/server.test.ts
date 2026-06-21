@@ -190,6 +190,9 @@ describe("createAgentArenaFetchHandler", () => {
   it("can wire a claimed-Agent platform wallet store into owner claim without exposing private material", async () => {
     const fetch = createAgentArenaFetchHandler({
       runtimeMode: "mock",
+      predictEnv: {
+        AGENT_ARENA_ENABLE_REGISTRY_SUBMIT: "false"
+      },
       platformWalletStore: createMemoryWalletStore({
         walletSecret: "platform-wallet-secret",
         quoteAssetType: "0xquote::dusdc::DUSDC"
@@ -262,6 +265,9 @@ describe("createAgentArenaFetchHandler", () => {
     const firstStore = new SQLitePlatformStore(dbPath);
     const firstFetch = createAgentArenaFetchHandler({
       runtimeMode: "mock",
+      predictEnv: {
+        AGENT_ARENA_ENABLE_REGISTRY_SUBMIT: "false"
+      },
       platformStore: firstStore
     });
     let claimed: any;
@@ -289,6 +295,9 @@ describe("createAgentArenaFetchHandler", () => {
     const secondStore = new SQLitePlatformStore(dbPath);
     const secondFetch = createAgentArenaFetchHandler({
       runtimeMode: "mock",
+      predictEnv: {
+        AGENT_ARENA_ENABLE_REGISTRY_SUBMIT: "false"
+      },
       platformStore: secondStore
     });
     try {
