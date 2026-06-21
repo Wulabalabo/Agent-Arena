@@ -304,6 +304,54 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: /Ranked Agents/i })).toBeInTheDocument();
   });
 
+  it("loads leaderboard entries from the platform API instead of the mock snapshot", async () => {
+    const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
+    const platformFetcher = vi.fn(async (url: string) => {
+      if (url.includes("/owner/agent?")) {
+        return createMockOwnerAgentProfileResponse();
+      }
+
+      if (url.includes("/leaderboard?")) {
+        return jsonResponse({
+          entries: [
+            {
+              ...mockPlatformSnapshot.leaderboard[0],
+              agentId: "agent_real_leader",
+              displayName: "Ledger Backed Agent",
+              twitterHandle: null,
+              score: 42.5,
+              netPnlPct: 0.125,
+              hitRatePct: 1,
+              executionCount: 2,
+              currentExposureStatus: "flat"
+            }
+          ]
+        });
+      }
+
+      if (url.includes("/public-feed")) {
+        return jsonResponse({
+          agents: [],
+          intents: [],
+          executions: [],
+          leaderboard: []
+        });
+      }
+
+      return jsonResponse({ marketState: appMarketState });
+    });
+
+    render(<App connectedOwnerAddress="0xowner" liveMarketLoader={liveMarketLoader} platformFetcher={platformFetcher} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Leaderboard$/i }));
+
+    expect(await screen.findAllByText("Ledger Backed Agent")).toHaveLength(2);
+    expect(screen.queryAllByText("Trend Ranger")).toHaveLength(0);
+    expect(platformFetcher).toHaveBeenCalledWith(
+      "http://127.0.0.1:8787/api/arena/leaderboard?competitionId=btc-15m-001"
+    );
+  });
+
   it("does not show mock public actions when the public feed endpoint is unavailable", async () => {
     const liveMarketLoader = vi.fn(async () => appLiveMarketSnapshot);
     const platformFetcher = vi.fn(async (url: string) => {

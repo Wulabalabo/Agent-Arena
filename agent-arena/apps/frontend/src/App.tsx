@@ -41,6 +41,7 @@ import {
 const apiBaseUrl = platformConfig.apiBaseUrl;
 const MARKET_STATE_REFRESH_INTERVAL_MS = 5_000;
 const PUBLIC_ACTIVITY_REFRESH_INTERVAL_MS = 15_000;
+const LEADERBOARD_REFRESH_INTERVAL_MS = 15_000;
 const OWNER_AGENT_PROFILE_REFRESH_INTERVAL_MS = 15_000;
 const emptyPublicArenaActivity: PublicArenaActivity = {
   agents: [],
@@ -118,13 +119,17 @@ function WalletAwareApp({ connectedOwnerAddress, liveMarketLoader, platformFetch
 }
 
 function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher, registryTransactionSigner }: AppProps) {
-  const [state, setState] = useState(() => createInitialPlatformState(mockPlatformSnapshot));
+  const [state, setState] = useState(() => createInitialPlatformState({
+    ...mockPlatformSnapshot,
+    leaderboard: []
+  }));
   const [marketState, setMarketState] = useState<MarketSnapshot | null>(null);
   const [publicActivity, setPublicActivity] = useState<PublicArenaActivity | null>(null);
   const [ownerAgentProfile, setOwnerAgentProfile] = useState<OwnerAgentProfile | null>(null);
   const [ownerAgentProfileAddress, setOwnerAgentProfileAddress] = useState<string | null>(null);
   const marketStateRequestSequenceRef = useRef(0);
   const publicActivityRequestSequenceRef = useRef(0);
+  const leaderboardRequestSequenceRef = useRef(0);
   const ownerAgentProfileRequestSequenceRef = useRef(0);
   const selectedCompetition = useMemo(() => getSelectedCompetition(state), [state]);
   const claimRegistrationCode = getClaimRegistrationCode();
@@ -311,6 +316,57 @@ function AppContent({ connectedOwnerAddress, liveMarketLoader, platformFetcher, 
       window.clearInterval(intervalId);
     };
   }, [claimRegistrationCode, connectedOwnerAddress, platformClient, state.activeView]);
+
+  useEffect(() => {
+    if (state.activeView !== "leaderboard" || claimRegistrationCode || !selectedCompetition) {
+      return;
+    }
+
+    let cancelled = false;
+    let requestPending = false;
+    const competitionId = selectedCompetition.id;
+
+    const loadLeaderboard = async () => {
+      if (requestPending) {
+        return;
+      }
+
+      requestPending = true;
+      const requestSequence = leaderboardRequestSequenceRef.current + 1;
+      leaderboardRequestSequenceRef.current = requestSequence;
+
+      try {
+        const nextLeaderboard = await platformClient.listLeaderboard(competitionId);
+        if (!cancelled && leaderboardRequestSequenceRef.current === requestSequence) {
+          setState((currentState) => (
+            currentState.selectedCompetitionId === competitionId
+              ? { ...currentState, leaderboard: Array.isArray(nextLeaderboard) ? nextLeaderboard : [] }
+              : currentState
+          ));
+        }
+      } catch {
+        if (!cancelled && leaderboardRequestSequenceRef.current === requestSequence) {
+          setState((currentState) => (
+            currentState.selectedCompetitionId === competitionId
+              ? { ...currentState, leaderboard: [] }
+              : currentState
+          ));
+        }
+      } finally {
+        requestPending = false;
+      }
+    };
+
+    void loadLeaderboard();
+    const intervalId = window.setInterval(() => {
+      void loadLeaderboard();
+    }, LEADERBOARD_REFRESH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [claimRegistrationCode, platformClient, selectedCompetition, state.activeView]);
 
   useEffect(() => {
     if (state.activeView !== "arena" || !selectedCompetition) {
