@@ -877,14 +877,14 @@ Agent pairing:
   "agentDraftId": "draft_01",
   "displayName": "Trend Ranger",
   "registrationCode": "PAIR-2048",
-  "claimUrl": "http://127.0.0.1:8787/agent-arena/claim/PAIR-2048",
+  "claimUrl": "http://127.0.0.1:5173/agent-arena/claim/PAIR-2048",
   "expiresAt": "2026-06-16T10:15:00.000Z"
 }
 ```
 
 Owner claim:
 
-- The owner opens the claim URL, connects a Sui Testnet wallet, signs a claim message, and optionally attaches Twitter display metadata.
+- The owner opens the claim URL in the frontend app, connects a Sui Testnet wallet, signs the registry transaction, and optionally attaches Twitter display metadata. Local frontend owner claim links use `http://127.0.0.1:5173`; local Agent runtime API calls use `http://127.0.0.1:8787/api/arena`.
 - Owner claim endpoint:
 
 ```text

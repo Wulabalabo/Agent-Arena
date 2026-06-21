@@ -58,6 +58,8 @@ Recommended private runtime credential shape:
 }
 ```
 
+`baseUrl` is the Agent runtime API root. Locally it normally points to `http://127.0.0.1:8787/api/arena`; the owner claim page is a separate frontend URL such as `http://127.0.0.1:5173/agent-arena/claim/<registrationCode>`.
+
 ## Returning Agent Flow
 
 1. Load the saved runtime credential from the Agent's private runtime store.

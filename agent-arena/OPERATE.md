@@ -92,6 +92,10 @@ AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY=<server-only-authority-suiprivkey>
 
 Only enable registry mode after publishing the owner-sender-enforced registry package and filling `AGENT_ARENA_REGISTRY_PACKAGE_ID`, `AGENT_ARENA_REGISTRY_OBJECT_ID`, and `AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY`.
 
+`AGENT_ARENA_FRONTEND_BASE_URL` is the owner-facing site used in pairing `claimUrl` responses. In production it should be the public site, for example `https://arena.mindfrog.xyz`. Local direct backend runs should override it to `http://127.0.0.1:5173` in `apps/backend/.env`; do not use that local value in the server root `.env`.
+
+The Agent runtime handoff `baseUrl` is the backend API root, for example `http://127.0.0.1:8787/api/arena` locally or `https://arena.mindfrog.xyz/api/arena` in production. It is intentionally different from the owner claim page URL.
+
 Start the stack:
 
 ```bash
@@ -169,19 +173,38 @@ docker compose up -d --build
 Use this sequence whenever the Move registry package or embedded authority public key changes:
 
 1. Generate or select the server-side Ed25519 authority key and embed its public key in `agent_arena::registry`.
-2. Deploy the updated Move package on Sui Testnet.
-3. Create or publish the new registry object.
-4. Record the deployed package id and registry object id.
-5. Set `AGENT_ARENA_REGISTRY_PACKAGE_ID`, `AGENT_ARENA_REGISTRY_OBJECT_ID`, and `AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY` in `.env`.
-6. Keep the authority address unfunded unless another operational use requires gas; it only signs authorization hashes.
-7. Confirm the owner wallet used for claim/rotation has enough Testnet SUI for the registry transaction.
-8. Recreate the backend after env changes:
+2. Confirm the exact Sui CLI environment that will execute the transaction, not just a different sandbox or shell:
+
+```bash
+sui client active-env
+sui client active-address
+sui client gas
+```
+
+The active env must be `testnet`. If an approval or external shell is used for the publish command, run the same checks in that shell before publishing.
+
+3. Deploy the updated Move package on Sui Testnet.
+4. Create or publish the new registry object.
+5. Verify both IDs against Testnet RPC before wiring env:
+
+```bash
+sui client object <package-id>
+sui client object <registry-object-id>
+```
+
+The package object must exist on Testnet and the registry object type must be `<package-id>::registry::Registry`.
+
+6. Record the deployed package id and registry object id.
+7. Set `AGENT_ARENA_REGISTRY_PACKAGE_ID`, `AGENT_ARENA_REGISTRY_OBJECT_ID`, and `AGENT_ARENA_REGISTRY_AUTHORITY_PRIVATE_KEY` in `.env`.
+8. Keep the authority address unfunded unless another operational use requires gas; it only signs authorization hashes.
+9. Confirm the owner wallet used for claim/rotation has enough Testnet SUI for the registry transaction.
+10. Recreate the backend after env changes:
 
 ```bash
 docker compose up -d --force-recreate --no-deps backend
 ```
 
-9. Rebuild/recreate the frontend if the public URL or owner-facing copy changed:
+11. Rebuild/recreate the frontend if the public URL or owner-facing copy changed:
 
 ```bash
 docker compose up -d --build frontend proxy

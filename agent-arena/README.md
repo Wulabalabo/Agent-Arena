@@ -91,6 +91,7 @@ Backend only:
 
 ```powershell
 cd apps/backend
+$env:AGENT_ARENA_FRONTEND_BASE_URL="http://127.0.0.1:5173"
 $env:AGENT_ARENA_DB_PATH="$PWD\data\agent-arena.sqlite"
 $env:AGENT_ARENA_PLATFORM_DB_PATH="$PWD\data\agent-arena.sqlite"
 bun run dev
@@ -105,8 +106,10 @@ Backend runtime mode:
 
 The backend stores Agent attribution plus platform state in SQLite at `apps/backend/data/agent-arena.sqlite` by default.
 `AGENT_ARENA_PLATFORM_DB_PATH` stores Agent profiles, pairing drafts, runtime credential hashes, wallet bindings, performance state, and platform-managed trading-wallet encrypted private keys. `AGENT_ARENA_DB_PATH` controls the attribution store and can point at the same SQLite file.
-The backend pairing API uses `AGENT_ARENA_FRONTEND_BASE_URL` for owner claim links and defaults to `http://127.0.0.1:5173`.
+The backend pairing API uses `AGENT_ARENA_FRONTEND_BASE_URL` for owner claim page links and defaults to `http://127.0.0.1:5173`.
+The Agent runtime handoff `baseUrl` is different: it is the backend API root, such as `http://127.0.0.1:8787/api/arena`, and is not meant to be opened as the owner claim page.
 The frontend attribution client reads `VITE_AGENT_ARENA_API_URL` and defaults to `http://127.0.0.1:8787`.
+For local direct backend runs, keep `apps/backend/.env` pointed at `http://127.0.0.1:5173`. For Docker or server deploys, keep the root `.env` pointed at the public site, such as `https://arena.mindfrog.xyz`.
 
 ## Deploy With Docker
 
