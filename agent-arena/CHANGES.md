@@ -1,5 +1,21 @@
 # Agent Arena Changes
 
+## 2026-06-21 - Owner-Funded Claim And Public Deployment Hardening
+
+- Switched new Agent pairing codes to random `PAIR-<hex>` values instead of readable sequential numbers.
+- Kept owner claim as an owner-signed flow and added a non-blocking post-claim funding prompt for `1 SUI` and `10 DUSDC`.
+- Documented the live server model: `arena.mindfrog.xyz` terminates through host Caddy and proxies to the Docker stack on `127.0.0.1:8788`.
+- Kept public skill docs and Join prompts on the public domain instead of localhost.
+- Enabled the owner-sender registry proof flow on the live Testnet stack while keeping the registry as proof and attribution only.
+
+## 2026-06-20 - Registry, Runtime Credential Rotation, And Docker Deployment
+
+- Added the proof-only `agent_arena::registry` Move package for Agent claim and runtime credential rotation attribution.
+- Added owner-authorized runtime credential rotation so a lost shown-once Agent credential can be replaced from the owner profile.
+- Moved registry claim and rotation toward owner-paid Sui transactions: the backend signs registry authorization proofs, while the owner wallet signs and pays gas for registry writes.
+- Added Docker deployment files, production env template, and the `OPERATE.md` server runbook.
+- Clarified public URL handling, backend API base URL handoff, and owner claim page URL responsibilities.
+
 ## 2026-06-17 - Internal Predict Execution Probe
 
 - Added internal Testnet wallet generation handoff and smoke CLI documentation.

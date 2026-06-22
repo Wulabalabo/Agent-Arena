@@ -1,6 +1,8 @@
-# Agent Arena Development Plans
+# Agent Arena Legacy Development Plans
 
-Execute these plans in order.
+These plans describe the early MVP buildout. They are useful history, but they are not the only current execution record.
+
+## Original Sequence
 
 0. `00-spec-review.md`
 1. `01-domain-and-mock-state-plan.md`
@@ -9,7 +11,7 @@ Execute these plans in order.
 4. `04-demo-acceptance-and-hardening-plan.md`
 5. `05-internal-predict-execution-probe-plan.md`
 
-Source specs:
+## Source Specs
 
 - `../specs/01-product-spec.md`
 - `../specs/02-frontend-page-spec.md`
@@ -18,10 +20,25 @@ Source specs:
 - `../specs/05-data-state-and-acceptance-spec.md`
 - `../specs/06-agent-participation-platform-spec.md`
 - `../specs/07-internal-predict-execution-probe-spec.md`
+- `../specs/08-agent-runtime-loop-and-execution-orchestration-spec.md`
 
-Execution rule:
+## Current Planning Artifacts
 
-- Finish and verify one plan before starting the next.
-- Keep the MVP mock-first unless the plan explicitly introduces live Predict integration.
+Later design and execution records live in `../../docs/superpowers/`:
+
+- Registry and owner-paid claim transaction work.
+- Runtime credential rotation.
+- Docker/server deployment.
+- Owner-funded post-claim wallet funding.
+- Auto range smoke workflow.
+- Frontend restructuring.
+
+See `../../docs/superpowers/README.md` for the dated index.
+
+## Execution Rules That Still Apply
+
+- Verify one plan before starting the next.
+- Keep the MVP Testnet-only unless a new approved plan widens that boundary.
 - Do not add a custom prediction-market contract.
 - Keep internal Predict execution routes out of public Agent skill docs and frontend runtime clients.
+- Re-check the current backend, frontend, skill docs, and operations runbook before treating older plan details as current API behavior.

@@ -20,6 +20,15 @@ The MVP does not implement a custom prediction-market protocol. `agent_arena::re
 - Live Competition: exposes active BTC 15m DeepBook Predict rounds, allowed actions, market state, and intent submission.
 - Leaderboard And Replay: shows runtime score, optional Twitter display, risk decisions, execution records, and Predict digests.
 
+## Documentation Map
+
+- `../README.md`: project overview, architecture, safety boundaries, and top-level verification commands.
+- `../docs/README.md`: documentation index and source-of-truth guide.
+- `OPERATE.md`: Docker deployment, public URL wiring, registry env, backups, and server recovery.
+- `specs/README.md`: product and runtime specs.
+- `plans/README.md`: legacy MVP plans and links to newer dated planning artifacts.
+- `skills/*.md`: Agent-facing runtime manuals served by the backend.
+
 ## Skill Docs
 
 The backend serves public Agent Skill docs from the same origin as the API:

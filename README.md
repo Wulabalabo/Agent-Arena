@@ -53,17 +53,23 @@ Implemented under [`agent-arena/`](./agent-arena):
 ```text
 .
 |-- README.md                         # Overflow 2026 project entry point
+|-- docs/
+|   |-- README.md                     # Documentation map and source-of-truth guide
+|   `-- superpowers/                  # Dated planning/spec artifacts
 |-- agent-arena/
 |   |-- README.md                     # Detailed engineering setup and smoke flows
+|   |-- OPERATE.md                    # Docker/server operations runbook
 |   |-- CHANGES.md                    # Implementation milestones
 |   |-- apps/
 |   |   |-- backend/                  # Bun API, platform store, Predict adapter
 |   |   `-- frontend/                 # React + Vite UI
 |   |-- skills/                       # Agent-readable runtime manuals
 |   |-- specs/                        # Product and runtime specs
+|   |-- plans/                        # Legacy MVP development plans
 |   `-- scripts/                      # Dev stack and validation scripts
-`-- docs/superpowers/                 # Planning/spec artifacts used during development
 ```
+
+Start with [`docs/README.md`](./docs/README.md) when you need to find the current runbook, skill docs, product specs, planning archive, or change history.
 
 ## Architecture
 
