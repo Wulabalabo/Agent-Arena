@@ -23,6 +23,7 @@ This folder stores dated design and implementation-plan artifacts created during
 
 | Date | Document | Status |
 | --- | --- | --- |
+| 2026-06-25 | [Runtime hardening](./plans/2026-06-25-agent-arena-runtime-hardening.md) | Planned. |
 | 2026-06-21 | [Owner-funded claim flow](./plans/2026-06-21-owner-funded-claim-flow.md) | Executed. |
 | 2026-06-20 | [Registry credential rotation](./plans/2026-06-20-agent-arena-registry-credential-rotation.md) | Part of the registry and rotation buildout. |
 | 2026-06-20 | [Owner single registry transaction](./plans/2026-06-20-agent-arena-owner-single-registry-tx.md) | Later registry transaction model for owner-paid claim and rotation. |
