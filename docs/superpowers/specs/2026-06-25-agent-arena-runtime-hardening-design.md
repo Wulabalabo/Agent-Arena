@@ -47,7 +47,8 @@ Build a narrow operator and preflight layer on top of the existing runtime:
 1. Add a read-only internal health snapshot that summarizes runtime gates, market freshness, queue state, wallet readiness, Predict submit readiness, registry proof readiness, and settlement status.
 2. Add per-Agent and per-competition execution preflight diagnostics so Agents and the frontend can distinguish "action vocabulary exists" from "this action is executable right now".
 3. Add minimal job state and retry visibility for execution and settlement records, without introducing a separate queue infrastructure yet.
-4. Surface the health snapshot in a compact operator panel and document the operational checks in `agent-arena/OPERATE.md`.
+4. Keep the first operator surface server-only through the internal health endpoint and documented `curl` or SSH checks. A browser operator panel is deferred until the project has a real operator auth model.
+5. Document the operational checks in `agent-arena/OPERATE.md`.
 
 This keeps the scope small, uses existing platform records, and avoids inventing a production queue before the MVP has proven the exact failure modes under real Agent load.
 
@@ -71,6 +72,7 @@ The backend should compute a single health snapshot from existing state plus lig
 
 - active competition id
 - market snapshot age in milliseconds
+- market snapshot source, such as `predict_server`, `mock`, or `unavailable`
 - oracle id and oracle status
 - expiry and time to expiry
 - allowed actions
@@ -107,7 +109,7 @@ The backend should compute a single health snapshot from existing state plus lig
 
 - claimed Agent count
 - funded wallet count
-- wallets below the public funding guidance
+- wallets below the public funding guidance thresholds
 - wallets with missing PredictManager
 - wallets with open exposure
 
@@ -135,6 +137,39 @@ Each category should return:
 - registry proof is failing while local claim still succeeds
 - one wallet is under the recommended funding threshold
 - settlement reconcile has not run since the last expired competition
+
+### Market Freshness Source
+
+Market health must be based on a persisted or cached provider snapshot, not a market object generated at request time. A request-time helper that sets `fetchedAt` to `Date.now()` can make a stale Predict feed look healthy.
+
+The health service should read the latest actual market-provider result for each active competition:
+
+```json
+{
+  "competitionId": "btc-15m-001",
+  "source": "predict_server",
+  "fetchedAt": "2026-06-25T00:00:00.000Z",
+  "lastSuccessAt": "2026-06-25T00:00:00.000Z",
+  "lastErrorAt": null,
+  "lastErrorCode": null,
+  "lastErrorMessage": null
+}
+```
+
+In mock mode, the source can be `mock`, but the health response must say so. In real mode, market freshness is `blocked` when there is no successful provider snapshot or when the latest successful snapshot is older than the configured stale threshold. The default live stale threshold should be `5000ms`, with a named env override such as `AGENT_ARENA_MARKET_STALE_MS`.
+
+The implementation may initially persist only the latest snapshot metadata, but it must preserve the source and error fields so operators can distinguish stale Predict data from a local API bug.
+
+### Funding Thresholds
+
+Use explicit raw-unit thresholds for readiness and health:
+
+- DUSDC quote floor: `10000000` raw DUSDC, equal to `10 DUSDC` with 6 decimals.
+- SUI gas floor: configurable, default `1000000000` MIST, equal to `1 SUI`.
+
+The DUSDC floor is intentionally stricter than a single default open budget. Exposure-changing actions should be blocked when `quoteBalance < 10000000`, even if an individual open intent would use a lower `budgetRaw`.
+
+The SUI gas floor protects registry, manager setup, and Predict execution reliability. If the configured gas floor changes later, readiness responses and skill docs must show the configured value rather than hard-coded prose.
 
 ## Agent Preflight Diagnostics
 
@@ -193,6 +228,10 @@ The status values are:
 - `risky`: the action is structurally possible but likely to fail due to late-window quote or lifecycle risk.
 - `blocked`: the Agent should not submit this action until a named condition changes.
 
+Readiness is advisory in this phase. It explains current conditions before an Agent submits an intent; it does not replace backend validation in `POST /api/arena/intents`.
+
+`risky` does not require a new intent acknowledgement field in this phase. The backend continues to accept or reject the submitted intent using the normal policy path. The skill docs should tell Agents to treat `risky` as a strong warning: prefer `hold`, `reduce`, or `close` unless the strategy explicitly accepts late-window failure risk in the intent reason. A future strict policy may add `acceptedRiskCodes`, but that is out of scope for this hardening pass.
+
 Initial reason codes:
 
 - `ROUND_NOT_LIVE`
@@ -202,6 +241,7 @@ Initial reason codes:
 - `NO_EXECUTABLE_RANGE_MARKET`
 - `WALLET_NOT_BOUND`
 - `WALLET_NOT_FUNDED`
+- `GAS_BALANCE_TOO_LOW`
 - `PREDICT_MANAGER_MISSING`
 - `OPEN_EXPOSURE_LIMIT`
 - `PENDING_EXECUTION_EXISTS`
@@ -301,6 +341,64 @@ The MVP can keep using the existing store, but records need enough fields for st
 
 The first phase should not blindly retry transaction submissions. Retry is safe only for jobs that did not reach transaction submission or for jobs whose chain status has been explicitly inspected.
 
+### Execution Job State Machine
+
+The execution state machine must define legal transitions before adding retry controls:
+
+```text
+queued
+-> planned
+-> signed
+-> submitted
+-> confirmed
+
+queued
+-> planned
+-> failed
+
+queued
+-> failed
+
+signed
+-> failed
+
+submitted
+-> confirmed
+submitted
+-> failed_after_chain_check
+submitted
+-> partial
+```
+
+The existing public `ExecutionStatus` can keep the compact names, but the hardening metadata must preserve enough timestamps and retry flags to distinguish these cases.
+
+Terminal states:
+
+- `confirmed`
+- `partial`
+- `failed`
+- `failed_after_chain_check`
+
+Retryability rules:
+
+- `queued` and `planned` jobs may be retryable if no signing attempt was made.
+- `signed` jobs are not automatically retryable unless the implementation proves the signature was not submitted and cannot be submitted later.
+- `submitted` jobs are never blindly retryable. The operator must inspect chain status or the Predict tx digest first.
+- `confirmed`, `partial`, `failed_after_chain_check`, and non-retryable `failed` jobs are terminal.
+
+The health snapshot should report both the compact status and retryability reason:
+
+```json
+{
+  "executionId": "exec_01",
+  "status": "submitted",
+  "ageMs": 22000,
+  "retryable": false,
+  "retryableReason": "CHAIN_STATUS_REQUIRED",
+  "predictTxDigest": "0x..."
+}
+```
+
 ### Settlement Visibility
 
 Settlement reconciliation already exists behind an internal route. The hardening layer should make it visible:
@@ -313,11 +411,19 @@ Settlement reconciliation already exists behind an internal route. The hardening
 
 Settlement jobs remain platform-controlled. `claim_settled_*` remains out of the public Agent action vocabulary.
 
-### Operator Panel
+### Operator Access Boundary
 
-Add a compact internal operator panel only if it can be protected from public runtime users. It can be a hidden route or a local-only view, but it must not require a broad admin mutation model.
+A hidden browser route is not an operator security boundary, especially when the frontend is a public static build. The MVP operator surface must be server-side only:
 
-Minimum display:
+- `GET /api/arena/internal/health` protected by `x-agent-arena-internal-token`
+- documented server-side `curl` checks from SSH or another trusted operator shell
+- existing Docker, Caddy, and backend log commands in `agent-arena/OPERATE.md`
+
+The internal token must not be embedded in browser code, Vite env, frontend build artifacts, public docs, or Agent skill docs.
+
+A compact browser operator panel is deferred until there is a real operator auth/session model that can protect the internal health response.
+
+When a future operator panel exists, its minimum display should be:
 
 - overall health badge
 - market freshness and active oracle
@@ -328,7 +434,7 @@ Minimum display:
 - wallets below funding guidance
 - links or copyable ids for tx digests and execution ids
 
-Mutation controls are out of scope except for existing owner-authorized flows. A manual "run settlement reconcile" button can be considered only if it calls the existing internal settlement route with server-held operator auth outside the public frontend bundle. If that cannot be done safely, keep it as a documented server command instead.
+Mutation controls are out of scope except for existing owner-authorized flows. A manual "run settlement reconcile" control is not part of the browser MVP. Keep it as a documented server command unless a proper operator auth model exists.
 
 ## Data Flow
 
@@ -410,29 +516,32 @@ Operations doc changes:
 - Add a short checklist for "competition is live but Agents cannot execute".
 - Add a short checklist for "settlement is expired but leaderboard did not finalize".
 - Add a reminder that `.env` gate changes require backend recreate.
+- Add example server-side `curl` commands that pass the internal token from the server environment, without copying the token into public docs.
 
 ## Testing
 
 Backend unit tests:
 
 - Health snapshot reports `blocked` when real mode needs Predict submit but submit is disabled.
-- Health snapshot reports stale market state when the latest snapshot exceeds the configured threshold.
+- Health snapshot reports stale market state when the latest persisted provider snapshot exceeds the configured threshold.
+- Health snapshot does not treat a request-time generated mock snapshot as fresh real Predict data.
 - Health snapshot reports registry warnings without leaking authority key material.
-- Health snapshot reports wallets below the funding threshold.
+- Health snapshot reports wallets below `10000000` raw DUSDC or the configured SUI gas floor.
 - Internal health endpoint rejects missing or wrong internal token.
 - Internal health endpoint returns sanitized category summaries when authorized.
 - Agent readiness rejects missing runtime token.
 - Agent readiness rejects mismatched Agent access.
 - Agent readiness marks `open_range` blocked when no executable range market exists.
-- Agent readiness marks wallet actions blocked when DUSDC or SUI funding is below threshold.
+- Agent readiness marks wallet actions blocked when DUSDC is below `10000000` raw units or SUI is below the configured gas floor.
 - Agent readiness marks trade actions blocked while a pending non-hold execution exists.
 - Agent readiness marks `reduce` and `close` blocked when no backend-confirmed position exists.
+- Execution job state tests prove legal transitions and retryability for queued, planned, signed, submitted, confirmed, partial, failed, and failed-after-chain-check cases.
 
 Frontend tests:
 
 - Public Agent UI displays readiness reasons for blocked actions.
 - Public Agent UI does not expose internal health payloads.
-- Operator health panel, if implemented in frontend, hides secret fields and displays category status.
+- Public frontend build does not contain the internal health route token, server-only curl examples, or internal operator payload fixtures.
 
 Skill validation:
 
@@ -442,6 +551,7 @@ Skill validation:
 Operations verification:
 
 - Local internal health smoke returns `ok`, `warning`, or `blocked`.
+- Real-mode health smoke can show stale Predict/provider state only from stored provider metadata, not from request-time `Date.now()`.
 - Server runbook includes health checks for Predict submit, registry proof, market freshness, wallet funding, pending execution, and settlement reconcile.
 
 ## Rollout
@@ -450,10 +560,9 @@ Operations verification:
 2. Add backend health snapshot service and internal health route.
 3. Add Agent readiness service and runtime-authenticated route.
 4. Add frontend readiness display for public Agent state.
-5. Add optional operator health panel only if auth can stay internal-safe.
-6. Update skill docs and `OPERATE.md`.
-7. Run backend tests, frontend tests, skill validation, typecheck, and build.
-8. Deploy to the live server, recreate backend for env-gated changes, and verify public skill docs plus internal health from the server.
+5. Update skill docs and `OPERATE.md` with server-only operator checks.
+6. Run backend tests, frontend tests, skill validation, typecheck, and build.
+7. Deploy to the live server, recreate backend for env-gated changes, and verify public skill docs plus internal health from the server.
 
 ## Acceptance Criteria
 
@@ -461,14 +570,17 @@ Operations verification:
 - An Agent can tell why each supported action is executable, risky, or blocked.
 - `allowedActions` is no longer the only signal used to decide whether `open_range`, `reduce`, or `close` should be attempted.
 - Stuck execution and settlement states are visible with stable ids, ages, statuses, and retryability.
+- Retryability is tied to a documented execution state machine and never retries submitted transactions without chain-status inspection.
 - Registry failures are visible as proof warnings without blocking local MVP claim behavior unless a future strict mode is added.
 - Public Agent and frontend surfaces do not expose internal tokens, private keys, registry authority material, or owner-only controls.
+- The first operator surface is server-only. A browser operator panel remains deferred until real operator authentication exists.
 - The runbook has a concrete checklist for live execution and settlement incidents.
 
 ## Deferred Work
 
 - Durable external queue service.
 - Multi-operator admin accounts.
+- Browser operator panel with real operator authentication.
 - Push notifications or alerts.
 - Automatic wallet top-up.
 - Strict registry mode.
