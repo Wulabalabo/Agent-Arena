@@ -13,6 +13,7 @@ This folder stores dated design and implementation-plan artifacts created during
 
 | Date | Document | Purpose |
 | --- | --- | --- |
+| 2026-06-25 | [Runtime hardening](./specs/2026-06-25-agent-arena-runtime-hardening-design.md) | Operator health, Agent readiness, execution visibility, and settlement diagnostics after the live chain-backed MVP. |
 | 2026-06-21 | [Owner-funded claim flow](./specs/2026-06-21-owner-funded-claim-flow-design.md) | Random pairing codes and non-blocking owner funding after claim. |
 | 2026-06-20 | [Registry and credential rotation](./specs/2026-06-20-agent-arena-registry-and-credential-rotation-design.md) | Proof-only registry scope and owner-authorized runtime credential rotation. |
 | 2026-06-19 | [Frontend restructure](./specs/2026-06-19-agent-arena-frontend-restructure-design.md) | Frontend structure and Agent Arena UI reorganization. |
