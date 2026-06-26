@@ -3,6 +3,7 @@ import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { handleAttributionRequest, type AttributionStoreLike } from "./attribution";
 import { createPlatformFetchHandler } from "./platform/api";
+import { createMarketDataTracker } from "./platform/market-health";
 import { PlatformMockStore } from "./platform/mock-store";
 import { createPredictExecutionAdapter } from "./platform/predict-adapter";
 import {
@@ -208,6 +209,13 @@ function createRealRuntime({
     balanceReader: resolvedBalanceReader
   });
   const client = predictServerClient ?? createPredictServerClient({ baseUrl: config.predictServerUrl });
+  const marketDataTracker = createMarketDataTracker({
+    source: "predict_server",
+    provider: createPredictMarketDataProvider({
+      config,
+      predictServerClient: client
+    })
+  });
   const resolveManager = async (wallet: InternalTradingWallet) =>
     await discoverPredictManager({
       walletAddress: wallet.address,
@@ -298,10 +306,8 @@ function createRealRuntime({
         };
       },
       agentWalletReader: async (wallet) => await readWallet(wallet.id),
-      marketDataProvider: createPredictMarketDataProvider({
-        config,
-        predictServerClient: client
-      }),
+      marketDataProvider: marketDataTracker.getMarketData,
+      marketSnapshotMetadataReader: marketDataTracker.getMetadata,
       settlementInternalToken: config.internalToken,
       settlementClaimExecutor: async (request) => await executeSettlementClaimViaInternalPredict({
         request,

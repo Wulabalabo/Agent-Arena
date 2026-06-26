@@ -13,6 +13,7 @@ import {
   submitIntentWithMockExecution
 } from "./execution";
 import { createMarketSnapshot } from "./market-snapshot";
+import type { MarketSnapshotMetadata } from "./market-health";
 import { PlatformMockStore } from "./mock-store";
 import { buildReplayEvents } from "./replay";
 import {
@@ -119,6 +120,7 @@ export interface CreatePlatformFetchHandlerOptions {
   agentWalletReader?: (wallet: TradingWallet) => Promise<Partial<AgentWalletServiceResult>>;
   frontendBaseUrl?: string;
   marketDataProvider?: () => Promise<AgentMarketDataResult>;
+  marketSnapshotMetadataReader?: () => MarketSnapshotMetadata | null;
   now?: () => number;
   ownerWithdrawalService?: (input: OwnerWithdrawalServiceInput) => Promise<OwnerWithdrawalServiceResult>;
   ownerSignatureVerifier?: OwnerSignatureVerifier;
