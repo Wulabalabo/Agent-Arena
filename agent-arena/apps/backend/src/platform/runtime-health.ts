@@ -18,6 +18,7 @@ export interface HealthCategory {
 }
 
 export interface RuntimeHealthSnapshot {
+  service: "agent-arena-platform";
   generatedAt: string;
   runtimeMode: RuntimeMode;
   network: string;
@@ -75,6 +76,7 @@ export function createRuntimeHealthSnapshot({
   };
 
   return {
+    service: "agent-arena-platform",
     generatedAt: new Date(nowMs).toISOString(),
     runtimeMode,
     network,
@@ -222,7 +224,7 @@ function createWalletCategory(store: PlatformMockStore): HealthCategory {
 
   for (const wallet of activeWallets) {
     const quoteBalance = parseRawBalance(wallet.quoteBalance);
-    const suiBalance = parseRawBalance(wallet.testnetSuiBalance);
+    const suiBalance = parseTestnetSuiBalanceRaw(wallet.testnetSuiBalance);
     const fundingWarnings: string[] = [];
 
     if (quoteBalance === null || quoteBalance < minimumQuoteBalanceRaw) {
@@ -293,4 +295,20 @@ function parseRawBalance(value: string): bigint | null {
   } catch {
     return null;
   }
+}
+
+function parseTestnetSuiBalanceRaw(value: string): bigint | null {
+  const trimmed = value.trim();
+  if (!trimmed.includes(".")) {
+    return parseRawBalance(trimmed);
+  }
+
+  const match = /^(\d+)\.(\d{1,9})$/.exec(trimmed);
+  if (!match) {
+    return null;
+  }
+
+  const whole = BigInt(match[1]);
+  const fraction = BigInt(match[2].padEnd(9, "0"));
+  return whole * minimumTestnetSuiBalanceRaw + fraction;
 }
