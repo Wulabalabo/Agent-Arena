@@ -84,6 +84,67 @@ describe("createRuntimeHealthSnapshot", () => {
     expect(JSON.stringify(snapshot)).not.toContain("runtimeCredential");
   });
 
+  it("reports low formatted SUI gas balance directly", () => {
+    const store = new PlatformMockStore();
+    const agent = store.createClaimedAgent({
+      displayName: "Low Gas Wallet Agent",
+      ownerAddress: "0xowner"
+    });
+    store.bindTradingWallet(agent.id, "0xwallet", {
+      testnetSuiBalance: "0.000000001",
+      quoteBalance: "10000000",
+      predictManagerStatus: "ready",
+      predictManagerId: "0xmanager"
+    });
+
+    const snapshot = createRuntimeHealthSnapshot({
+      store,
+      nowMs,
+      runtimeMode: "real",
+      network: "testnet",
+      predictSubmitEnabled: true,
+      registrySubmitEnabled: true,
+      internalTokenConfigured: true,
+      walletSecretConfigured: true,
+      marketFreshness: freshPredictMarket
+    });
+    const walletCodes = snapshot.categories.wallets.checks.map((check) => check.code);
+
+    expect(snapshot.categories.wallets.status).toBe("warning");
+    expect(walletCodes).toContain("GAS_BALANCE_TOO_LOW");
+  });
+
+  it("accepts whole-number formatted SUI balances for funded ready wallets", () => {
+    const store = new PlatformMockStore();
+    const agent = store.createClaimedAgent({
+      displayName: "One SUI Wallet Agent",
+      ownerAddress: "0xowner"
+    });
+    store.bindTradingWallet(agent.id, "0xwallet", {
+      testnetSuiBalance: "1",
+      quoteBalance: "10000000",
+      predictManagerStatus: "ready",
+      predictManagerId: "0xmanager"
+    });
+
+    const snapshot = createRuntimeHealthSnapshot({
+      store,
+      nowMs,
+      runtimeMode: "real",
+      network: "testnet",
+      predictSubmitEnabled: true,
+      registrySubmitEnabled: true,
+      internalTokenConfigured: true,
+      walletSecretConfigured: true,
+      marketFreshness: freshPredictMarket
+    });
+    const walletCodes = snapshot.categories.wallets.checks.map((check) => check.code);
+
+    expect(snapshot.categories.wallets.status).toBe("ok");
+    expect(walletCodes).not.toContain("GAS_BALANCE_TOO_LOW");
+    expect(walletCodes).not.toContain("WALLET_NOT_FUNDED");
+  });
+
   it("accepts formatted decimal SUI balances for funded ready wallets", () => {
     const store = new PlatformMockStore();
     const agent = store.createClaimedAgent({

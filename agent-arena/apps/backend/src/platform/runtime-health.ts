@@ -225,26 +225,33 @@ function createWalletCategory(store: PlatformMockStore): HealthCategory {
   for (const wallet of activeWallets) {
     const quoteBalance = parseRawBalance(wallet.quoteBalance);
     const suiBalance = parseTestnetSuiBalanceRaw(wallet.testnetSuiBalance);
-    const fundingWarnings: string[] = [];
+    const quoteBalanceReady = quoteBalance !== null && quoteBalance >= minimumQuoteBalanceRaw;
+    const testnetSuiBalanceReady = suiBalance !== null && suiBalance >= minimumTestnetSuiBalanceRaw;
 
-    if (quoteBalance === null || quoteBalance < minimumQuoteBalanceRaw) {
-      fundingWarnings.push("quoteBalance");
-    }
-    if (suiBalance === null || suiBalance < minimumTestnetSuiBalanceRaw) {
-      fundingWarnings.push("testnetSuiBalance");
-    }
-
-    if (fundingWarnings.length > 0) {
+    if (!quoteBalanceReady) {
       checks.push({
         code: "WALLET_NOT_FUNDED",
         status: "warning",
-        message: "Trading wallet does not meet funding thresholds.",
+        message: "Trading wallet does not meet quote funding threshold.",
         details: {
           walletId: wallet.id,
           agentId: wallet.agentId,
-          quoteBalanceReady: quoteBalance !== null && quoteBalance >= minimumQuoteBalanceRaw,
-          testnetSuiBalanceReady: suiBalance !== null && suiBalance >= minimumTestnetSuiBalanceRaw,
-          missing: fundingWarnings.join(",")
+          quoteBalanceReady,
+          minimumQuoteBalanceRaw: minimumQuoteBalanceRaw.toString()
+        }
+      });
+    }
+
+    if (!testnetSuiBalanceReady) {
+      checks.push({
+        code: "GAS_BALANCE_TOO_LOW",
+        status: "warning",
+        message: "Trading wallet does not meet Testnet SUI gas threshold.",
+        details: {
+          walletId: wallet.id,
+          agentId: wallet.agentId,
+          testnetSuiBalanceReady,
+          minimumTestnetSuiBalanceRaw: minimumTestnetSuiBalanceRaw.toString()
         }
       });
     }
@@ -299,16 +306,12 @@ function parseRawBalance(value: string): bigint | null {
 
 function parseTestnetSuiBalanceRaw(value: string): bigint | null {
   const trimmed = value.trim();
-  if (!trimmed.includes(".")) {
-    return parseRawBalance(trimmed);
-  }
-
-  const match = /^(\d+)\.(\d{1,9})$/.exec(trimmed);
+  const match = /^(\d+)(?:\.(\d{1,9}))?$/.exec(trimmed);
   if (!match) {
     return null;
   }
 
   const whole = BigInt(match[1]);
-  const fraction = BigInt(match[2].padEnd(9, "0"));
+  const fraction = BigInt((match[2] ?? "").padEnd(9, "0"));
   return whole * minimumTestnetSuiBalanceRaw + fraction;
 }
