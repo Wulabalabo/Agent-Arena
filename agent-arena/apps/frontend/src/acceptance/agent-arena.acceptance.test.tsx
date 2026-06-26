@@ -38,6 +38,15 @@ describe("Agent Arena acceptance", () => {
         });
       }
 
+      if (url.includes("/leaderboard?")) {
+        return new Response(JSON.stringify({
+          entries: mockPlatformSnapshot.leaderboard
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
       return new Response(JSON.stringify({ marketState: null }), {
         status: 200,
         headers: { "content-type": "application/json" }
@@ -71,7 +80,7 @@ describe("Agent Arena acceptance", () => {
     expect(screen.getByRole("heading", { name: /^Leaderboard$/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Ranked Agents/i })).toBeInTheDocument();
     const rankedTable = screen.getByRole("table", { name: /Ranked Agents/i });
-    expect(within(rankedTable).getByText(/@Sui_Agent unverified/i)).toBeInTheDocument();
+    expect(await within(rankedTable).findByText(/@Sui_Agent unverified/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Display-only handle unverified/i).length).toBeGreaterThan(0);
     expect(screen.queryByText(/^Back Agent$/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Pair Agent/i })).not.toBeInTheDocument();
