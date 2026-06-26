@@ -16,6 +16,26 @@ export type AgentRuntimeStatus = "waiting" | "active" | "cooldown" | "rejected" 
 export type ExposureStatus = "flat" | "directional" | "range" | "closing" | "settled";
 export type PositionKind = "directional" | "range";
 export type PositionSnapshotStatus = "open" | "reduced" | "closed" | "settled";
+export type ActionReadinessStatus = "executable" | "risky" | "blocked";
+
+export interface ActionReadinessReason {
+  code: string;
+  message: string;
+  recommendedAgentAction: string;
+}
+
+export interface ActionReadiness {
+  status: ActionReadinessStatus;
+  markets?: string[];
+  reasons: ActionReadinessReason[];
+}
+
+export interface AgentReadiness {
+  competitionId: string;
+  agentId: string;
+  asOfMs: string;
+  actions: Record<"hold" | "open_directional" | "open_range" | "reduce" | "close", ActionReadiness>;
+}
 
 export interface AgentProfile {
   id: string;

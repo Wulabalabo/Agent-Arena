@@ -1,14 +1,16 @@
 import { Copy, ShieldCheck, Wallet } from "lucide-react";
 import { Transaction } from "@mysten/sui/transactions";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { createPlatformClient, PlatformClientError } from "../../features/platform/client";
 import { buildRegistryTransaction, readRegistryTransactionDigest } from "../../features/platform/registry-transaction";
 import { predictConfig } from "../../features/predict/config";
-import type { AgentProfile, RegistryWriteSummary, RuntimeCredential, TradingWallet } from "../../features/platform/types";
+import type { AgentProfile, AgentReadiness, RegistryWriteSummary, RuntimeCredential, TradingWallet } from "../../features/platform/types";
+import { AgentReadinessPanel } from "./AgentReadinessPanel";
 
 type PlatformFetcher = (url: string, init?: RequestInit) => Promise<Response>;
 type ClaimStatus = "idle" | "preparing" | "confirming" | "finalizing" | "claimed" | "failed";
 type FundingStatus = "idle" | "confirming" | "funded" | "failed";
+const readinessCompetitionId = "btc-15m-001";
 const recommendedFundingSui = "1";
 const recommendedFundingSuiMist = "1000000000";
 const recommendedFundingDusdc = "10";
@@ -72,6 +74,7 @@ export function AgentClaimPanel({
   const [fundingTxDigest, setFundingTxDigest] = useState<string | null>(null);
   const [fundingWalletProvider, setFundingWalletProvider] = useState<ClaimWalletProvider | null>(null);
   const [claimResult, setClaimResult] = useState<ClaimResult | null>(null);
+  const [readiness, setReadiness] = useState<AgentReadiness | null>(null);
   const [walletDialogOpen, setWalletDialogOpen] = useState(false);
   const client = useMemo(() => createPlatformClient({ baseUrl: apiBaseUrl, fetcher }), [apiBaseUrl, fetcher]);
   const directWalletProvider = walletProvider ?? null;
@@ -80,6 +83,33 @@ export function AgentClaimPanel({
   const canClaim = manualClaimEnabled || Boolean(directWalletProvider) || walletOptions.length > 0;
   const displayedOwnerAddress = ownerAddress || connectedWalletAddress;
   const claimInProgress = status === "preparing" || status === "confirming" || status === "finalizing";
+  const runtimeCredentialToken = claimResult?.runtimeCredential.token ?? null;
+
+  useEffect(() => {
+    if (!runtimeCredentialToken) {
+      setReadiness(null);
+      return;
+    }
+
+    let cancelled = false;
+    setReadiness(null);
+
+    void client.getAgentReadiness(runtimeCredentialToken, readinessCompetitionId)
+      .then((nextReadiness) => {
+        if (!cancelled) {
+          setReadiness(nextReadiness);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setReadiness(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, runtimeCredentialToken]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -389,6 +419,7 @@ export function AgentClaimPanel({
               <p className="text-xs font-bold text-error">{fundingError ?? "Funding transaction failed."}</p>
             ) : null}
           </section>
+          {readiness ? <AgentReadinessPanel readiness={readiness} /> : null}
           {copyStatus === "copied" ? (
             <p className="text-xs font-bold text-on-surface-variant">Runtime handoff copied.</p>
           ) : null}

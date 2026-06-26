@@ -2,6 +2,7 @@ import type {
   AgentIntent,
   AgentPositionSnapshot,
   AgentProfile,
+  AgentReadiness,
   Competition,
   ExecutionRecord,
   LeaderboardEntry,
@@ -70,6 +71,10 @@ interface TradingWalletResponse {
 
 interface AgentPositionsResponse {
   positions: AgentPositionSnapshot[];
+}
+
+interface AgentReadinessResponse {
+  readiness: AgentReadiness;
 }
 
 interface ExecutionResponse {
@@ -155,6 +160,14 @@ export function createPlatformClient({ baseUrl, fetcher = fetch }: CreatePlatfor
       requestJson<TradingWalletResponse>(fetcher, `${root}/agent/wallet`, {
         headers: createRuntimeHeaders(runtimeCredential)
       }).then((response) => response.wallet),
+    getAgentReadiness: (runtimeCredential: string, competitionId: string) =>
+      requestJson<AgentReadinessResponse>(
+        fetcher,
+        `${root}/agent/readiness?competitionId=${encodeURIComponent(competitionId)}`,
+        {
+          headers: createRuntimeHeaders(runtimeCredential)
+        }
+      ).then((response) => response.readiness),
     listAgentPositions: (runtimeCredential: string, competitionId: string) =>
       requestJson<AgentPositionsResponse>(
         fetcher,

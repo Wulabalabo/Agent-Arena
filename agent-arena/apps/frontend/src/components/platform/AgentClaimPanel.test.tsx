@@ -125,6 +125,85 @@ describe("AgentClaimPanel", () => {
     });
   });
 
+  it("loads readiness only after claim finalize returns the runtime credential", async () => {
+    const finalizeGate = createDeferred<Response>();
+    const platformFetcher = vi.fn(async (url: string) => {
+      if (url.endsWith("/owner/agents/claim/prepare")) {
+        return new Response(JSON.stringify({
+          pendingClaimId: "pending_claim_2054",
+          agent: agent("agent_2054", ownerAddress, tradingWalletAddress),
+          tradingWallet: tradingWallet("wallet_2054", "agent_2054", tradingWalletAddress),
+          registryProof: registerProof
+        }), {
+          status: 201,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      if (url.endsWith("/owner/agents/claim/finalize")) {
+        return await finalizeGate.promise;
+      }
+
+      if (url.includes("/agent/readiness")) {
+        return new Response(JSON.stringify({ readiness: agentReadiness("agent_2054") }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const walletProvider: ClaimWalletProvider = {
+      connect: vi.fn(async () => ({ accounts: [{ address: ownerAddress }] })),
+      signAndExecuteTransaction: vi.fn(async () => ({ digest: "0xreadinessdigest" }))
+    };
+
+    render(
+      <AgentClaimPanel
+        apiBaseUrl="http://127.0.0.1:8787/api/arena"
+        fetcher={platformFetcher}
+        registrationCode="PAIR-2054"
+        walletProvider={walletProvider}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Connect wallet and claim/i }));
+
+    await waitFor(() => {
+      expect(walletProvider.signAndExecuteTransaction).toHaveBeenCalledTimes(1);
+    });
+    expect(platformFetcher.mock.calls.some(([url]) => String(url).includes("/agent/readiness"))).toBe(false);
+
+    finalizeGate.resolve(new Response(JSON.stringify({
+      agent: agent("agent_2054", ownerAddress, tradingWalletAddress),
+      tradingWallet: tradingWallet("wallet_2054", "agent_2054", tradingWalletAddress),
+      runtimeCredential: {
+        token: "agent_runtime_readiness",
+        shownOnce: true,
+        scopes: ["competition:read"]
+      },
+      registry: {
+        status: "submitted",
+        txDigest: "0xreadinessdigest"
+      }
+    }), {
+      status: 201,
+      headers: { "content-type": "application/json" }
+    }));
+
+    expect(await screen.findByText("agent_runtime_readiness")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Agent action readiness")).toBeInTheDocument();
+    expect(screen.getByText("NO_EXECUTABLE_RANGE_MARKET")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(platformFetcher).toHaveBeenCalledWith(
+        "http://127.0.0.1:8787/api/arena/agent/readiness?competitionId=btc-15m-001",
+        {
+          headers: { "x-agent-arena-agent-token": "agent_runtime_readiness" }
+        }
+      );
+    });
+  });
+
   it("prepares the claim with an account loaded through Sui wallet permissions", async () => {
     const platformFetcher = createImmediateClaimFetcher({
       pendingClaimId: "pending_claim_2051",
@@ -344,6 +423,49 @@ function tradingWallet(id: string, agentId: string, address: string) {
     quoteBalance: "0",
     predictManagerStatus: "missing",
     predictManagerId: null
+  };
+}
+
+function agentReadiness(agentId: string) {
+  return {
+    competitionId: "btc-15m-001",
+    agentId,
+    asOfMs: "1781622000000",
+    actions: {
+      hold: {
+        status: "executable",
+        reasons: []
+      },
+      open_directional: {
+        status: "executable",
+        markets: ["directional:btc-up"],
+        reasons: []
+      },
+      open_range: {
+        status: "blocked",
+        reasons: [{
+          code: "NO_EXECUTABLE_RANGE_MARKET",
+          message: "No executable range market is published.",
+          recommendedAgentAction: "hold"
+        }]
+      },
+      reduce: {
+        status: "risky",
+        reasons: [{
+          code: "NO_OPEN_POSITION",
+          message: "No open position is available to reduce.",
+          recommendedAgentAction: "hold"
+        }]
+      },
+      close: {
+        status: "risky",
+        reasons: [{
+          code: "NO_OPEN_POSITION",
+          message: "No open position is available to close.",
+          recommendedAgentAction: "hold"
+        }]
+      }
+    }
   };
 }
 

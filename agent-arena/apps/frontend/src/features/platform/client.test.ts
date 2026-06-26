@@ -377,6 +377,64 @@ describe("createPlatformClient", () => {
     });
   });
 
+  it("reads agent readiness with the runtime credential header", async () => {
+    const readiness = {
+      competitionId: "btc 15m/001",
+      agentId: "agent_1",
+      asOfMs: "1781622000000",
+      actions: {
+        hold: {
+          status: "executable",
+          reasons: []
+        },
+        open_directional: {
+          status: "executable",
+          markets: ["directional:btc-up"],
+          reasons: []
+        },
+        open_range: {
+          status: "blocked",
+          reasons: [{
+            code: "NO_EXECUTABLE_RANGE_MARKET",
+            message: "No executable range market is published.",
+            recommendedAgentAction: "hold"
+          }]
+        },
+        reduce: {
+          status: "risky",
+          reasons: [{
+            code: "NO_OPEN_POSITION",
+            message: "No open position is available to reduce.",
+            recommendedAgentAction: "hold"
+          }]
+        },
+        close: {
+          status: "risky",
+          reasons: [{
+            code: "NO_OPEN_POSITION",
+            message: "No open position is available to close.",
+            recommendedAgentAction: "hold"
+          }]
+        }
+      }
+    };
+    const fetcher = vi.fn(async () =>
+      new Response(JSON.stringify({ readiness }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    const client = createPlatformClient({ baseUrl: "https://platform.test/api/arena", fetcher });
+
+    await expect(client.getAgentReadiness("agent_runtime_test_token", "btc 15m/001")).resolves.toEqual(readiness);
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://platform.test/api/arena/agent/readiness?competitionId=btc%2015m%2F001",
+      {
+        headers: { "x-agent-arena-agent-token": "agent_runtime_test_token" }
+      }
+    );
+  });
+
   it("reads the executable competition market state", async () => {
     const marketState = {
       allowedActions: ["hold", "open_directional"],
