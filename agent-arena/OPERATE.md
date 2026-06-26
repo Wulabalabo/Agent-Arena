@@ -363,7 +363,7 @@ If the response is `blocked`, check the category summaries before allowing exter
 
 Check these in order:
 
-1. `runtime.predictSubmitEnabled` is true.
+1. `categories.runtime.checks[]` has no blocked `PREDICT_SUBMIT_DISABLED` result.
 2. `market.source` is `predict_server` and snapshot age is below the stale threshold.
 3. `wallets` has no `WALLET_NOT_FUNDED`, `GAS_BALANCE_TOO_LOW`, or `PREDICT_MANAGER_NOT_READY` warnings for the Agent.
 4. `execution` has no stale pending execution for the Agent.
