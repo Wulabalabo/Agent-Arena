@@ -1529,6 +1529,40 @@ describe("Agent Arena platform API", () => {
     });
   });
 
+  it("rejects Agent readiness requests without a competitionId", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch, { displayName: "Readiness Input Agent" });
+
+    const response = await fetch(new Request(
+      "http://localhost/api/arena/agent/readiness",
+      { headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token } }
+    ));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "INVALID_INPUT"
+      }
+    });
+  });
+
+  it("returns not found for unknown Agent readiness competitions", async () => {
+    const fetch = createPlatformFetchHandler();
+    const claimed = await claimTestAgent(fetch, { displayName: "Unknown Competition Agent" });
+
+    const response = await fetch(new Request(
+      "http://localhost/api/arena/agent/readiness?competitionId=unknown-competition",
+      { headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token } }
+    ));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "COMPETITION_NOT_FOUND"
+      }
+    });
+  });
+
   it("serves readiness for the authenticated claimed Agent", async () => {
     const store = new PlatformMockStore();
     const fetch = createPlatformFetchHandler(store, {
@@ -1563,6 +1597,32 @@ describe("Agent Arena platform API", () => {
     });
     expect(body.readiness.actions.open_range.reasons.map((reason: { code: string }) => reason.code))
       .toContain("NO_EXECUTABLE_RANGE_MARKET");
+  });
+
+  it("uses refreshed wallet values for Agent readiness", async () => {
+    const fetch = createPlatformFetchHandler(undefined, {
+      agentWalletReader: async (wallet) => ({
+        id: wallet.id,
+        address: wallet.address,
+        quoteBalance: "10000000",
+        predictManagerStatus: "ready",
+        predictManagerId: "0xmanager_refreshed"
+      })
+    });
+    const claimed = await claimTestAgent(fetch, { displayName: "Readiness Refresh Agent" });
+
+    const response = await fetch(new Request(
+      "http://localhost/api/arena/agent/readiness?competitionId=btc-15m-001",
+      { headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token } }
+    ));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const reasonCodes = body.readiness.actions.open_directional.reasons
+      .map((reason: { code: string }) => reason.code);
+    expect(body.readiness.actions.open_directional.status).toBe("risky");
+    expect(reasonCodes).not.toContain("WALLET_NOT_FUNDED");
+    expect(reasonCodes).not.toContain("PREDICT_MANAGER_MISSING");
   });
 
   it("refreshes Agent wallet state before wallet reads and exposure intents", async () => {

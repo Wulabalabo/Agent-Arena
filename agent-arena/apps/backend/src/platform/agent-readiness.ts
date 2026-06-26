@@ -71,6 +71,7 @@ function createActionReadiness(
 
   if (action === "open_directional") {
     return createOpenActionReadiness(input, {
+      action,
       marketExists: Boolean(input.marketState.executableMarkets?.directional),
       missingMarketReason: reason("NO_EXECUTABLE_DIRECTIONAL_MARKET"),
       markets: ["directional"]
@@ -79,24 +80,26 @@ function createActionReadiness(
 
   if (action === "open_range") {
     return createOpenActionReadiness(input, {
+      action,
       marketExists: Boolean(input.marketState.executableMarkets?.range),
       missingMarketReason: reason("NO_EXECUTABLE_RANGE_MARKET"),
       markets: ["range"]
     });
   }
 
-  return createExitActionReadiness(input);
+  return createExitActionReadiness(input, action);
 }
 
 function createOpenActionReadiness(
   input: CreateAgentReadinessInput,
   market: {
+    action: AgentAction;
     marketExists: boolean;
     missingMarketReason: ActionReadinessReason;
     markets: string[];
   }
 ): ActionReadiness {
-  const reasons = createOpenBaseBlockers(input);
+  const reasons = createOpenBaseBlockers(input, market.action);
   if (!market.marketExists) {
     reasons.push(market.missingMarketReason);
   }
@@ -116,8 +119,15 @@ function createOpenActionReadiness(
   return executable(market.markets);
 }
 
-function createOpenBaseBlockers(input: CreateAgentReadinessInput): ActionReadinessReason[] {
+function createOpenBaseBlockers(
+  input: CreateAgentReadinessInput,
+  action: AgentAction
+): ActionReadinessReason[] {
   const reasons: ActionReadinessReason[] = [];
+
+  if (!input.competition.allowedActions.includes(action)) {
+    reasons.push(reason("ACTION_NOT_ALLOWED"));
+  }
 
   if (input.competition.status !== "live") {
     reasons.push(reason("ROUND_NOT_LIVE", input.competition.status));
@@ -127,7 +137,7 @@ function createOpenBaseBlockers(input: CreateAgentReadinessInput): ActionReadine
     reasons.push(reason("ORACLE_NOT_TRADEABLE", input.marketState.oracleStatus));
   }
 
-  if (!input.wallet) {
+  if (!input.wallet || input.wallet.status !== "active") {
     reasons.push(reason("WALLET_NOT_BOUND"));
   } else {
     if (!hasMinimumOpenQuoteBalance(input.wallet.quoteBalance)) {
@@ -146,8 +156,12 @@ function createOpenBaseBlockers(input: CreateAgentReadinessInput): ActionReadine
   return reasons;
 }
 
-function createExitActionReadiness(input: CreateAgentReadinessInput): ActionReadiness {
+function createExitActionReadiness(input: CreateAgentReadinessInput, action: AgentAction): ActionReadiness {
   const reasons: ActionReadinessReason[] = [];
+
+  if (!input.competition.allowedActions.includes(action)) {
+    reasons.push(reason("ACTION_NOT_ALLOWED"));
+  }
 
   if (hasPendingExecution(input)) {
     reasons.push(reason("PENDING_EXECUTION_EXISTS"));
@@ -201,6 +215,12 @@ function blocked(reasons: ActionReadinessReason[]): ActionReadiness {
 
 function reason(code: string, detail?: string): ActionReadinessReason {
   switch (code) {
+    case "ACTION_NOT_ALLOWED":
+      return {
+        code,
+        message: "Competition policy does not allow this action.",
+        recommendedAgentAction: "Choose an allowed action from the current competition policy."
+      };
     case "ROUND_NOT_LIVE":
       return {
         code,
