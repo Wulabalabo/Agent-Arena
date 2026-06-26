@@ -37,12 +37,16 @@ export function createMarketDataTracker({
     async getMarketData(): Promise<AgentMarketDataResult> {
       try {
         const result = await provider();
-        const fetchedAt = new Date(now()).toISOString();
+        const localFetchedAt = new Date(now()).toISOString();
+        const snapshotFetchedAt = result.marketState.fetchedAt;
+        const lastSuccessAt = isValidTimestamp(snapshotFetchedAt)
+          ? snapshotFetchedAt
+          : localFetchedAt;
         metadata = {
           competitionId: result.competition.id,
           source,
-          fetchedAt,
-          lastSuccessAt: fetchedAt,
+          fetchedAt: snapshotFetchedAt,
+          lastSuccessAt,
           lastErrorAt: null,
           lastErrorCode: null,
           lastErrorMessage: null
@@ -133,6 +137,10 @@ function marketErrorMessage(error: unknown): string {
   }
 
   return "Market provider failed.";
+}
+
+function isValidTimestamp(value: string): boolean {
+  return Number.isFinite(Date.parse(value));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
