@@ -636,7 +636,9 @@ describe("mock intent execution", () => {
     });
     expect(store.listExecutions()[0]).toMatchObject({
       status: "failed",
-      predictTxDigest: null
+      predictTxDigest: null,
+      terminal: true,
+      retryable: false
     });
   });
 

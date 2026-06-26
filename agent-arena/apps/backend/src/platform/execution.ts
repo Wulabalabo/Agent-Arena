@@ -250,7 +250,7 @@ async function executeWithPredictAdapter(input: {
     lastAttemptAt: completedAt,
     attemptCount: (queuedExecution.attemptCount ?? 0) + 1,
     terminal: isTerminalExecutionStatus(result.status),
-    retryable: result.status === "failed" && !predictTxDigest,
+    retryable: false,
     failureCode: result.errorCode ?? null,
     failureMessage: result.errorMessage ?? null
   };

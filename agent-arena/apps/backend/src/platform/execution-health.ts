@@ -80,11 +80,15 @@ function executionRetryableReason(
     return "NO_SIGNING_ATTEMPT";
   }
 
+  if (terminal) {
+    return "TERMINAL";
+  }
+
   if (status === "submitted" || execution.predictTxDigest) {
     return "CHAIN_STATUS_REQUIRED";
   }
 
-  return terminal ? "TERMINAL" : "NOT_RETRYABLE";
+  return "NOT_RETRYABLE";
 }
 
 function executionAgeAnchor(execution: ExecutionRecord): string {

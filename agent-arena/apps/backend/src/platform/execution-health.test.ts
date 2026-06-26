@@ -55,6 +55,49 @@ describe("execution health", () => {
     });
   });
 
+  it("marks confirmed executions with a digest terminal instead of chain-status-required", () => {
+    const health = createExecutionHealth({
+      execution: {
+        ...baseExecution,
+        status: "confirmed",
+        submittedAt: "2026-06-25T00:00:03.000Z",
+        confirmedAt: "2026-06-25T00:00:08.000Z",
+        predictTxDigest: "0xconfirmed"
+      },
+      nowMs: Date.parse("2026-06-25T00:00:25.000Z")
+    });
+
+    expect(health).toMatchObject({
+      status: "confirmed",
+      terminal: true,
+      retryable: false,
+      retryableReason: "TERMINAL",
+      predictTxDigest: "0xconfirmed"
+    });
+  });
+
+  it("marks failed executions without a digest terminal and non-retryable", () => {
+    const health = createExecutionHealth({
+      execution: {
+        ...baseExecution,
+        status: "failed",
+        failedAt: "2026-06-25T00:00:05.000Z",
+        predictTxDigest: null,
+        failureCode: "PREDICT_EXECUTION_FAILED"
+      },
+      nowMs: Date.parse("2026-06-25T00:00:25.000Z")
+    });
+
+    expect(health).toMatchObject({
+      status: "failed",
+      terminal: true,
+      retryable: false,
+      retryableReason: "TERMINAL",
+      predictTxDigest: null,
+      failureCode: "PREDICT_EXECUTION_FAILED"
+    });
+  });
+
   it("treats confirmed, partial, and failed-after-chain-check as terminal", () => {
     expect(isRetryableExecutionPhase("confirmed")).toBe(false);
     expect(isRetryableExecutionPhase("partial")).toBe(false);
