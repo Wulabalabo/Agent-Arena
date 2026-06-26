@@ -7,6 +7,12 @@ import {
   type MarketSnapshot,
   type TradingWallet
 } from "./types";
+import {
+  minimumQuoteBalanceRaw,
+  parseMinimumTestnetSuiBalanceRaw,
+  parseRawBalance,
+  parseTestnetSuiBalanceRaw
+} from "./wallet-balances";
 
 export type ActionReadinessStatus = "executable" | "risky" | "blocked";
 
@@ -36,10 +42,10 @@ export interface CreateAgentReadinessInput {
   wallet: TradingWallet | null | undefined;
   positions: AgentPositionSnapshot[];
   pendingExecutions: ExecutionRecord[];
+  minimumTestnetSuiBalanceRaw?: string;
   nowMs: number;
 }
 
-const minimumOpenQuoteBalanceRaw = 10_000_000n;
 const pendingExecutionStatuses = new Set<ExecutionRecord["status"]>([
   "queued",
   "signed",
@@ -137,17 +143,7 @@ function createOpenBaseBlockers(
     reasons.push(reason("ORACLE_NOT_TRADEABLE", input.marketState.oracleStatus));
   }
 
-  if (!input.wallet || input.wallet.status !== "active") {
-    reasons.push(reason("WALLET_NOT_BOUND"));
-  } else {
-    if (!hasMinimumOpenQuoteBalance(input.wallet.quoteBalance)) {
-      reasons.push(reason("WALLET_NOT_FUNDED"));
-    }
-
-    if (input.wallet.predictManagerStatus !== "ready") {
-      reasons.push(reason("PREDICT_MANAGER_MISSING"));
-    }
-  }
+  reasons.push(...createWalletRuntimeBlockers(input, { requireQuoteBalance: true }));
 
   if (hasPendingExecution(input)) {
     reasons.push(reason("PENDING_EXECUTION_EXISTS"));
@@ -163,6 +159,8 @@ function createExitActionReadiness(input: CreateAgentReadinessInput, action: Age
     reasons.push(reason("ACTION_NOT_ALLOWED"));
   }
 
+  reasons.push(...createWalletRuntimeBlockers(input, { requireQuoteBalance: false }));
+
   if (hasPendingExecution(input)) {
     reasons.push(reason("PENDING_EXECUTION_EXISTS"));
   }
@@ -172,6 +170,31 @@ function createExitActionReadiness(input: CreateAgentReadinessInput, action: Age
   }
 
   return reasons.length > 0 ? blocked(reasons) : executable();
+}
+
+function createWalletRuntimeBlockers(
+  input: CreateAgentReadinessInput,
+  { requireQuoteBalance }: { requireQuoteBalance: boolean }
+): ActionReadinessReason[] {
+  const wallet = input.wallet;
+  if (!wallet || wallet.status !== "active") {
+    return [reason("WALLET_NOT_BOUND")];
+  }
+
+  const reasons: ActionReadinessReason[] = [];
+  if (requireQuoteBalance && !hasMinimumOpenQuoteBalance(wallet.quoteBalance)) {
+    reasons.push(reason("WALLET_NOT_FUNDED"));
+  }
+
+  if (!hasMinimumTestnetSuiBalance(wallet.testnetSuiBalance, input.minimumTestnetSuiBalanceRaw)) {
+    reasons.push(reason("GAS_BALANCE_TOO_LOW"));
+  }
+
+  if (wallet.predictManagerStatus !== "ready") {
+    reasons.push(reason("PREDICT_MANAGER_NOT_READY"));
+  }
+
+  return reasons;
 }
 
 function hasPendingExecution(input: CreateAgentReadinessInput): boolean {
@@ -191,11 +214,14 @@ function hasActionablePosition(input: CreateAgentReadinessInput): boolean {
 }
 
 function hasMinimumOpenQuoteBalance(value: string): boolean {
-  try {
-    return BigInt(value) >= minimumOpenQuoteBalanceRaw;
-  } catch {
-    return false;
-  }
+  const parsed = parseRawBalance(value);
+  return parsed !== null && parsed >= minimumQuoteBalanceRaw;
+}
+
+function hasMinimumTestnetSuiBalance(value: string, minimumRaw: string | undefined): boolean {
+  const parsed = parseTestnetSuiBalanceRaw(value);
+  const minimum = parseMinimumTestnetSuiBalanceRaw(minimumRaw);
+  return parsed !== null && parsed >= minimum;
 }
 
 function executable(markets?: string[]): ActionReadiness {
@@ -245,11 +271,17 @@ function reason(code: string, detail?: string): ActionReadinessReason {
         message: "Trading wallet quote balance is below 10000000 raw DUSDC.",
         recommendedAgentAction: "Fund the Agent trading wallet with at least 10000000 raw DUSDC."
       };
-    case "PREDICT_MANAGER_MISSING":
+    case "GAS_BALANCE_TOO_LOW":
+      return {
+        code,
+        message: "Trading wallet Testnet SUI gas balance is below the configured threshold.",
+        recommendedAgentAction: "Fund the Agent trading wallet with enough Testnet SUI for gas."
+      };
+    case "PREDICT_MANAGER_NOT_READY":
       return {
         code,
         message: "Trading wallet PredictManager is not ready.",
-        recommendedAgentAction: "Initialize or repair the PredictManager before opening exposure."
+        recommendedAgentAction: "Initialize or repair the PredictManager before changing exposure."
       };
     case "PENDING_EXECUTION_EXISTS":
       return {

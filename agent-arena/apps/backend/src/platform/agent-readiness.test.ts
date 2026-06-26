@@ -14,7 +14,7 @@ const fundedReadyWallet: TradingWallet = {
   agentId: "agent_1",
   address: "0xwallet",
   status: "active",
-  testnetSuiBalance: "1000000000",
+  testnetSuiBalance: "1",
   quoteBalance: "10000000",
   predictManagerStatus: "ready",
   predictManagerId: "0xmanager",
@@ -75,6 +75,35 @@ describe("createAgentReadiness", () => {
       .toContain("WALLET_NOT_FUNDED");
   });
 
+  it("blocks open actions when Testnet SUI gas is below the configured floor", () => {
+    const competition = createMockCompetition("btc-15m-001");
+    const marketState = createOpenExecutableMarketState(competition);
+    const lowGasWallet = {
+      ...fundedReadyWallet,
+      testnetSuiBalance: "0.999999999",
+      quoteBalance: "10000000",
+      predictManagerStatus: "ready" as const
+    };
+
+    const readiness = createAgentReadiness({
+      agentId: "agent_1",
+      competition,
+      marketState,
+      wallet: lowGasWallet,
+      positions: [],
+      pendingExecutions: [],
+      minimumTestnetSuiBalanceRaw: "1000000000",
+      nowMs: Date.parse("2026-06-15T10:05:00.000Z")
+    });
+
+    expect(readiness.actions.open_directional.status).toBe("blocked");
+    expect(readiness.actions.open_directional.reasons.map((reason) => reason.code))
+      .toContain("GAS_BALANCE_TOO_LOW");
+    expect(readiness.actions.open_range.status).toBe("blocked");
+    expect(readiness.actions.open_range.reasons.map((reason) => reason.code))
+      .toContain("GAS_BALANCE_TOO_LOW");
+  });
+
   it("blocks open actions when the trading wallet is detached", () => {
     const competition = createMockCompetition("btc-15m-001");
     const marketState = createOpenExecutableMarketState(competition);
@@ -101,6 +130,67 @@ describe("createAgentReadiness", () => {
     expect(readiness.actions.open_range.status).toBe("blocked");
     expect(readiness.actions.open_range.reasons.map((reason) => reason.code))
       .toContain("WALLET_NOT_BOUND");
+  });
+
+  it("blocks reduce and close when the trading wallet is detached even with actionable positions", () => {
+    const competition = createMockCompetition("btc-15m-001");
+    const detachedWallet: TradingWallet = {
+      ...fundedReadyWallet,
+      status: "detached",
+      quoteBalance: "10000000",
+      predictManagerStatus: "ready"
+    };
+
+    const readiness = createAgentReadiness({
+      agentId: "agent_1",
+      competition,
+      marketState: createOpenExecutableMarketState(competition),
+      wallet: detachedWallet,
+      positions: [
+        createPositionSnapshot("open")
+      ],
+      pendingExecutions: [],
+      nowMs: Date.parse("2026-06-15T10:05:00.000Z")
+    });
+
+    expect(readiness.actions.reduce.status).toBe("blocked");
+    expect(readiness.actions.reduce.reasons.map((reason) => reason.code))
+      .toContain("WALLET_NOT_BOUND");
+    expect(readiness.actions.close.status).toBe("blocked");
+    expect(readiness.actions.close.reasons.map((reason) => reason.code))
+      .toContain("WALLET_NOT_BOUND");
+  });
+
+  it("blocks reduce and close when wallet gas or PredictManager readiness is missing", () => {
+    const competition = createMockCompetition("btc-15m-001");
+    const notReadyWallet: TradingWallet = {
+      ...fundedReadyWallet,
+      testnetSuiBalance: "0.500000000",
+      quoteBalance: "10000000",
+      predictManagerStatus: "missing",
+      predictManagerId: null
+    };
+
+    const readiness = createAgentReadiness({
+      agentId: "agent_1",
+      competition,
+      marketState: createOpenExecutableMarketState(competition),
+      wallet: notReadyWallet,
+      positions: [
+        createPositionSnapshot("open")
+      ],
+      pendingExecutions: [],
+      nowMs: Date.parse("2026-06-15T10:05:00.000Z")
+    });
+    const reduceCodes = readiness.actions.reduce.reasons.map((reason) => reason.code);
+    const closeCodes = readiness.actions.close.reasons.map((reason) => reason.code);
+
+    expect(readiness.actions.reduce.status).toBe("blocked");
+    expect(reduceCodes).toContain("GAS_BALANCE_TOO_LOW");
+    expect(reduceCodes).toContain("PREDICT_MANAGER_NOT_READY");
+    expect(readiness.actions.close.status).toBe("blocked");
+    expect(closeCodes).toContain("GAS_BALANCE_TOO_LOW");
+    expect(closeCodes).toContain("PREDICT_MANAGER_NOT_READY");
   });
 
   it("blocks open_directional when the action is not allowed", () => {

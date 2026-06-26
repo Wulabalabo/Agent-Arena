@@ -1604,6 +1604,7 @@ describe("Agent Arena platform API", () => {
       agentWalletReader: async (wallet) => ({
         id: wallet.id,
         address: wallet.address,
+        testnetSuiBalance: "1",
         quoteBalance: "10000000",
         predictManagerStatus: "ready",
         predictManagerId: "0xmanager_refreshed"
@@ -1622,7 +1623,35 @@ describe("Agent Arena platform API", () => {
       .map((reason: { code: string }) => reason.code);
     expect(body.readiness.actions.open_directional.status).toBe("risky");
     expect(reasonCodes).not.toContain("WALLET_NOT_FUNDED");
-    expect(reasonCodes).not.toContain("PREDICT_MANAGER_MISSING");
+    expect(reasonCodes).not.toContain("GAS_BALANCE_TOO_LOW");
+    expect(reasonCodes).not.toContain("PREDICT_MANAGER_NOT_READY");
+  });
+
+  it("applies the configured Testnet SUI gas floor to Agent readiness", async () => {
+    const fetch = createPlatformFetchHandler(undefined, {
+      agentWalletReader: async (wallet) => ({
+        id: wallet.id,
+        address: wallet.address,
+        testnetSuiBalance: "1",
+        quoteBalance: "10000000",
+        predictManagerStatus: "ready",
+        predictManagerId: "0xmanager_refreshed"
+      }),
+      minimumTestnetSuiBalanceRaw: "2000000000"
+    });
+    const claimed = await claimTestAgent(fetch, { displayName: "Readiness Gas Floor Agent" });
+
+    const response = await fetch(new Request(
+      "http://localhost/api/arena/agent/readiness?competitionId=btc-15m-001",
+      { headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token } }
+    ));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const reasonCodes = body.readiness.actions.open_directional.reasons
+      .map((reason: { code: string }) => reason.code);
+    expect(body.readiness.actions.open_directional.status).toBe("blocked");
+    expect(reasonCodes).toContain("GAS_BALANCE_TOO_LOW");
   });
 
   it("refreshes Agent wallet state before wallet reads and exposure intents", async () => {

@@ -1628,6 +1628,7 @@ async function getAgentReadiness(
       wallet: refreshedWallet,
       positions,
       pendingExecutions,
+      minimumTestnetSuiBalanceRaw: options.minimumTestnetSuiBalanceRaw,
       nowMs
     })
   });
