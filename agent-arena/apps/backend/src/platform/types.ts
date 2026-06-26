@@ -12,6 +12,15 @@ export type AgentAction = (typeof agentActions)[number];
 export type RoundStatus = "pre_open" | "live" | "expired" | "settled";
 export type IntentStatus = "accepted" | "rejected" | "executed" | "partial" | "failed";
 export type ExecutionStatus = "queued" | "signed" | "submitted" | "confirmed" | "failed" | "partial";
+export type ExecutionHealthPhase =
+  | ExecutionStatus
+  | "planned"
+  | "failed_after_chain_check";
+export type ExecutionRetryableReason =
+  | "NO_SIGNING_ATTEMPT"
+  | "CHAIN_STATUS_REQUIRED"
+  | "TERMINAL"
+  | "NOT_RETRYABLE";
 export type OwnerWithdrawalStatus = "dry_run_ok" | "submitted" | "failed";
 export type PositionKind = "directional" | "range";
 export type AgentRuntimeStatus = "waiting" | "active" | "cooldown" | "rejected" | "offline";
@@ -273,6 +282,18 @@ export interface ExecutionRecord {
   predictTxDigest: string | null;
   action: AgentAction;
   createdAt: string;
+  queuedAt?: string | null;
+  plannedAt?: string | null;
+  signedAt?: string | null;
+  submittedAt?: string | null;
+  confirmedAt?: string | null;
+  failedAt?: string | null;
+  lastAttemptAt?: string | null;
+  attemptCount?: number;
+  terminal?: boolean;
+  retryable?: boolean;
+  failureCode?: string | null;
+  failureMessage?: string | null;
 }
 
 export interface ReplayEvent {

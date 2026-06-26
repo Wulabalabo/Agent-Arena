@@ -207,7 +207,19 @@ async function executeWithPredictAdapter(input: {
     status: "queued",
     predictTxDigest: null,
     action: input.intent.action,
-    createdAt: input.intent.createdAt
+    createdAt: input.intent.createdAt,
+    queuedAt: input.intent.createdAt,
+    plannedAt: null,
+    signedAt: null,
+    submittedAt: null,
+    confirmedAt: null,
+    failedAt: null,
+    lastAttemptAt: null,
+    attemptCount: 0,
+    terminal: false,
+    retryable: true,
+    failureCode: null,
+    failureMessage: null
   };
   input.store.saveExecution(queuedExecution);
 
@@ -225,10 +237,22 @@ async function executeWithPredictAdapter(input: {
     }
   });
 
+  const completedAt = new Date().toISOString();
+  const predictTxDigest = result.predictTxDigest ?? null;
   const execution: ExecutionRecord = {
     ...queuedExecution,
     status: result.status,
-    predictTxDigest: result.predictTxDigest ?? null
+    predictTxDigest,
+    signedAt: predictTxDigest ? completedAt : queuedExecution.signedAt ?? null,
+    submittedAt: predictTxDigest ? completedAt : queuedExecution.submittedAt ?? null,
+    confirmedAt: result.status === "confirmed" ? completedAt : null,
+    failedAt: result.status === "failed" ? completedAt : null,
+    lastAttemptAt: completedAt,
+    attemptCount: (queuedExecution.attemptCount ?? 0) + 1,
+    terminal: isTerminalExecutionStatus(result.status),
+    retryable: result.status === "failed" && !predictTxDigest,
+    failureCode: result.errorCode ?? null,
+    failureMessage: result.errorMessage ?? null
   };
   input.store.saveExecution(execution);
 
@@ -304,6 +328,10 @@ function hasPendingTradeExecution(store: PlatformMockStore, intent: AgentIntent)
 
 function isPendingExecutionStatus(status: ExecutionStatus): boolean {
   return status === "queued" || status === "signed" || status === "submitted";
+}
+
+function isTerminalExecutionStatus(status: ExecutionStatus): boolean {
+  return status === "confirmed" || status === "partial" || status === "failed";
 }
 
 function recordIntentLedger(store: PlatformMockStore, intent: AgentIntent): void {
@@ -607,6 +635,7 @@ function createMockExecution(
   intent: AgentIntent,
   riskDecisionId: string
 ): ExecutionRecord {
+  const completedAt = intent.createdAt;
   return {
     id,
     intentId: intent.id,
@@ -616,7 +645,19 @@ function createMockExecution(
     status: "confirmed",
     predictTxDigest: `0xmock_${id}`,
     action: intent.action,
-    createdAt: intent.createdAt
+    createdAt: completedAt,
+    queuedAt: completedAt,
+    plannedAt: completedAt,
+    signedAt: completedAt,
+    submittedAt: completedAt,
+    confirmedAt: completedAt,
+    failedAt: null,
+    lastAttemptAt: completedAt,
+    attemptCount: 1,
+    terminal: true,
+    retryable: false,
+    failureCode: null,
+    failureMessage: null
   };
 }
 
