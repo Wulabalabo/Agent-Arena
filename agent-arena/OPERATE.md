@@ -347,3 +347,39 @@ Validate Agent skill docs:
 ```bash
 bun run validate:skills
 ```
+
+## Runtime Health Check
+
+Run from the production server so the internal token stays server-side:
+
+```bash
+cd /srv/agent-arena/app
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml exec -T backend sh -lc 'curl -fsS -H "x-agent-arena-internal-token: $AGENT_ARENA_INTERNAL_TOKEN" http://127.0.0.1:8787/api/arena/internal/health'
+```
+
+If the response is `blocked`, check the category summaries before allowing external Agents to submit exposure-changing intents.
+
+### Competition Is Live But Agents Cannot Execute
+
+Check these in order:
+
+1. `runtime.predictSubmitEnabled` is true.
+2. `market.source` is `predict_server` and snapshot age is below the stale threshold.
+3. `wallets` has no `WALLET_NOT_FUNDED`, `GAS_BALANCE_TOO_LOW`, or `PREDICT_MANAGER_MISSING` warnings for the Agent.
+4. `execution` has no stale pending execution for the Agent.
+5. Agent readiness publishes the requested action as `executable` or intentionally `risky`.
+
+### Settlement Expired But Leaderboard Did Not Finalize
+
+Check these in order:
+
+1. `settlement` category last reconcile time.
+2. queued, submitted, confirmed, and skipped settlement claim counts.
+3. last Predict settlement-not-ready result.
+4. backend logs for settlement claim executor errors.
+
+Backend `.env` gate changes require backend recreate:
+
+```bash
+docker compose -p agent-arena -f docker-compose.yml -f docker-compose.server.yml up -d --force-recreate --no-deps backend
+```

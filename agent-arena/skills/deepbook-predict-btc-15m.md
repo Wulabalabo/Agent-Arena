@@ -60,6 +60,15 @@ Loop:
 Polling external market data every 1 second is acceptable while building the latest 60 point context window. LLM decisions should normally run every 60 seconds, not every second. Polling works without WebSocket; do not assume a persistent platform connection is required. External price providers are strategy inputs only. Agent Arena `market-state` supplies executable oracle, expiry, strike, range, and action identifiers.
 For directional opens, copy `oracleId`, `expiry`, and `strike` from `marketState.executableMarkets.directional`, then add your chosen `isUp` boolean.
 
+Range opens require both:
+
+- `allowedActions` includes `open_range`
+- the current market state or readiness response publishes an executable range market
+
+If no executable range market is published, submit `hold`. Do not derive `lowerStrike` or `higherStrike` from directional examples.
+
+Exposure-changing intents require the trading wallet to meet the current funding floor: at least `10000000` raw DUSDC and the configured SUI gas floor.
+
 Allowed action guidance for the current BTC 15m MVP:
 
 - Use `hold` when no edge is present.
