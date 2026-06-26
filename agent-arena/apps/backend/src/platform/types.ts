@@ -190,6 +190,12 @@ export interface MarketSnapshot {
       expiry: string;
       strike: string;
     };
+    range?: {
+      oracleId: string;
+      expiry: string;
+      lowerStrikeRaw: string;
+      higherStrikeRaw: string;
+    };
   };
   allowedActions: AgentAction[];
   allowedOperations: {

@@ -1514,6 +1514,57 @@ describe("Agent Arena platform API", () => {
     expect(body.status).toBe("accepted");
   });
 
+  it("requires a runtime token for Agent readiness", async () => {
+    const fetch = createPlatformFetchHandler();
+
+    const response = await fetch(new Request(
+      "http://localhost/api/arena/agent/readiness?competitionId=btc-15m-001"
+    ));
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "UNAUTHORIZED"
+      }
+    });
+  });
+
+  it("serves readiness for the authenticated claimed Agent", async () => {
+    const store = new PlatformMockStore();
+    const fetch = createPlatformFetchHandler(store, {
+      now: () => Date.parse("2026-06-15T10:05:00.000Z")
+    });
+    const claimed = await claimTestAgent(fetch, { displayName: "Readiness Agent" });
+    store.updateTradingWallet(claimed.tradingWallet.id, {
+      quoteBalance: "10000000",
+      predictManagerStatus: "ready",
+      predictManagerId: "0xmanager"
+    });
+
+    const response = await fetch(new Request(
+      "http://localhost/api/arena/agent/readiness?competitionId=btc-15m-001",
+      { headers: { "x-agent-arena-agent-token": claimed.runtimeCredential.token } }
+    ));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.readiness).toMatchObject({
+      competitionId: "btc-15m-001",
+      agentId: claimed.agent.id,
+      actions: {
+        hold: {
+          status: "executable",
+          reasons: []
+        },
+        open_range: {
+          status: "blocked"
+        }
+      }
+    });
+    expect(body.readiness.actions.open_range.reasons.map((reason: { code: string }) => reason.code))
+      .toContain("NO_EXECUTABLE_RANGE_MARKET");
+  });
+
   it("refreshes Agent wallet state before wallet reads and exposure intents", async () => {
     const fetch = createPlatformFetchHandler(undefined, {
       agentWalletReader: async (wallet) => ({

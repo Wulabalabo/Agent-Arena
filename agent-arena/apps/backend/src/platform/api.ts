@@ -13,6 +13,7 @@ import {
   submitIntentWithMockExecution
 } from "./execution";
 import { createMarketSnapshot } from "./market-snapshot";
+import { createAgentReadiness } from "./agent-readiness";
 import { evaluateMarketFreshness, type MarketSnapshotMetadata, type RuntimeMode } from "./market-health";
 import { PlatformMockStore } from "./mock-store";
 import { buildReplayEvents } from "./replay";
@@ -67,6 +68,11 @@ const pairingDraftTtlMs = 15 * 60 * 1000;
 const runtimeCredentialRotationDomain = "agent-arena-runtime-credential-rotation:v1";
 const runtimeCredentialRotationChainId = "sui:testnet";
 const runtimeCredentialRotationTtlMs = 10 * 60 * 1000;
+const readinessPendingExecutionStatuses = new Set<ExecutionRecord["status"]>([
+  "queued",
+  "signed",
+  "submitted"
+]);
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -179,6 +185,7 @@ export function createPlatformFetchHandler(
             "GET /api/arena/owner/agent?ownerAddress=...",
             "GET /api/arena/agent/me",
             "GET /api/arena/agent/wallet",
+            "GET /api/arena/agent/readiness?competitionId=...",
             "GET /api/arena/competition/list-active",
             "GET /api/arena/competition/:id",
             "GET /api/arena/competition/:id/market-state",
@@ -307,6 +314,10 @@ export function createPlatformFetchHandler(
         return jsonResponse({
           wallet: wallet ? await refreshTradingWallet(store, wallet, options.agentWalletReader) : null
         });
+      }
+
+      if (request.method === "GET" && matchesRoute(route, ["agent", "readiness"])) {
+        return await getAgentReadiness(request, url, store, options);
       }
 
       if (request.method === "GET" && matchesRoute(route, ["agent", "positions"])) {
@@ -1577,6 +1588,71 @@ function getLeaderboard(url: URL, store: PlatformMockStore): Response {
     competitionId,
     entries
   });
+}
+
+async function getAgentReadiness(
+  request: Request,
+  url: URL,
+  store: PlatformMockStore,
+  options: CreatePlatformFetchHandlerOptions
+): Promise<Response> {
+  const auth = authenticateAgentRuntimeRequest(request, store);
+  const competitionId = url.searchParams.get("competitionId");
+  if (!competitionId) {
+    return errorResponse(400, "INVALID_INPUT", "competitionId query parameter is required");
+  }
+
+  const nowMs = options.now?.() ?? Date.now();
+  const marketData = await getReadinessMarketData(competitionId, store, options, nowMs);
+  if (!marketData) {
+    return errorResponse(404, "COMPETITION_NOT_FOUND", "Competition not found");
+  }
+
+  const { competition, marketState } = marketData;
+  const wallet = store.getTradingWalletByAgentId(auth.agentId);
+  const refreshedWallet = wallet
+    ? await refreshTradingWallet(store, wallet, options.agentWalletReader)
+    : null;
+  const positions = store.listPositionSnapshots({ agentId: auth.agentId, competitionId });
+  const pendingExecutions = store.listExecutions().filter((execution) => (
+    execution.agentId === auth.agentId &&
+    execution.competitionId === competitionId &&
+    readinessPendingExecutionStatuses.has(execution.status)
+  ));
+
+  return jsonResponse({
+    readiness: createAgentReadiness({
+      agentId: auth.agentId,
+      competition,
+      marketState,
+      wallet: refreshedWallet,
+      positions,
+      pendingExecutions,
+      nowMs
+    })
+  });
+}
+
+async function getReadinessMarketData(
+  competitionId: string,
+  store: PlatformMockStore,
+  options: CreatePlatformFetchHandlerOptions,
+  nowMs: number
+): Promise<AgentMarketDataResult | null> {
+  if (options.marketDataProvider && competitionId === defaultCompetitionId) {
+    return await options.marketDataProvider();
+  }
+
+  ensureCurrentDefaultCompetition(store);
+  const competition = store.getCompetition(competitionId);
+  if (!competition) {
+    return null;
+  }
+
+  return {
+    competition,
+    marketState: createMarketSnapshot(competition, nowMs)
+  };
 }
 
 function getCompetitionPublicFeed(url: URL, competitionId: string, store: PlatformMockStore): Response {
