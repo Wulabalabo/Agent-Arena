@@ -145,6 +145,37 @@ describe("createRuntimeHealthSnapshot", () => {
     expect(walletCodes).not.toContain("WALLET_NOT_FUNDED");
   });
 
+  it("uses a custom Testnet SUI gas threshold when provided", () => {
+    const store = new PlatformMockStore();
+    const agent = store.createClaimedAgent({
+      displayName: "Custom Threshold Agent",
+      ownerAddress: "0xowner"
+    });
+    store.bindTradingWallet(agent.id, "0xwallet", {
+      testnetSuiBalance: "1",
+      quoteBalance: "10000000",
+      predictManagerStatus: "ready",
+      predictManagerId: "0xmanager"
+    });
+
+    const snapshot = createRuntimeHealthSnapshot({
+      store,
+      nowMs,
+      runtimeMode: "real",
+      network: "testnet",
+      predictSubmitEnabled: true,
+      registrySubmitEnabled: true,
+      internalTokenConfigured: true,
+      walletSecretConfigured: true,
+      minimumTestnetSuiBalanceRaw: "2000000000",
+      marketFreshness: freshPredictMarket
+    });
+    const walletCodes = snapshot.categories.wallets.checks.map((check) => check.code);
+
+    expect(snapshot.categories.wallets.status).toBe("warning");
+    expect(walletCodes).toContain("GAS_BALANCE_TOO_LOW");
+  });
+
   it("accepts formatted decimal SUI balances for funded ready wallets", () => {
     const store = new PlatformMockStore();
     const agent = store.createClaimedAgent({

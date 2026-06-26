@@ -45,6 +45,8 @@ import { SQLiteAttributionStore } from "./sqlite-attribution-store";
 
 export type AgentArenaRuntimeMode = "mock" | "real";
 
+const defaultMinimumTestnetSuiBalanceRaw = "1000000000";
+
 export function createAttributionFetchHandler(store: AttributionStoreLike = createDefaultAttributionStore()) {
   return (request: Request) => handleAttributionRequest(request, store);
 }
@@ -67,10 +69,11 @@ export function createAgentArenaFetchHandler(options: {
   const env = predictEnv ?? Bun.env;
   const runtimeMode = options.runtimeMode ?? runtimeModeFromEnv(env);
   const platformStore = options.platformStore ?? createDefaultPlatformStore(env, runtimeMode);
+  const internalToken = options.internalToken ?? env.AGENT_ARENA_INTERNAL_TOKEN;
   const runtime = runtimeMode === "real"
     ? createRealRuntime({
       env: predictEnv,
-      internalToken: options.internalToken ?? Bun.env.AGENT_ARENA_INTERNAL_TOKEN,
+      internalToken,
       platformStore,
       platformWalletStore: options.platformWalletStore,
       balanceReader: options.balanceReader,
@@ -79,7 +82,7 @@ export function createAgentArenaFetchHandler(options: {
       predictTradeExecutor: options.predictTradeExecutor
     })
     : createMockRuntime({
-      internalToken: options.internalToken ?? Bun.env.AGENT_ARENA_INTERNAL_TOKEN,
+      internalToken,
       platformWalletStore: options.platformWalletStore,
       predictEnv
     });
@@ -90,6 +93,10 @@ export function createAgentArenaFetchHandler(options: {
     ?? createRegistryTransactionVerifierFromEnv(env, registryConfig.enabled);
   const platformFetch = createPlatformFetchHandler(platformStore, {
     ...runtime.platformOptions,
+    minimumTestnetSuiBalanceRaw: parseOptionalRawAmountString(
+      env.AGENT_ARENA_MIN_SUI_BALANCE_RAW,
+      defaultMinimumTestnetSuiBalanceRaw
+    ),
     registryProofRequired: registryConfig.enabled,
     registrySubmitEnabled: registryConfig.enabled,
     registryService,
@@ -105,6 +112,11 @@ export function createAgentArenaFetchHandler(options: {
     });
     if (skillDocResponse) {
       return skillDocResponse;
+    }
+
+    if (url.pathname === "/api/arena/internal/health") {
+      await runtimeReady;
+      return platformFetch(request);
     }
 
     if (isInternalArenaPath(url.pathname)) {
@@ -792,6 +804,19 @@ function parseOptionalNonNegativeInteger(value: string | undefined, fallback: nu
 
   const parsed = Number(trimmed);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function parseOptionalRawAmountString(value: string | undefined, fallback: string): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  try {
+    return BigInt(trimmed) >= 0n ? trimmed : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function registrySignerFromEnv(

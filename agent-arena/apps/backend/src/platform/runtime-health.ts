@@ -42,12 +42,14 @@ export interface CreateRuntimeHealthSnapshotOptions {
   registrySubmitEnabled: boolean;
   internalTokenConfigured: boolean;
   walletSecretConfigured: boolean;
+  minimumTestnetSuiBalanceRaw?: string;
   marketFreshness: MarketFreshnessSummary;
 }
 
 const stalePendingExecutionAgeMs = 20_000;
 const minimumQuoteBalanceRaw = 10_000_000n;
-const minimumTestnetSuiBalanceRaw = 1_000_000_000n;
+const mistPerSui = 1_000_000_000n;
+const defaultMinimumTestnetSuiBalanceRaw = 1_000_000_000n;
 
 export function createRuntimeHealthSnapshot({
   store,
@@ -58,8 +60,10 @@ export function createRuntimeHealthSnapshot({
   registrySubmitEnabled,
   internalTokenConfigured,
   walletSecretConfigured,
+  minimumTestnetSuiBalanceRaw,
   marketFreshness
 }: CreateRuntimeHealthSnapshotOptions): RuntimeHealthSnapshot {
+  const resolvedMinimumTestnetSuiBalanceRaw = parseMinimumTestnetSuiBalanceRaw(minimumTestnetSuiBalanceRaw);
   const categories = {
     runtime: createRuntimeCategory({
       runtimeMode,
@@ -72,7 +76,7 @@ export function createRuntimeHealthSnapshot({
     execution: createExecutionCategory({ store, nowMs }),
     settlement: createSettlementCategory(store),
     registry: createRegistryCategory(registrySubmitEnabled),
-    wallets: createWalletCategory(store)
+    wallets: createWalletCategory(store, resolvedMinimumTestnetSuiBalanceRaw)
   };
 
   return {
@@ -213,7 +217,10 @@ function createRegistryCategory(registrySubmitEnabled: boolean): HealthCategory 
   );
 }
 
-function createWalletCategory(store: PlatformMockStore): HealthCategory {
+function createWalletCategory(
+  store: PlatformMockStore,
+  minimumTestnetSuiBalanceRaw: bigint
+): HealthCategory {
   const activeWallets = store.listTradingWallets().filter((wallet) => wallet.status === "active");
   const checks: HealthCheck[] = [{
     code: "WALLET_INVENTORY",
@@ -297,11 +304,23 @@ function worstStatus(statuses: HealthStatus[]): HealthStatus {
 }
 
 function parseRawBalance(value: string): bigint | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
   try {
-    return BigInt(value);
+    return BigInt(trimmed);
   } catch {
     return null;
   }
+}
+
+function parseMinimumTestnetSuiBalanceRaw(value: string | undefined): bigint {
+  const parsed = value === undefined ? null : parseRawBalance(value);
+  return parsed !== null && parsed >= 0n
+    ? parsed
+    : defaultMinimumTestnetSuiBalanceRaw;
 }
 
 function parseTestnetSuiBalanceRaw(value: string): bigint | null {
@@ -313,5 +332,5 @@ function parseTestnetSuiBalanceRaw(value: string): bigint | null {
 
   const whole = BigInt(match[1]);
   const fraction = BigInt((match[2] ?? "").padEnd(9, "0"));
-  return whole * minimumTestnetSuiBalanceRaw + fraction;
+  return whole * mistPerSui + fraction;
 }

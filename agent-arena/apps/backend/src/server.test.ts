@@ -168,6 +168,62 @@ describe("createAgentArenaFetchHandler", () => {
     });
   });
 
+  it("serves internal runtime health through the combined handler when authenticated", async () => {
+    const originalInternalToken = Bun.env.AGENT_ARENA_INTERNAL_TOKEN;
+    try {
+      Bun.env.AGENT_ARENA_INTERNAL_TOKEN = "secret";
+      const fetch = createAgentArenaFetchHandler({ runtimeMode: "mock" });
+      const response = await fetch(new Request("http://localhost/api/arena/internal/health", {
+        headers: { "x-agent-arena-internal-token": "secret" }
+      }));
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.service).toBe("agent-arena-platform");
+      expect(JSON.stringify(body)).not.toContain("secret");
+    } finally {
+      restoreOptionalEnv("AGENT_ARENA_INTERNAL_TOKEN", originalInternalToken);
+    }
+  });
+
+  it("rejects combined internal runtime health without the internal token", async () => {
+    const originalInternalToken = Bun.env.AGENT_ARENA_INTERNAL_TOKEN;
+    try {
+      Bun.env.AGENT_ARENA_INTERNAL_TOKEN = "secret";
+      const fetch = createAgentArenaFetchHandler({ runtimeMode: "mock" });
+      const response = await fetch(new Request("http://localhost/api/arena/internal/health"));
+
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: "UNAUTHORIZED"
+        }
+      });
+    } finally {
+      restoreOptionalEnv("AGENT_ARENA_INTERNAL_TOKEN", originalInternalToken);
+    }
+  });
+
+  it("reports internal runtime health disabled instead of falling through when token is blank", async () => {
+    const originalInternalToken = Bun.env.AGENT_ARENA_INTERNAL_TOKEN;
+    try {
+      Bun.env.AGENT_ARENA_INTERNAL_TOKEN = "   ";
+      const fetch = createAgentArenaFetchHandler({ runtimeMode: "mock" });
+      const response = await fetch(new Request("http://localhost/api/arena/internal/health", {
+        headers: { "x-agent-arena-internal-token": "secret" }
+      }));
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: "INTERNAL_HEALTH_DISABLED"
+        }
+      });
+    } finally {
+      restoreOptionalEnv("AGENT_ARENA_INTERNAL_TOKEN", originalInternalToken);
+    }
+  });
+
   it("fails closed for authenticated internal wallet creation when Predict config is missing", async () => {
     const fetch = createAgentArenaFetchHandler({ internalToken: "secret", predictEnv: {}, runtimeMode: "mock" });
     const response = await fetch(new Request("http://localhost/api/arena/internal/wallets", {

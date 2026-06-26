@@ -124,6 +124,7 @@ export interface CreatePlatformFetchHandlerOptions {
   marketDataProvider?: () => Promise<AgentMarketDataResult>;
   marketStaleMs?: number;
   marketSnapshotMetadataReader?: () => MarketSnapshotMetadata | null;
+  minimumTestnetSuiBalanceRaw?: string;
   now?: () => number;
   ownerWithdrawalService?: (input: OwnerWithdrawalServiceInput) => Promise<OwnerWithdrawalServiceResult>;
   ownerSignatureVerifier?: OwnerSignatureVerifier;
@@ -1285,6 +1286,7 @@ function runtimeHealthRoute(
     | "internalToken"
     | "marketSnapshotMetadataReader"
     | "marketStaleMs"
+    | "minimumTestnetSuiBalanceRaw"
     | "now"
     | "predictSubmitEnabled"
     | "registrySubmitEnabled"
@@ -1320,6 +1322,7 @@ function runtimeHealthRoute(
     registrySubmitEnabled: options.registrySubmitEnabled ?? false,
     internalTokenConfigured: true,
     walletSecretConfigured: options.walletSecretConfigured ?? runtimeMode === "mock",
+    minimumTestnetSuiBalanceRaw: options.minimumTestnetSuiBalanceRaw,
     marketFreshness
   }));
 }
