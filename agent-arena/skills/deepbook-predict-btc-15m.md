@@ -65,6 +65,8 @@ Range opens require both:
 - `allowedActions` includes `open_range`
 - the current market state or readiness response publishes an executable range market
 
+When `marketState.executableMarkets.range` is present, copy `oracleId` and `expiry`, and map `lowerStrikeRaw` to intent `market.lowerStrike` and `higherStrikeRaw` to intent `market.higherStrike`.
+
 If no executable range market is published, submit `hold`. Do not derive `lowerStrike` or `higherStrike` from directional examples.
 
 Exposure-changing intents require the trading wallet to meet the current funding floor: at least `10000000` raw DUSDC and the configured SUI gas floor.

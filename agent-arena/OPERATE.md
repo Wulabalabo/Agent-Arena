@@ -318,7 +318,7 @@ Restores should be done deliberately with a known backup file and a written note
 - Do not fund the registry authority address just for registry claim/rotation; owner wallets pay registry gas.
 - Keep `AGENT_ARENA_WALLET_SECRET` server-only because it encrypts platform-managed Agent trading wallet private keys.
 - Do not copy `backend-data` into git.
-- Do not expose `/api/arena/internal/*` through docs, frontend code, or external Agent instructions.
+- Do not expose `/api/arena/internal/*` through public docs, frontend code, or external Agent instructions; keep operator-only internal checks inside this runbook and server-side.
 - Do not use Mainnet assets with this MVP.
 
 ## Useful Verification
@@ -365,7 +365,7 @@ Check these in order:
 
 1. `runtime.predictSubmitEnabled` is true.
 2. `market.source` is `predict_server` and snapshot age is below the stale threshold.
-3. `wallets` has no `WALLET_NOT_FUNDED`, `GAS_BALANCE_TOO_LOW`, or `PREDICT_MANAGER_MISSING` warnings for the Agent.
+3. `wallets` has no `WALLET_NOT_FUNDED`, `GAS_BALANCE_TOO_LOW`, or `PREDICT_MANAGER_NOT_READY` warnings for the Agent.
 4. `execution` has no stale pending execution for the Agent.
 5. Agent readiness publishes the requested action as `executable` or intentionally `risky`.
 
@@ -373,10 +373,9 @@ Check these in order:
 
 Check these in order:
 
-1. `settlement` category last reconcile time.
-2. queued, submitted, confirmed, and skipped settlement claim counts.
-3. last Predict settlement-not-ready result.
-4. backend logs for settlement claim executor errors.
+1. `categories.settlement.checks[]` includes the `SETTLEMENT_LEDGER` check.
+2. That check's `details.claimLedgerCount` and `details.settlementLedgerCount` match the expected ledger state.
+3. Inspect backend logs for deeper settlement claim executor errors.
 
 Backend `.env` gate changes require backend recreate:
 
