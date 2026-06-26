@@ -13,9 +13,10 @@ import {
   submitIntentWithMockExecution
 } from "./execution";
 import { createMarketSnapshot } from "./market-snapshot";
-import type { MarketSnapshotMetadata } from "./market-health";
+import { evaluateMarketFreshness, type MarketSnapshotMetadata, type RuntimeMode } from "./market-health";
 import { PlatformMockStore } from "./mock-store";
 import { buildReplayEvents } from "./replay";
+import { createRuntimeHealthSnapshot } from "./runtime-health";
 import {
   createPerformanceLedgerRecord,
   createRegistrationCodeHash
@@ -119,18 +120,24 @@ export interface CreatePlatformFetchHandlerOptions {
   agentWalletService?: (input: AgentWalletServiceInput) => Promise<AgentWalletServiceResult>;
   agentWalletReader?: (wallet: TradingWallet) => Promise<Partial<AgentWalletServiceResult>>;
   frontendBaseUrl?: string;
+  internalToken?: string;
   marketDataProvider?: () => Promise<AgentMarketDataResult>;
+  marketStaleMs?: number;
   marketSnapshotMetadataReader?: () => MarketSnapshotMetadata | null;
   now?: () => number;
   ownerWithdrawalService?: (input: OwnerWithdrawalServiceInput) => Promise<OwnerWithdrawalServiceResult>;
   ownerSignatureVerifier?: OwnerSignatureVerifier;
   predictExecutionAdapter?: SubmitIntentExecutionOptions["predictExecutionAdapter"];
+  predictSubmitEnabled?: boolean;
   registryProofRequired?: boolean;
   registryService?: AgentRegistryService;
+  registrySubmitEnabled?: boolean;
   registryTransactionVerifier?: RegistryTransactionVerifier;
   settlementClaimExecutor?: ReconcileSettlementsOptions["executeSettlementClaim"];
   settlementRedemptionReader?: ReconcileSettlementsOptions["readSettlementRedemption"];
   settlementInternalToken?: string;
+  runtimeMode?: RuntimeMode;
+  walletSecretConfigured?: boolean;
 }
 
 export function createPlatformFetchHandler(
@@ -218,6 +225,10 @@ export function createPlatformFetchHandler(
           registryService: options.registryService,
           registryTransactionVerifier: options.registryTransactionVerifier
         });
+      }
+
+      if (request.method === "GET" && matchesRoute(route, ["internal", "health"])) {
+        return runtimeHealthRoute(request, store, options);
       }
 
       if (request.method === "POST" && matchesRoute(route, ["settlements", "reconcile"])) {
@@ -1264,6 +1275,53 @@ function createRuntimeCredentialRotationMessage(input: {
     `reason: ${input.reason}`,
     `expiresAt: ${input.expiresAt}`
   ].join("\n");
+}
+
+function runtimeHealthRoute(
+  request: Request,
+  store: PlatformMockStore,
+  options: Pick<
+    CreatePlatformFetchHandlerOptions,
+    | "internalToken"
+    | "marketSnapshotMetadataReader"
+    | "marketStaleMs"
+    | "now"
+    | "predictSubmitEnabled"
+    | "registrySubmitEnabled"
+    | "runtimeMode"
+    | "settlementInternalToken"
+    | "walletSecretConfigured"
+  >
+): Response {
+  const expectedToken = (options.internalToken ?? options.settlementInternalToken)?.trim();
+  if (!expectedToken) {
+    return errorResponse(503, "INTERNAL_HEALTH_DISABLED", "Internal runtime health is not configured");
+  }
+
+  if (request.headers.get(internalTokenHeader) !== expectedToken) {
+    return errorResponse(401, "UNAUTHORIZED", "Internal runtime health token is required");
+  }
+
+  const nowMs = options.now?.() ?? Date.now();
+  const runtimeMode = options.runtimeMode ?? "mock";
+  const marketFreshness = evaluateMarketFreshness({
+    metadata: options.marketSnapshotMetadataReader?.() ?? null,
+    nowMs,
+    staleThresholdMs: options.marketStaleMs ?? 5000,
+    runtimeMode
+  });
+
+  return jsonResponse(createRuntimeHealthSnapshot({
+    store,
+    nowMs,
+    runtimeMode,
+    network: "testnet",
+    predictSubmitEnabled: options.predictSubmitEnabled ?? runtimeMode === "mock",
+    registrySubmitEnabled: options.registrySubmitEnabled ?? false,
+    internalTokenConfigured: true,
+    walletSecretConfigured: options.walletSecretConfigured ?? runtimeMode === "mock",
+    marketFreshness
+  }));
 }
 
 async function reconcileSettlementsRoute(

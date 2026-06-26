@@ -309,6 +309,10 @@ export class PlatformMockStore {
     return wallet ? cloneTradingWallet(wallet) : undefined;
   }
 
+  listTradingWallets(): TradingWallet[] {
+    return [...this.tradingWallets.values()].map(cloneTradingWallet);
+  }
+
   removeUnfinalizedAgentReservation(agentId: string): void {
     if (this.identityBindingsByAgentId.has(agentId) || this.findLatestRuntimeCredentialByAgentId(agentId)) {
       throw new Error("AGENT_ALREADY_CLAIMED");

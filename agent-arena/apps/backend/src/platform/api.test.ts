@@ -436,6 +436,42 @@ describe("Agent Arena platform API", () => {
     expect(store.getAgent(seeded.agent.id)?.exposureStatus).toBe("flat");
   });
 
+  it("protects internal runtime health behind the internal token", async () => {
+    const metadata = {
+      competitionId: "btc-15m-001",
+      source: "predict_server" as const,
+      fetchedAt: "2026-06-25T00:00:04.000Z",
+      lastSuccessAt: "2026-06-25T00:00:04.000Z",
+      lastErrorAt: null,
+      lastErrorCode: null,
+      lastErrorMessage: null
+    };
+    const fetch = createPlatformFetchHandler(undefined, {
+      internalToken: "operator-secret",
+      runtimeMode: "real",
+      predictSubmitEnabled: false,
+      registrySubmitEnabled: true,
+      walletSecretConfigured: true,
+      marketSnapshotMetadataReader: () => metadata,
+      now: () => Date.parse("2026-06-25T00:00:05.000Z")
+    });
+
+    const unauthorized = await fetch(new Request("http://localhost/api/arena/internal/health"));
+    expect(unauthorized.status).toBe(401);
+
+    const response = await fetch(new Request("http://localhost/api/arena/internal/health", {
+      headers: {
+        "x-agent-arena-internal-token": "operator-secret"
+      }
+    }));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.overallStatus).toBe("blocked");
+    expect(body.categories.runtime.status).toBe("blocked");
+    expect(JSON.stringify(body)).not.toContain("operator-secret");
+  });
+
   it("opportunistically reconciles expired owner Agent positions before serving the profile", async () => {
     const store = new PlatformMockStore();
     const seeded = seedExpiredDirectionalPosition(store);

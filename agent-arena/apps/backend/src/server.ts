@@ -91,6 +91,7 @@ export function createAgentArenaFetchHandler(options: {
   const platformFetch = createPlatformFetchHandler(platformStore, {
     ...runtime.platformOptions,
     registryProofRequired: registryConfig.enabled,
+    registrySubmitEnabled: registryConfig.enabled,
     registryService,
     registryTransactionVerifier
   });
@@ -153,6 +154,10 @@ function createMockRuntime({
   return {
     internalPredictFetch: createInternalPredictFetchHandler({ internalToken, env: predictEnv }),
     platformOptions: {
+      internalToken,
+      runtimeMode: "mock",
+      predictSubmitEnabled: true,
+      walletSecretConfigured: true,
       settlementInternalToken: internalToken,
       agentWalletService: platformWalletStore
         ? async ({ agentId, displayName }) => {
@@ -201,6 +206,11 @@ function createRealRuntime({
   ready?: Promise<void>;
 } {
   const config = createPredictConfig(env);
+  const resolvedEnv = env ?? Bun.env;
+  const marketStaleMs = parseOptionalNonNegativeInteger(
+    resolvedEnv.AGENT_ARENA_MARKET_STALE_MS,
+    5000
+  );
   const resolvedBalanceReader = balanceReader ?? createJsonRpcBalanceReader(config);
   const walletStore = platformWalletStore ?? createSqliteWalletStore({
     walletSecret: config.walletSecret,
@@ -291,6 +301,10 @@ function createRealRuntime({
       })
       : undefined,
     platformOptions: {
+      internalToken: config.internalToken,
+      runtimeMode: "real",
+      predictSubmitEnabled: config.enablePredictSubmit,
+      walletSecretConfigured: Boolean(config.walletSecret),
       agentWalletService: async ({ agentId, displayName }) => {
         const wallet = await walletStore.createWallet({
           agentId,
@@ -308,6 +322,7 @@ function createRealRuntime({
       agentWalletReader: async (wallet) => await readWallet(wallet.id),
       marketDataProvider: marketDataTracker.getMarketData,
       marketSnapshotMetadataReader: marketDataTracker.getMetadata,
+      marketStaleMs,
       settlementInternalToken: config.internalToken,
       settlementClaimExecutor: async (request) => await executeSettlementClaimViaInternalPredict({
         request,
@@ -767,6 +782,16 @@ function runtimeModeFromEnv(env: Record<string, string | undefined>): AgentArena
   }
 
   return "mock";
+}
+
+function parseOptionalNonNegativeInteger(value: string | undefined, fallback: number): number {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function registrySignerFromEnv(
